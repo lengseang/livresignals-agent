@@ -1,0 +1,25 @@
+{
+  "group": {
+    "id": -1004498352646,
+    "name": "HERTRADE (Trading Signals supergroup)",
+    "type": "supergroup"
+  },
+  "bot": {
+    "username": "leng_trader_bot",
+    "id": 8794610414,
+    "name": "HERTRADE",
+    "env_key": "TELEGRAM_BOT_TOKEN (VPS .env)"
+  },
+  "topics": {
+    "signals": 3,
+    "pnl": 5,
+    "alerts": 7,
+    "heartbeat": 9,
+    "reports": 11,
+    "chat": 13,
+    "gold": 777
+  },
+  "verified_at_utc": "2026-08-12T04:40:00Z",
+  "verification": "bot sent probe message to each thread; Telegram confirmed message_thread_id per topic (all ok=True)",
+  "delivery_format": "hermes send --to telegram:-1004498352646:<thread_id>"
+}

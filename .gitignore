@@ -1,0 +1,71 @@
+# ============================================================
+#  .gitignore — /opt/trading-agent
+#
+#  ⚠️  THE FIRST RULE EXISTS BECAUSE THIS BOX HOLDS LIVE MONEY.
+#      config/*.env contains real Binance API keys. Committing or
+#      pushing them would be an unrecoverable disclosure — the keys
+#      would live in git history forever, even after deletion.
+#
+#      Every secret file here ends in `.env` (verified by listing all
+#      14 files in config/). Directory globs are used in preference to
+#      name patterns because two pattern-based scans MISSED files
+#      (BINANCE_API_KEY= does not match \bapi_?key\b — underscore is a
+#      word character, so there is no boundary).
+# ============================================================
+
+# --- CREDENTIALS — never commit ---------------------------------
+*.env
+*.env.*
+!.env.example
+!*.env.example
+*secret*
+*credential*
+*.pem
+*.key
+!*.pub
+
+# --- virtualenvs (427 MB, not portable between machines) ---------
+venv/
+.venv/
+env/
+*/venv/
+
+# --- Python artefacts -------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- runtime state and outputs (churns constantly) --------------
+# data/ is 40 MB of live state; the irreplaceable part (the signal
+# ledger) is replicated nightly to its own GitHub repo by
+# scripts/ledger_offbox.py — it does NOT depend on this repo.
+data/
+logs/
+backups/
+reports/
+state/
+*.log
+
+# --- databases --------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+
+# --- editors / OS ----------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# --- secrets that should never appear even as examples ---------
+# (an .env named literally `.env` is caught by *.env above; listed
+#  again for the case where .gitignore is read without recursion)
+.env
+.env.local
+.env.production

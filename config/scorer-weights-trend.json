@@ -1,0 +1,5 @@
+{
+  "RANGING": {"momentum": 0.40, "trend_strength": 0.35, "mean_reversion": 0.15, "vol_dampening": 0.10},
+  "TRENDING": {"momentum": 0.45, "trend_strength": 0.45, "mean_reversion": 0.00, "vol_dampening": 0.10},
+  "VOLATILE": {"momentum": 0.30, "trend_strength": 0.30, "mean_reversion": 0.10, "vol_dampening": 0.30}
+}

@@ -1,0 +1,40 @@
+{
+  "strategies": [
+    {
+      "name": "xrp_deep_dip",
+      "symbol": "XRP/USDT",
+      "timeframe": "30m",
+      "dip_threshold": -0.08,
+      "min_red_bars": 3,
+      "rsi_max": 30,
+      "hold_bars": 12,
+      "win_rate": 0.72,
+      "edge": 0.0096,
+      "enabled": true
+    },
+    {
+      "name": "eth_deep_dip",
+      "symbol": "ETH/USDT",
+      "timeframe": "15m",
+      "dip_threshold": -0.06,
+      "min_red_bars": 4,
+      "rsi_max": 40,
+      "hold_bars": 24,
+      "win_rate": 0.72,
+      "edge": 0.0114,
+      "enabled": true
+    },
+    {
+      "name": "btc_5m_flush",
+      "symbol": "BTC/USDT",
+      "timeframe": "5m",
+      "dip_threshold": -0.005,
+      "min_red_bars": 3,
+      "rsi_max": 30,
+      "hold_bars": 12,
+      "win_rate": 0.68,
+      "edge": 0.0070,
+      "enabled": true
+    }
+  ]
+}

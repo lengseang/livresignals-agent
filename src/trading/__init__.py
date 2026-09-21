@@ -1,0 +1,1 @@
+# trading package marker for src-layout imports (PYTHONPATH=src works)

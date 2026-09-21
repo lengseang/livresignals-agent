@@ -1,0 +1,46 @@
+{
+  "_comment": [
+    "EXECUTION STATUS — the honest description of what produced the record.",
+    "",
+    "This file exists because an external UI review suggested renaming the",
+    "'demo-' prefix out of the record ids, reading it as sloppy naming. It is",
+    "not sloppy naming — it is true. Every published signal executed against",
+    "Bybit's demo endpoint (api-demo.bybit.com). Renaming it would have",
+    "converted a truth into a lie, so the prefix stays and this file makes the",
+    "status machine-readable so the site can state it on every page.",
+    "",
+    "Update this file when the status changes, and the site follows. If real",
+    "capital is ever deployed, set simulated=false and change venue/note to",
+    "match — do NOT edit historical records, which are hash-chained."
+  ],
+
+  "simulated": true,
+  "venue": "Bybit demo API",
+  "venue_host": "api-demo.bybit.com",
+  "real_capital_deployed": false,
+  "real_capital_amount_usdt": 0,
+  "since": "2026-09-13T16:48:21+00:00",
+  "live_path_status": "built but disabled — execution requires a config/LIVE_ENABLED flag that is absent, so every live call returns 'live disabled' rather than silently trading",
+
+  "headline": "Simulated trading record",
+  "short": "Simulated",
+  "badge": "SIMULATED",
+
+  "what_is_real": [
+    "The commitments. Each signal was written to the hash chain before its outcome was known, and the chain is verifiable in your browser.",
+    "The outcomes. Each close was appended when the position closed, with the price the feed reported.",
+    "The losses. Nothing is filtered. The record is currently losing money, and that is published.",
+    "The execution rules. Signals ran through the same sizing, stop and exit logic intended for live use."
+  ],
+
+  "what_is_not_real": [
+    "The money. No real capital has been deployed. Orders were placed against Bybit's demo API, which fills against a simulated book.",
+    "The fills. A demo book can fill orders that a real, thinner book would not — particularly on small-cap pairs.",
+    "The slippage and fees. Demo execution does not reproduce real market impact or the true fee schedule, so real results would likely be worse.",
+    "The track record, as evidence of profit. It is evidence of process, not of edge."
+  ],
+
+  "why_published": "A verified simulation is useful: it shows the method and the bookkeeping before capital is at risk, and it can be checked by anyone. It is not a claim that this would have made money.",
+
+  "note": "Real capital is not deployed. This record is presented as evidence of process — that signals are committed before outcomes, that losses are published, and that the chain is verifiable — and not as evidence of future profit."
+}

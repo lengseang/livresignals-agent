@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading Dashboard</title>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --panel: #121826;
+    --border: #1e2a3a;
+    --text: #e2e8f0;
+    --muted: #64748b;
+    --green: #10b981;
+    --red: #ef4444;
+    --accent: #38bdf8;
+    --amber: #f59e0b;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh; padding: 20px;
+  }
+  h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+  .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .grid {
+    display: grid; gap: 16px; margin-top: 20px;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 12px; }
+  .stat { font-size: 30px; font-weight: 700; letter-spacing: -1px; }
+  .stat.pos { color: var(--green); }
+  .stat.neg { color: var(--red); }
+  .label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .row:last-child { border-bottom: none; }
+  .row .k { color: var(--muted); font-size: 12px; }
+  .row .v { font-weight: 600; font-size: 13px; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+  .badge.trade { background: rgba(16,185,129,0.15); color: var(--green); }
+  .badge.skip { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .badge.fired { background: rgba(56,189,248,0.15); color: var(--accent); }
+  .badge.idle { background: rgba(100,116,139,0.15); color: var(--muted); }
+  .badge.avoid { background: rgba(239,68,68,0.15); color: var(--red); }
+  .chart-wrap { position: relative; height: 200px; }
+  .ticker { font-variant-numeric: tabular-nums; }
+  .footer { text-align: center; color: var(--muted); font-size: 11px; margin-top: 20px; }
+  .pulse { animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% {opacity:1;} 50% {opacity:0.5;} }
+</style>
+</head>
+<body>
+  <h1>📈 Trading Dashboard <span class="pulse" style="color:var(--green)">●</span></h1>
+  <div class="sub" id="clock">connecting…</div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Paper Portfolio (Save & Grow)</h2>
+      <div class="stat ticker" id="paper-pnl">—</div>
+      <div class="label" id="paper-sub">cost — / value —</div>
+    </div>
+    <div class="card">
+      <h2>Quick Trades (Short-term)</h2>
+      <div class="stat ticker" id="st-budget">—</div>
+      <div class="label" id="st-sub">$500 paper budget</div>
+    </div>
+    <div class="card">
+      <h2>Live Account (Real BTC)</h2>
+      <div class="stat ticker" id="live-total">—</div>
+      <div class="label" id="live-sub">real Binance</div>
+    </div>
+    <div class="card">
+      <h2>Signal Accuracy</h2>
+      <div class="stat ticker" id="acc-training">—</div>
+      <div class="label" id="acc-sub">resolved trades feeding model</div>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-top:16px">
+    <div class="card" style="grid-column: span 2;">
+      <h2>Signal States</h2>
+      <div id="signal-states">loading…</div>
+    </div>
+    <div class="card">
+      <h2>Recent Decisions</h2>
+      <div id="recent-trades" style="max-height:220px; overflow-y:auto;">loading…</div>
+    </div>
+  </div>
+
+  <div class="footer">Auto-refresh every 5s · Powered by the trading watchdog · <span id="version">v1</span></div>
+
+<script>
+const fmtUSD = (n) => (n >= 0 ? '+' : '') + '$' + Number(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+
+async function fetchJSON(url) {
+  try { const r = await fetch(url); return await r.json(); }
+  catch (e) { return null; }
+}
+
+async function refresh() {
+  document.getElementById('clock').textContent = 'last update: ' + new Date().toLocaleTimeString() + ' UTC';
+
+  const ov = await fetchJSON('/api/overview');
+  if (ov) {
+    const p = ov.paper;
+    const el = document.getElementById('paper-pnl');
+    el.textContent = fmtUSD(p.pnl) + ' (' + (p.pnl_pct>=0?'+':'') + Number(p.pnl_pct).toFixed(2) + '%)';
+    el.className = 'stat ticker ' + (p.pnl >= 0 ? 'pos' : 'neg');
+    document.getElementById('paper-sub').textContent = 'cost $' + Number(p.cost_basis).toFixed(2) + ' · value $' + Number(p.market_value).toFixed(2);
+
+    const st = ov.short_term;
+    const stEl = document.getElementById('st-budget');
+    stEl.textContent = '$' + Number(st.budget).toFixed(2);
+    stEl.className = 'stat ticker ' + (st.pnl >= 0 ? 'pos' : 'neg');
+    document.getElementById('st-sub').textContent = st.closed + ' trades · ' + fmtUSD(st.pnl);
+
+    const lv = await fetchJSON('/api/live-balance');
+    if (lv && lv.total_usdt) {
+      document.getElementById('live-total').textContent = '$' + Number(lv.total_usdt).toFixed(2);
+      document.getElementById('live-sub').textContent = (lv.btc_qty ? Number(lv.btc_qty).toFixed(8) + ' BTC @ $' + Number(lv.btc_price).toFixed(0) : '');
+    } else if (lv && lv.error) {
+      document.getElementById('live-total').textContent = 'offline';
+      document.getElementById('live-sub').textContent = lv.error.slice(0, 40);
+    }
+  }
+
+  const sig = await fetchJSON('/api/signals');
+  if (sig && sig.states) {
+    const entries = Object.entries(sig.states);
+    document.getElementById('signal-states').innerHTML = entries.length
+      ? entries.map(([k, v]) => {
+          let cls = 'idle';
+          if (k.includes('deep_dip')) cls = 'avoid';
+          if (k.includes('dip_zone')) cls = 'trade';
+          const st = v === 'fired' ? 'fired' : 'idle';
+          return '<div class="row"><span class="k">' + k + '</span>' +
+                 '<span class="badge ' + st + '">' + st + '</span></div>';
+        }).join('')
+      : '<div class="row"><span class="k">no signals yet</span></div>';
+  }
+
+  const tr = await fetchJSON('/api/trades');
+  if (tr) {
+    const items = (tr.skips || []).concat(tr.trades || []).slice(-12).reverse();
+    document.getElementById('recent-trades').innerHTML = items.length
+      ? items.map(t => {
+          const isTrade = t.symbol && t.order_id;
+          return '<div class="row"><span class="k">' + (t.symbol || '?') + '</span>' +
+                 '<span class="badge ' + (isTrade ? 'trade' : 'skip') + '">' + (isTrade ? 'trade' : 'skip') + '</span></div>';
+        }).join('')
+      : '<div class="row"><span class="k">no decisions yet</span></div>';
+  }
+
+  const ac = await fetchJSON('/api/accuracy');
+  if (ac) {
+    document.getElementById('acc-training').textContent = ac.training_rows;
+    document.getElementById('acc-sub').textContent = ac.has_model ? ('model trained ' + (ac.trained_at || '').slice(0,10)) : 'warming up (needs 20)';
+  }
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

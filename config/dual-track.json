@@ -1,0 +1,19 @@
+{
+  "live_enabled": true,
+  "live_conf_threshold": 0.60,
+  "live_base_amount": 5.0,
+  "live_max_per_entry": 5.0,
+  "weights": {
+    "entry_zone": 0.40,
+    "depth": 0.30,
+    "corroboration": 0.20,
+    "regime": 0.10
+  },
+  "regime_scores": {
+    "BEAR": 0.8,
+    "PANIC": 0.8,
+    "RANGING": 0.5,
+    "BULL": 0.3,
+    "UNKNOWN": 0.5
+  }
+}

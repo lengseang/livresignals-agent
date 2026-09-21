@@ -1,0 +1,13 @@
+{
+  "interval_hours": 24,
+  "dip_multiplier": 1.5,
+  "drawdown_threshold": -0.05,
+  "hold_hours": 48,
+  "symbol_weights": {
+    "BTC/USDT": 1.0,
+    "ETH/USDT": 1.0,
+    "SOL/USDT": 0.5
+  },
+  "updated_at_utc": "2026-09-21T09:30:04.690331+00:00",
+  "last_change_reason": "symbol_weight_down SOL/USDT 0.75->0.5"
+}

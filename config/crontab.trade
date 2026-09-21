@@ -1,0 +1,28 @@
+# Trading system cron — reliable scheduler
+# FIXED: hardcode full python path (cron's /bin/sh does not expand
+# $PYBIN=$TRADE/... reliably). No variables in command lines.
+# FIXED (OOM): heavy jobs STAGGERED on distinct minute offsets so no two
+# ccxt-spawning processes run at the same instant on this 909MB box.
+#   :02 manager          :06 live-manage
+#   :12 ingest            :16 unified-trader   (offset 10+6)
+#   :26 ingest            :31 adaptive-check
+#   :42 ingest            :46 unified-trader
+#   :56 ingest
+
+*/5 * * * * PYTHONPATH=src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/manager.py >> /opt/trading-agent/logs/manager.log 2>&1
+
+6-56/10 * * * * PYTHONPATH=src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/live_executor.py manage >> /home/ubuntu/.pm2/logs/live-manage.log 2>&1
+
+12-57/15 * * * * PYTHONPATH=src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/ingest_all.py >> /home/ubuntu/.pm2/logs/candle-ingest.log 2>&1
+
+16,46 * * * * PYTHONPATH=src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/unified_trader.py >> /opt/trading-agent/logs/unified.log 2>&1
+
+31 * * * * PYTHONPATH=src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/adaptive_engine.py check >> /home/ubuntu/.pm2/logs/adaptive-engine.log 2>&1
+
+0 9 * * * PYTHONPATH=src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/system_heartbeat.py --always >> /home/ubuntu/.pm2/logs/system-heartbeat.log 2>&1
+
+15 9 * * 0 PYTHONPATH=src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/weekly_regime_refit.py >> /opt/trading-agent/logs/weekly-refit.log 2>&1
+
+30 9 * * * PYTHONPATH=src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/improvement_loop.py >> /opt/trading-agent/logs/improvement.log 2>&1
+
+*/5 * * * * /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/tunnel_watchdog.py >> /opt/trading-agent/logs/tunnel.log 2>&1
