@@ -59,11 +59,39 @@ def sma(v, n):
     return sum(v[-n:]) / n
 
 
+def coin_trend(coin_closes):
+    """The coin's OWN trend condition, without the market regime filter.
+
+    Split out of `signal()` to fix a measured defect. `signal()` ANDs two
+    conditions — the coin above SMA50 and BTC above SMA200 — and the exit path
+    used `not want`, so it fired when EITHER broke. That meant the market-regime
+    filter closed positions that had not individually broken.
+
+    Measured cost on the real record (9 closes, 2026-09-13 to 09-20):
+
+        8 of 9 exits were `trend-broke`, averaging -3.42%
+        only 1 was a genuine HARD-STOP (-15.6%)
+        SUI closed 3x, ATOM 2x, SAND 2x -> exiting and immediately re-entering
+        all exits landed on the 00:10 / 08:10 / 16:10 run, i.e. a 4h cadence
+
+    So the losses were dominated by whipsaw around the BTC SMA200 line, not by
+    individual coins losing their trends. A regime filter is a reasonable ENTRY
+    gate — do not open into a hostile market — but as an EXIT it converts a
+    market-wide flicker into a position closure and a fresh round trip.
+
+    Exits now depend on the coin's own trend (plus the -15% disaster stop), which
+    is the condition that was actually being bet on.
+    """
+    if len(coin_closes) < 60:
+        return False
+    return coin_closes[-1] > sma(coin_closes, SMA_N)
+
+
 def signal(coin_closes, btc_closes):
     """Long if coin above SMA50 AND BTC above SMA200 (regime filter)."""
     if len(coin_closes) < 60 or len(btc_closes) < 205:
         return False
-    return (coin_closes[-1] > sma(coin_closes, SMA_N)
+    return (coin_trend(coin_closes)
             and btc_closes[-1] > sma(btc_closes, 200))
 
 
@@ -185,6 +213,11 @@ def main():
             closes = [c[4] for c in o]
             px = closes[-1]
             want = signal(closes, btc)
+            # Enter requires BOTH the coin's own trend and the market regime.
+            #
+            # EXIT requires only the coin's own trend. See the note below — the
+            # asymmetry is deliberate and is the fix for a measured defect.
+            coin_ok = coin_trend(closes)
             held = pos.get(s, {}).get("long", False)
 
             ent_held = pos.get(s, {}).get("entry", px) or px
@@ -196,11 +229,10 @@ def main():
                 events.append(("OPEN", s, px, None))
                 mom = closes[-1] / closes[-31] - 1 if len(closes) > 31 else 0.0
                 candidates.append((mom, s, px))
-            elif (not want and held) or hard_hit:
+            elif (not coin_ok and held) or hard_hit:
                 ent = ent_held
                 ret = px / ent - 1
-                why = "HARD-STOP" if hard_hit and want else \
-                      ("HARD-STOP" if hard_hit else "trend-broke")
+                why = "HARD-STOP" if hard_hit else "trend-broke"
                 st["log"].append({"symbol": s, "entry": ent, "exit": px,
                                   "ret": round(ret, 5), "why": why,
                                   "ts": datetime.now(timezone.utc).isoformat()})

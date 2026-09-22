@@ -126,18 +126,53 @@ def _learn_from_closed_trades(s: dict) -> None:
     recent = trades[-40:]  # rolling window
     by_regime = {}
     for t in recent:
-        r = by_regime.setdefault(t["regime"], {"wins": 0, "n": 0, "pnl": []})
+        r = by_regime.setdefault(
+            t["regime"], {"wins": 0, "n": 0, "pnl": [], "ret": []})
         r["n"] += 1
         if t["pnl"] > 0:
             r["wins"] += 1
         r["pnl"].append(t["pnl"])
+        # `pnl` is DOLLARS (return_fraction x position size — see the close path
+        # below). `ret_pct` is the per-trade RETURN, which is the only thing that
+        # is comparable across regimes and across position sizes.
+        #
+        # Older records predate `ret_pct`; for those, recover the return by
+        # dividing dollars by the size that produced them. Records with neither
+        # are skipped for the return average rather than silently contributing a
+        # dollar figure to what looks like a percentage.
+        rp = t.get("ret_pct")
+        if rp is None and t.get("size"):
+            try:
+                rp = t["pnl"] / t["size"]
+            except (TypeError, ZeroDivisionError):
+                rp = None
+        # Third route, and the one that matters for the 17 records written before
+        # `size` and `ret_pct` existed: recover the return from the prices, which
+        # are always present. Without this the learner stays inert until enough
+        # NEW trades close, which can take weeks — the bug would be fixed in
+        # principle while the engine kept ignoring its own learning in practice.
+        #
+        # Verified against the real records: pnl / r is exactly 50.0 on every one
+        # of them, confirming a $50 position and that pnl is dollars.
+        if rp is None:
+            e_, x_ = t.get("entry"), t.get("exit")
+            if isinstance(e_, (int, float)) and isinstance(x_, (int, float)) and e_:
+                rp = (x_ - e_) / e_
+        if isinstance(rp, (int, float)):
+            r["ret"].append(rp)
     learned = {}
     for regime, r in by_regime.items():
         if r["n"] < 5:
             continue
         wr = r["wins"] / r["n"]
-        avg_pnl = sum(r["pnl"]) / r["n"]
-        learned[regime] = {"win_rate": round(wr, 3), "avg_pnl": round(avg_pnl, 4), "n": r["n"]}
+        avg_pnl = sum(r["pnl"]) / r["n"]          # dollars, kept for display
+        avg_ret = sum(r["ret"]) / len(r["ret"]) if r["ret"] else None
+        learned[regime] = {
+            "win_rate": round(wr, 3),
+            "avg_pnl": round(avg_pnl, 4),
+            "avg_ret": round(avg_ret, 6) if avg_ret is not None else None,
+            "n": r["n"],
+        }
     s["live_edge"] = learned
 
 
@@ -257,8 +292,33 @@ def size_position(regime: str, budget: float, plan: dict, s: dict | None = None)
         live = s.get("live_edge", {}).get(regime)
         if live and live.get("n", 0) >= 5:
             wr = live["win_rate"]
-            # convert avg_pnl (per-trade $) back to a rough edge fraction via 2:1
-            edge = max(edge, live.get("avg_pnl", 0.0) / 100.0)
+            # 🔴 `avg_ret` is a per-trade RETURN FRACTION (e.g. 0.0034 = 0.34%)
+            # and is directly comparable to `edge`, which is also a fraction.
+            #
+            # This line previously read:
+            #     edge = max(edge, live.get("avg_pnl", 0.0) / 100.0)
+            # and that was wrong twice over. `avg_pnl` is DOLLARS (a return
+            # fraction multiplied by position size), so dividing it by 100
+            # produces a number with no unit at all. The comment claimed it
+            # converted "per-trade $ back to a rough edge fraction via 2:1",
+            # but no conversion exists in that expression — 100 is not the
+            # position size, the price, or the R:R ratio.
+            #
+            # The effect was that a learned edge could never win the max():
+            # with a real avg_pnl of $0.1695 the expression yields 0.001695,
+            # while the static defaults run 0.0026-0.0062. So the learner
+            # computed a value on every run, stored it, and had it discarded
+            # here every single time. The whole per-trade learning loop was
+            # inert.
+            #
+            # `avg_ret` is None for regimes whose records predate the field and
+            # carry no recoverable size. Falling back to a dollar figure for
+            # those would reintroduce the same unit error, so the static edge
+            # is kept instead — the safe direction, because it neither invents
+            # an edge nor silently promotes a mis-scaled one.
+            got = live.get("avg_ret")
+            if isinstance(got, (int, float)):
+                edge = max(edge, got)
 
     if edge <= 0 or wr <= 0.5:
         return 0.0
@@ -299,11 +359,24 @@ def check_and_trade():
         elif (now_ms - pos["ts_ms"]) >= pos["hold_ms"]:
             reason = "TIME"
         if reason:
-            pnl = (px - pos["entry"]) / pos["entry"] * pos["size"]
+            # `ret` is the per-trade RETURN FRACTION; `pnl` is that fraction
+            # multiplied by the position size, i.e. DOLLARS. Both are stored,
+            # and named so that the distinction survives: the learner needs the
+            # return (comparable across sizes and regimes), the notice needs the
+            # dollars (what actually moved).
+            #
+            # Storing both is the fix for a real defect: the learner used to
+            # receive only `pnl` and had to guess at a return from it, which it
+            # did by dividing by 100 — a number with no relationship to the
+            # position. See _learn_live for the full account.
+            ret = (px - pos["entry"]) / pos["entry"]
+            pnl = ret * pos["size"]
             s["budget"] += pos["size"] + pnl
             s["closed_trades"].append({
                 "symbol": pos["symbol"], "regime": pos["regime"], "entry": pos["entry"],
-                "exit": round(px, 4), "pnl": round(pnl, 4), "reason": reason,
+                "exit": round(px, 4), "pnl": round(pnl, 4),
+                "ret_pct": round(ret, 6), "size": round(pos["size"], 2),
+                "reason": reason,
                 "ts_utc": datetime.now(timezone.utc).isoformat(),
             })
             events.append(f"CLOSE {pos['symbol']} ({reason}) {pnl:+.2f} USDT")
