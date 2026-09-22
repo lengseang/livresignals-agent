@@ -26,9 +26,17 @@ print("=" * 74)
 print("1. KNOWN-VALUE ROUND TRIPS  (the bug in isolation)")
 print("=" * 74)
 
-# futures_executor: pnl IS the return fraction
-check("futures pnl=0.0133 -> 1.33%",
-      abs(as_percent("futures_executor", {"pnl": 0.0133}) - 1.33) < 1e-9)
+# futures_executor: `pnl` is DOLLARS — (px - entry) * qty, the writer at ~line 388.
+# An earlier version of this line asserted `pnl=0.0133 -> 1.33%`, which encoded the
+# very assumption that turned out to be wrong. It is left visible rather than
+# quietly deleted, because it is the clearest evidence of how a test can lock in a
+# bad premise and pass forever afterwards.
+check("futures pnl=$0.0133 with qty=0.07 and prices -> derived from prices",
+      abs(as_percent("futures_executor",
+                     {"pnl": 0.0133, "qty": 0.07, "entry": 116.63, "exit": 116.82})
+          - 0.1629) < 5e-3)
+check("futures pnl with NO prices and NO qty is REFUSED, not guessed",
+      as_percent("futures_executor", {"pnl": 0.0133}) is None)
 
 # unified_trader: pnl is DOLLARS on size 5.0. Observed real record.
 u = {"symbol": "SOL/USDT", "entry": 103.89, "pnl": 0.1208, "size": 5.0}

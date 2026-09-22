@@ -1,0 +1,87 @@
+# Trading system cron — reliable scheduler
+# FIXED: hardcode full python path (cron's /bin/sh does not expand
+# $PYBIN=$TRADE/... reliably). No variables in command lines.
+# FIXED (OOM): heavy jobs STAGGERED on distinct minute offsets so no two
+# ccxt-spawning processes run at the same instant on this 909MB box.
+#   :02 manager          :06 live-manage
+#   :12 ingest            :16 unified-trader   (offset 10+6)
+#   :26 ingest            :31 adaptive-check
+#   :42 ingest            :46 unified-trader
+#   :56 ingest
+
+*/5 * * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/manager.py >> /opt/trading-agent/logs/manager.log 2>&1
+
+6-56/10 * * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/live_executor.py manage >> /home/ubuntu/.pm2/logs/live-manage.log 2>&1
+
+12-57/15 * * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/ingest_all.py >> /home/ubuntu/.pm2/logs/candle-ingest.log 2>&1
+
+16,46 * * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/unified_trader.py >> /opt/trading-agent/logs/unified.log 2>&1
+
+31 * * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/adaptive_engine.py check >> /home/ubuntu/.pm2/logs/adaptive-engine.log 2>&1
+
+0 9 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/system_heartbeat.py --always >> /home/ubuntu/.pm2/logs/system-heartbeat.log 2>&1
+
+15 9 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/weekly_regime_refit.py >> /opt/trading-agent/logs/weekly-refit.log 2>&1
+
+30 9 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/improvement_loop.py >> /opt/trading-agent/logs/improvement.log 2>&1
+
+*/5 * * * * /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/tunnel_watchdog.py >> /opt/trading-agent/logs/tunnel.log 2>&1
+20 0 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/night_tuner.py > /tmp/night_tuner.out 2>&1
+# futures position management (3x, hard-capped) every 10 min
+8-58/10 * * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/futures_executor.py >> /opt/trading-agent/logs/futures-manage.log 2>&1
+# gold XAUUSD scanner every 15 min — pings on setups
+3,18,33,48 * * * * cd /opt/trading-agent && /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/gold_scanner.py >> /opt/trading-agent/logs/gold.log 2>&1
+# breadth-recovery watcher every 20 min — pings when market flips back to normal
+11,31,51 * * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/breadth_watch.py >> /opt/trading-agent/logs/breadth.log 2>&1
+# self-improvement engine (zero-token, 3x daily) — analyze, optimize, apply bounded changes
+40 2,10,18 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/self_improve.py >> /opt/trading-agent/logs/self-improve.log 2>&1
+# daily trend follower (12 coins, SMA200+30d momentum) — the positive-OOS edge
+# daily trend follower v2 (SMA50+BTC regime, REAL execution on)
+# trend follower v2 — every 4h so the -15% hard stop triggers promptly; real execution ON
+10 */4 * * * TREND_REAL=1 PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/trend_follower.py >> /opt/trading-agent/logs/trend.log 2>&1
+# bounded leverage satellite manager — exits on SMA50 break / +25% TP / liquidation
+25 */4 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/lev_satellite_manage.py >> /opt/trading-agent/logs/lev-satellite.log 2>&1
+# Bybit demo trader — real-fill strategy testing on fake $100k (crypto + gold)
+# RETIRED 2026-09-13: long-only trend, no proven edge -> replaced by regime_trader.py
+# 35 */4 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/bybit_demo_trader.py >> /opt/trading-agent/logs/bybit-demo.log 2>&1
+# refresh economic calendar daily (high-impact event windows)
+5 6 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python scripts/econ_calendar.py >> /opt/trading-agent/logs/econ.log 2>&1
+# daily gold macro state -> GOLD topic
+0 7 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python scripts/gold_macro.py --notify >> /opt/trading-agent/logs/gold-macro.log 2>&1
+# REGIME-ADAPTIVE trader (demo) - first OOS-validated edge: full +29.7%, OOS +40.8%, DD -21.9%
+40 */4 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/regime_trader.py >> /opt/trading-agent/logs/regime.log 2>&1
+# nightly research loop — re-validates the deployed config, silent unless something changed
+30 1 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/research_loop.py >> /opt/trading-agent/logs/research-loop.log 2>&1
+# weekly autonomy check — live vs backtest divergence + attribution (silent unless something needs attention)
+15 7 * * 1 PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/autonomy_report.py >> /opt/trading-agent/logs/autonomy.log 2>&1
+
+# daily alt-data capture — the 30-day-limited columns (OI/long-short/taker). Every day not logged is history lost forever.
+10 0 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/altdata_logger.py >> /opt/trading-agent/logs/altdata.log 2>&1
+
+# weekly champion/challenger — evaluate challengers vs the deployed config. Promotes ONLY on a clear, guard-passing win. Default action: NO CHANGE.
+0 22 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/champion.py >> /opt/trading-agent/logs/champion.log 2>&1
+
+# daily price-cache refresh — MUST run before research_loop (01:30). This cache had NO WRITER until 2026-09-15; it was found 2 days stale, meaning every backtest silently tested old data.
+0 1 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/refresh_price_cache.py >> /opt/trading-agent/logs/cache-refresh.log 2>&1
+# daily data-harness check — freshness/coverage across ALL 13 sources, alerts only on real problems
+0 8 * * * PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/data_harness.py >> /opt/trading-agent/logs/data-harness.log 2>&1
+
+# daily ledger backup + off-box replication — protects the only irreplaceable file (04:20, staggered from other jobs)
+20 4 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python scripts/ledger_backup.py >> /tmp/ledger_backup.log 2>&1 && PYTHONPATH=/opt/trading-agent/src:/opt/trading-agent/scripts /opt/trading-agent/venv/bin/python scripts/ledger_offbox.py push >> /tmp/ledger_backup.log 2>&1
+# publish the ledger to the website (static JSON committed to the repo)
+30 2 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src:/opt/trading-agent/scripts /opt/trading-agent/venv/bin/python scripts/export_ledger_json.py --push >> /tmp/ledger_export.log 2>&1
+# system watchdog — silent unless something is wrong (repeat-suppressed)
+*/15 * * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src:/opt/trading-agent/scripts /opt/trading-agent/venv/bin/python scripts/watchdog_alert.py >> /tmp/watchdog-alert.log 2>&1
+# weekly honest digest (Mon 08:00 UTC)
+0 8 * * 1 cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src:/opt/trading-agent/scripts /opt/trading-agent/venv/bin/python scripts/weekly_digest.py >> /tmp/weekly-digest.log 2>&1
+# weekly exit re-calibration (self-measuring hold)
+45 9 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/exit_calibrate.py >> /opt/trading-agent/logs/exit-calibrate.log 2>&1
+# weekly adaptive learning: accuracy + per-symbol weight adjustments
+30 9 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python scripts/weekly_learning.py >> /opt/trading-agent/logs/weekly-learning.log 2>&1
+# paper learner: re-fit strategy params, adopt only if it beats OOS
+0 10 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python scripts/paper_learner.py once >> /opt/trading-agent/logs/paper-learner.log 2>&1
+# win-rate / filter study (heavy: ~13k candles) - monthly
+0 10 1 * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python scripts/winrate_optimizer.py >> /opt/trading-agent/logs/winrate-optimizer.log 2>&1
+# daily fee audit — real commission from the exchange, gross-vs-net
+50 9 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python scripts/fee_audit.py >> /opt/trading-agent/logs/fee-audit.log 2>&1
+0 7 * * * cd /opt/trading-agent && /opt/trading-agent/venv/bin/python scripts/check-books.py >> /opt/trading-agent/logs/book-health.log 2>&1
