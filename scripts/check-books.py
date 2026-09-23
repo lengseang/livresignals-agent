@@ -404,6 +404,31 @@ try:
 except Exception as e:
     warn(f"fee-toll check could not run: {str(e)[:80]}", False)
 
+# ------------------------- 10. IMPROVEMENT CONSUMPTION (applied ≠ consumed)
+print("\n[10] IMPROVEMENT CONSUMPTION (was the last change actually read?)")
+try:
+    import subprocess as _sp3
+    _r3 = _sp3.run(["/opt/trading-agent/venv/bin/python", "-B",
+                    "/opt/trading-agent/scripts/check-improvement-consumed.py"],
+                   capture_output=True, text=True, timeout=120,
+                   cwd="/opt/trading-agent")
+    _o3 = (_r3.stdout or "") + (_r3.stderr or "")
+    if _r3.returncode == 0:
+        line = [l for l in _o3.splitlines() if "verifiably consumed" in l
+                or "agent applied nothing" in l]
+        check("every applied self-improve change is verifiably consumed",
+              True, line[0].strip() if line else "")
+    else:
+        # This IS a failure, unlike the fee-toll warning: a change recorded as
+        # applied but read by nothing is how the adaptive_engine learner sat
+        # inert for weeks while every report said the pass completed.
+        fails.append("self-improve applied a change that nothing consumes")
+        for l in _o3.splitlines():
+            if l.strip().startswith("- "):
+                print(f"  🔴{l}")
+except Exception as e:
+    warn(f"improvement-consumption check could not run: {str(e)[:80]}", False)
+
 print()
 print("=" * 82)
 if fails:

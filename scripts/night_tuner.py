@@ -116,10 +116,35 @@ def analyze() -> dict:
 
     # ---- ADJUSTMENTS (only when data supports, tiny steps, hard-clamped) ----
     env_text = ENV.read_text() if ENV.exists() else ""
+    env_before = env_text
 
     def _env_float(key, dflt):
         m = re.search(rf"^{key}\s*=\s*([\d.]+)", env_text, re.M)
         return float(m.group(1)) if m else dflt
+
+    def _sub_verified(key, new_val, fmt):
+        """Apply a change to the env text, VERIFYING it actually landed.
+
+        🔴 re.sub returns its input UNCHANGED when the pattern does not match.
+        The previous version appended "tightened X → Y" to the report
+        unconditionally, so a missing or misspelled key produced a confident
+        claim of a change that never happened. That is the same
+        reported-but-not-applied failure that left the adaptive_engine learner
+        inert for weeks — and here it would mean the owner is told their live
+        stop was tightened when the file still says the old value.
+
+        Returns True only when the text actually changed.
+        """
+        nonlocal env_text
+        pat = rf"({key}\s*=\s*)[\d.]+"
+        out = re.sub(pat, rf"\g<1>{new_val:{fmt}}", env_text)
+        if out == env_text:
+            report.setdefault("failed_adjustments", []).append(
+                f"{key}: pattern did not match — NO change applied "
+                f"(floor/ceiling or key missing)")
+            return False
+        env_text = out
+        return True
 
     # stop: if live 72h WR ok but avg loss too big vs win, widen slightly;
     # if SL-heavy (WR<45%), tighten slightly to cut bleed
@@ -127,23 +152,36 @@ def analyze() -> dict:
     if p_all.get("n", 0) >= 15 and p_all["win_rate"] < 50 and p_all["net"] < 0:
         cur = _env_float("LIVE_STOP_PCT", 0.015)
         new = max(HARD["LIVE_STOP_PCT"][0], cur - STEP["LIVE_STOP_PCT"])
-        if new < cur:
-            env_text = re.sub(r"(LIVE_STOP_PCT\s*=\s*)[\d.]+",
-                              rf"\g<1>{new:.4f}", env_text)
+        if new < cur and _sub_verified("LIVE_STOP_PCT", new, ".4f"):
             report["adjustments"].append(
                 f"tightened LIVE_STOP_PCT {cur} → {new} (WR {p_all['win_rate']}% < 50%)")
     # if winners are getting cut early (high WR but low net), widen TP RR
     if p_all.get("n", 0) >= 15 and p_all["win_rate"] >= 58 and p_all["net"] < 0.05:
         cur = _env_float("LIVE_TP_RR", 2.0)
         new = min(HARD["LIVE_TP_RR"][1], cur + STEP["LIVE_TP_RR"])
-        if new > cur:
-            env_text = re.sub(r"(LIVE_TP_RR\s*=\s*)[\d.]+",
-                              rf"\g<1>{new:.1f}", env_text)
+        if new > cur and _sub_verified("LIVE_TP_RR", new, ".1f"):
             report["adjustments"].append(
                 f"raised LIVE_TP_RR {cur} → {new} (winners cut early)")
 
-    if env_text:
+    # 🔴 Only write when something actually changed, and then read it back.
+    #
+    # The old `if env_text:` was always true (env_text starts as the file's own
+    # contents), so the file was rewritten every single night even with zero
+    # adjustments. That churns the mtime, which destroys the one cheap way to
+    # answer "when was this live parameter last changed?".
+    #
+    # And an unverified write means a failed write is indistinguishable from a
+    # successful no-change night.
+    if env_text != env_before:
         ENV.write_text(env_text)
+        try:
+            back = ENV.read_text()
+            if back != env_text:
+                report.setdefault("failed_adjustments", []).append(
+                    "env write did not persist — file differs on read-back")
+        except Exception as e:
+            report.setdefault("failed_adjustments", []).append(
+                f"env read-back failed: {type(e).__name__}: {e}")
 
     # ---- SUGGESTIONS: always emit 1-3 concrete ideas (owner: 'always suggest
     # updates, run by yourself') — ranked by expected value ----

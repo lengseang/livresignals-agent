@@ -7,12 +7,32 @@ balance like the old agent-based job did (HTTP 402).
 Each run it:
   1. Loads all performance data (live, paper, futures, gold).
   2. Measures per-edge / per-symbol stats.
-  3. Runs an OUT-OF-SAMPLE validated parameter search on the core signal
-     (stop / trail / regime) and picks the best config that generalises.
+  3. Runs a parameter search on the core signal (stop / trail / regime) over a
+     4-point grid, split into an in-sample and an out-of-sample half, and
+     compares EXPECTANCY PER TRADE. Both halves must be positive after fees.
+
+     ⚠️ CORRECTED 2026-09-23. This step used to be described as "out-of-sample
+     validated ... picks the best config that generalises", and it was neither.
+     Two defects, both measured on the live data:
+
+       (a) The halves were compared as SUMS of per-trade returns. Sums scale
+           with trade count, so the ranking mostly ranked configs by how many
+           trades they took, not by edge quality.
+
+       (b) The in-sample half produced ZERO trades on all 5 symbols (OOS: 72).
+           `sum([])` is 0, so the gate `isp >= -1.0` could never fail. The
+           config was therefore selected on the exact half it calls
+           out-of-sample — pure selection on the test set.
+
+     An empty half now FAILS CLOSED: no config is applied, and the report says
+     why. Tuning is refused rather than guessed. On current data that means no
+     parameter change is applied at all, which is the honest outcome.
   4. Applies only SAFE, BOUNDED changes (hard-clamped envelope below).
   5. Disables proven-losing edges and flags promotion candidates in a
      signals-state file (never patches credentials or code blindly).
   6. Writes reports/self-improve.json and pings Telegram with a summary.
+     A failed notification is now RECORDED (notified: false + notify_error)
+     rather than silently swallowed, because the card IS the delivery.
 
 HARD ENVELOPE (never exceeded):
   stop 0.008-0.030 | tp_rr 1.2-3.0 | max_open 2 | size <= 7.0
@@ -50,8 +70,12 @@ def load_json(p: Path, default):
     try:
         if p.exists():
             return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        pass
+    except Exception as e:
+        # Loud on purpose. A malformed or unreadable state file previously
+        # returned the caller's default and read downstream as "no data", so
+        # the engine would quietly optimise on less than it believed it had.
+        print(f"  ⚠️ could not read {p.name}: {type(e).__name__}: {e}",
+              file=sys.stderr)
     return default
 
 
@@ -66,26 +90,22 @@ def read_env() -> dict:
     return out
 
 
-def write_env(vals: dict) -> None:
-    """Rewrite only the keys we manage, preserving other lines."""
-    if not ENV.exists():
-        return
-    lines = ENV.read_text(encoding="utf-8").splitlines()
-    out = []
-    seen = set()
-    for line in lines:
-        s = line.strip()
-        if s and not s.startswith("#") and "=" in s:
-            k = s.split("=", 1)[0].strip()
-            if k in vals:
-                out.append(f"{k}={vals[k]}")
-                seen.add(k)
-                continue
-        out.append(line)
-    for k, v in vals.items():
-        if k not in seen:
-            out.append(f"{k}={v}")
-    ENV.write_text("\n".join(out) + "\n", encoding="utf-8")
+# REMOVED 2026-09-23: write_env().
+#
+# It was defined here and NEVER CALLED — not in this file, not anywhere in the
+# repo. It parsed config/live-small-account.env and rewrote the keys it managed,
+# which is a real job that something else now does:
+#
+#     night_tuner.py  →  LIVE_STOP_PCT in live-small-account.env
+#                        (bounded ±0.002/night, floor 0.008, ceiling 0.030)
+#
+# The env file still carries a comment from the era when this function WAS wired
+# up ("auto-improve pass ... tightened 0.011 by 0.002 per improvement-pass rule"),
+# so the responsibility moved to night_tuner and left this behind.
+#
+# Dead code that looks like a live control path is worse than no code: a reader
+# auditing "what can change my live stop loss?" would find this and conclude the
+# self-improver owns it. It does not.
 
 
 def stats(trades: list, pnl_key: str = "pnl") -> dict:
@@ -117,8 +137,17 @@ def optimize(symbols: list[str]) -> dict:
         sys.path.insert(0, str(BASE / "scripts"))
         from trading.exchange.live_client import make_live_exchange
         ex = make_live_exchange()
-    except Exception:
-        return {}
+    except Exception as e:
+        # 🔴 This used to be a bare `return {}`, which is INDISTINGUISHABLE from
+        # "the search ran and found no config better than the current one" —
+        # both produce {} and both end as "kept current" in the report. An
+        # exchange outage therefore read as a completed, healthy pass.
+        #
+        # Now it says what actually happened, so a skipped optimizer cannot be
+        # mistaken for a search that found nothing.
+        print(f"  ⚠️ optimizer SKIPPED — exchange unavailable: "
+              f"{type(e).__name__}: {e}", file=sys.stderr)
+        return {"skipped": f"exchange unavailable: {type(e).__name__}"}
 
     def rsi(c, n=14):
         if len(c) < n + 1:
@@ -168,13 +197,23 @@ def optimize(symbols: list[str]) -> dict:
         return out
 
     data = {}
+    failed = []
     for s in symbols:
         try:
             o = ex.fetch_ohlcv(s, "15m", limit=1200)
             if o and len(o) > 500:
                 data[s] = o
-        except Exception:
-            continue
+            else:
+                failed.append(f"{s}(short)")
+        except Exception as e:
+            # A per-symbol fetch failure silently shrank the optimizer's sample.
+            # The search then reported a confident OOS figure computed on fewer
+            # symbols than intended, with nothing in the report to say so.
+            failed.append(f"{s}({type(e).__name__})")
+    if failed:
+        print(f"  ⚠️ optimizer sample reduced — {len(failed)} symbol(s) "
+              f"unusable: {', '.join(failed[:6])}"
+              f"{' …' if len(failed) > 6 else ''}", file=sys.stderr)
 
     grid = [
         (0.012, 0.008, 0.008, True),
@@ -184,23 +223,54 @@ def optimize(symbols: list[str]) -> dict:
     ]
     best = None
     results = []
+    unvalidated = []
     for sl, trail, act, reg in grid:
         is_p, oos_p = [], []
         for s, o in data.items():
             half = len(o) // 2
             is_p += sim(o[:half], sl, trail, act, reg)
             oos_p += sim(o[half:], sl, trail, act, reg)
-        isp = sum(is_p) * 100
-        oosp = sum(oos_p) * 100
-        n = len(is_p) + len(oos_p)
+
+        # 🔴 MEANS, NOT SUMS.
+        #
+        # This used to be `isp = sum(is_p) * 100` and `score = isp + oosp`, i.e.
+        # the SUM of per-trade returns. Sums scale with trade count, so ranking
+        # by them mostly ranks configs by how many trades they took — a config
+        # that trades twice as often with the same per-trade edge scores double.
+        # Across a fixed 4-point grid that is not a small distortion; it is the
+        # dominant term. Expectancy per trade is the comparable quantity.
+        is_m = (sum(is_p) / len(is_p) * 100) if is_p else None
+        oos_m = (sum(oos_p) / len(oos_p) * 100) if oos_p else None
         results.append({"sl": sl, "trail": trail, "regime": reg,
-                        "is_pct": round(isp, 2), "oos_pct": round(oosp, 2), "n": n})
-        # require BOTH halves >= -1% (generalises, not curve-fit)
-        if isp >= -1.0 and oosp >= -1.0 and n >= 10:
-            score = isp + oosp
+                        "is_pct": round(is_m, 3) if is_m is not None else None,
+                        "oos_pct": round(oos_m, 3) if oos_m is not None else None,
+                        "is_n": len(is_p), "oos_n": len(oos_p),
+                        "n": len(is_p) + len(oos_p)})
+
+        # 🔴 FAIL CLOSED on a half that produced no trades.
+        #
+        # Measured 2026-09-23: the in-sample half produced ZERO trades on all 5
+        # symbols while the out-of-sample half produced 72. `sum([])` is 0, so
+        # the old gate `isp >= -1.0` could NEVER fail — the config was therefore
+        # selected purely on the half it calls out-of-sample. The docstring's
+        # "picks the best config that generalises" and "require BOTH halves" were
+        # false in practice: there was only ever one half.
+        #
+        # An empty half cannot validate anything, so it is excluded from
+        # selection rather than silently passing.
+        if is_m is None or oos_m is None:
+            unvalidated.append((sl, trail, "IS" if is_m is None else "OOS",
+                                len(is_p), len(oos_p)))
+            continue
+
+        # Both halves must be positive PER TRADE, after fees. Requiring merely
+        # >= -1% (the old sum-based bar) accepted a losing configuration.
+        if is_m > 0 and oos_m > 0:
+            score = is_m + oos_m
             if best is None or score > best[0]:
-                best = (score, sl, trail, act, reg, isp, oosp, n)
-    return {"best": best, "grid": results}
+                best = (score, sl, trail, act, reg, is_m, oos_m,
+                        len(is_p) + len(oos_p))
+    return {"best": best, "grid": results, "unvalidated": unvalidated}
 
 
 # ---------------------------------------------------------------- main
@@ -257,7 +327,23 @@ def main() -> None:
         except Exception as e:
             findings.append(f"optimizer apply skipped: {str(e)[:60]}")
     else:
-        findings.append("optimizer: no config generalised (kept current)")
+        # Distinguish the three genuinely different outcomes. All of them used to
+        # print the same sentence ("no config generalised"), so an exchange
+        # outage and an unvalidatable sample both read as a healthy no-change
+        # pass.
+        if opt.get("skipped"):
+            findings.append(
+                f"optimizer: SKIPPED — {opt['skipped']} (NOT a search result)")
+        elif opt.get("unvalidated"):
+            which = ", ".join(f"sl={s} trail={t}: {half} half had 0 trades "
+                              f"(IS={a} OOS={b})"
+                              for s, t, half, a, b in opt["unvalidated"])
+            findings.append(
+                f"optimizer: NO CHANGE — sample cannot validate any config "
+                f"({which}). An empty half passes a >="
+                f" check for free, so tuning is refused rather than guessed.")
+        else:
+            findings.append("optimizer: no config generalised (kept current)")
 
     # 3) disable proven-losing edges (safe: state file, not code)
     state = load_json(STATE, {"disabled": [], "promoted": []})
@@ -287,14 +373,40 @@ def main() -> None:
     # 5) telegram summary
     body = "\n".join(f"• {f}" for f in findings)
     chg = "\n".join(f"• {c}" for c in changes) if changes else "• none (no change for change's sake)"
+    notified = False
+    notify_err = None
     try:
         sys.path.insert(0, str(BASE / "src"))
         from trading.tg.bot_ui import send_card
         send_card("reports", "🔧 SELF-IMPROVE",
                   f"<b>Autonomous pass complete</b>\n{body}\n\n"
                   f"<b>Applied:</b>\n{chg}")
-    except Exception:
-        pass
+        notified = True
+    except Exception as e:
+        # 🔴 A silent failure here is the worst one in this file: the Telegram
+        # card IS the delivery mechanism. If it fails quietly, the pass runs,
+        # changes trade parameters, and the owner is told nothing — which is
+        # indistinguishable from the engine having died.
+        notify_err = f"{type(e).__name__}: {e}"
+        print(f"  ⚠️ TELEGRAM NOTIFY FAILED — pass completed without "
+              f"reporting: {notify_err}", file=sys.stderr)
+        print(f"     findings that could not be delivered: {len(findings)}",
+              file=sys.stderr)
+        print(f"     changes that could not be delivered: {len(changes)}",
+              file=sys.stderr)
+
+    # record whether the summary actually left the box, so "the owner was not
+    # told" is a recorded fact rather than an absence
+    try:
+        rep2 = json.loads((REPORTS / "self-improve.json").read_text())
+        rep2["notified"] = notified
+        if notify_err:
+            rep2["notify_error"] = notify_err
+        (REPORTS / "self-improve.json").write_text(
+            json.dumps(rep2, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"  ⚠️ could not record notification status: "
+              f"{type(e).__name__}: {e}", file=sys.stderr)
 
     print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M:%S}] SELF-IMPROVE")
     for f in findings:
