@@ -375,6 +375,35 @@ try:
 except Exception as e:
     warn(f"agent code backup check could not run: {str(e)[:90]}", False)
 
+# --------------------------------- 9. FEE-TOLL AWARENESS (is anyone earning?)
+print("\n[9] FEE TOLL (a gross edge below the fee is a loss, not a small win)")
+try:
+    import subprocess as _sp2
+    _r = _sp2.run(["/opt/trading-agent/venv/bin/python", "-B",
+                   "/opt/trading-agent/scripts/per_symbol_net.py"],
+                  capture_output=True, text=True, timeout=120,
+                  cwd="/opt/trading-agent")
+    _out = _r.stdout or ""
+    # pull the "LOSES x.xxx%/trade" lines out of the per-symbol table
+    donors = []
+    for ln in _out.splitlines():
+        if "LOSES" in ln and "%/trade" in ln:
+            parts = ln.split()
+            if parts:
+                donors.append(parts[0])
+    if not donors:
+        check("no symbol is a net donor after fees", True)
+    else:
+        # NOT a failure: a net-donor symbol in a PAPER book is information, not
+        # an incident. It only becomes dangerous if promoted to real money —
+        # which is what check [10] of promotion_report.py now prevents by
+        # requiring NET expectancy rather than a win rate.
+        warn(f"{len(donors)} symbol(s) have a gross edge below the "
+             f"0.1594% round-trip fee: {', '.join(donors[:6])}"
+             f"{' …' if len(donors) > 6 else ''}", False)
+except Exception as e:
+    warn(f"fee-toll check could not run: {str(e)[:80]}", False)
+
 print()
 print("=" * 82)
 if fails:

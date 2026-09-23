@@ -15,6 +15,7 @@ copy into scripts/trend_follower.py.
 from __future__ import annotations
 
 import json
+import math
 import sys
 from collections import defaultdict
 from pathlib import Path
@@ -24,6 +25,14 @@ sys.path.insert(0, str(BASE / "src"))
 
 MIN_TRADES = 15
 MIN_WR = 0.55
+# Measured on this account, 33 real fills: 0.0797% per side with the BNB
+# discount active. This is the number every candidate must beat.
+FEE_RT = 0.001594
+# What the toll becomes once the BNB runway ends (~110 fills left). A candidate
+# that only clears the current fee is not robust; it is due to fail shortly.
+FEE_RT_NOBNB = 0.002000
+# Minimum t-statistic before a record is evidence rather than noise.
+MIN_T = 2.0
 
 from trend_follower import SYMS, REAL_SYMS          # noqa: E402
 
@@ -67,10 +76,19 @@ def collect():
     return out
 
 
-print("=" * 78)
+print("=" * 94)
 print("PROMOTION REPORT — paper record vs real-money eligibility")
-print("=" * 78)
-print(f"rule: >= {MIN_TRADES} paper trades AND >= {MIN_WR*100:.0f}% win rate\n")
+print("=" * 94)
+print(f"rule: >= {MIN_TRADES} paper trades, NET expectancy > 0 after the "
+      f"{FEE_RT*100:.4f}% round-trip fee,")
+print(f"      and |t| >= {MIN_T:.0f} so the record is evidence rather than noise")
+print()
+print("  ⚠️ WIN RATE IS NOT A GATE. It is reported, not enforced. A low win rate")
+print("     with a large payoff is profitable (unified_trader: 47% WR, positive")
+print("     and significant). A high win rate with a poor payoff is not")
+print("     (regime_trader: 58% WR, and still loses money). Gating on win rate")
+print("     would have rejected the only book that actually makes money.")
+print()
 
 stats = collect()
 if not stats:
@@ -81,23 +99,44 @@ if not stats:
 rows = []
 for s, rets in stats.items():
     n = len(rets)
+    if n == 0:
+        continue
     wr = sum(1 for r in rets if r > 0) / n
     avg = sum(rets) / n
-    rows.append((s, n, wr, avg))
-rows.sort(key=lambda r: (-r[2], -r[1]))
+    net = avg - FEE_RT
+    net_nobnb = avg - FEE_RT_NOBNB
+    sd = math.sqrt(sum((r - avg) ** 2 for r in rets) / (n - 1)) if n > 1 else 0
+    t = avg / (sd / math.sqrt(n)) if sd else 0.0
+    gains = [r for r in rets if r > 0]
+    losses = [r for r in rets if r <= 0]
+    payoff = ((sum(gains) / len(gains)) / abs(sum(losses) / len(losses))
+              if gains and losses else float("inf"))
+    rows.append((s, n, wr, avg, net, net_nobnb, t, payoff))
+rows.sort(key=lambda r: -r[4])
 
-print(f"{'symbol':<14}{'n':>5}{'win%':>8}{'avg/trade':>11}   verdict")
-print("-" * 78)
-for s, n, wr, avg in rows:
-    if n >= MIN_TRADES and wr >= MIN_WR and avg > 0:
-        v = "PROMOTE" if s not in REAL_SYMS else "already real"
-    elif n >= MIN_TRADES and wr >= MIN_WR:
-        v = "reject (WR ok, expectancy <= 0)"
-    elif n < MIN_TRADES:
+print(f"  {'symbol':<13}{'n':>5}{'win%':>7}{'payoff':>8}{'gross':>9}"
+      f"{'NET':>9}{'t':>7}   verdict")
+print("  " + "-" * 90)
+for s, n, wr, avg, net, net_nobnb, t, payoff in rows:
+    if n < MIN_TRADES:
         v = f"need {MIN_TRADES - n} more trades"
+    elif net <= 0:
+        v = f"🔴 REJECT — loses {abs(net)*100:.3f}%/trade to fees"
+    elif abs(t) < MIN_T:
+        v = f"⏳ clears fees but UNPROVEN (t={t:+.2f} < {MIN_T:.0f})"
+    elif net_nobnb <= 0:
+        v = "⚠️ PROMOTE but THIN — dies when the BNB runway ends"
     else:
-        v = "reject (WR too low)"
-    print(f"{s:<14}{n:>5}{wr*100:>7.1f}%{avg*100:>10.2f}%   {v}")
+        v = "✅ PROMOTE" if s not in REAL_SYMS else "✅ already real"
+    ps = f"{payoff:.2f}" if payoff != float("inf") else "inf"
+    print(f"  {s:<13}{n:>5}{wr*100:>6.1f}%{ps:>8}{avg*100:>8.2f}%"
+          f"{net*100:>8.2f}%{t:>+7.2f}   {v}")
+
+print()
+print("  BREAK-EVEN GROSS RETURN required: "
+      f"{FEE_RT*100:.4f}% per trade "
+      f"({FEE_RT_NOBNB*100:.4f}% after the BNB runway ends).")
+print("  Anything under that line loses money no matter how good the signal.")
 
 print()
 print("=" * 78)

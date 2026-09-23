@@ -33,10 +33,10 @@ ENV_FILE = BASE_DIR / "config" / "live.env"
 
 LEVERAGE = 3
 MAX_NOTIONAL = 18.0   # full wallet at 3x (owner: risk more on A+ signals)
-STOP_PCT = 0.01     # auto-tuned 2026-09-20 (OOS +17.5%)
+STOP_PCT = 0.02     # auto-tuned 2026-09-23 (OOS +34.0%)
 TP_RR = 5.0          # far TP (+6%) — the TRAIL is now the primary exit
-TRAIL_ACTIVATE = 0.006  # auto-tuned 2026-09-20
-TRAIL_DIST = 0.006      # auto-tuned 2026-09-20
+TRAIL_ACTIVATE = 0.01  # auto-tuned 2026-09-23
+TRAIL_DIST = 0.012      # auto-tuned 2026-09-23
 DAILY_LOSS_CAP = 1.00
 SYMBOLS = ["SOL/USDT:USDT", "XRP/USDT:USDT"]  # elite 15m-sharp symbols, futures syntax
 # spot-style symbol -> futures symbol
