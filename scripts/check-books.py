@@ -217,6 +217,33 @@ if ts:
     print("     Any code treating `positions` as holdings would act on "
           f"{len(pos)} instead of {len(real)}.")
 
+# ------------------------------------------------------------------ 6. GOLD
+print("\n[6] GOLD SIGNALS (censoring fix: timeouts must not vanish)")
+GOLDS = Path("/opt/trading-agent/scripts/data/gold-signals.json")
+if GOLDS.exists():
+    g = json.loads(GOLDS.read_text())
+    st = {}
+    for s in g:
+        st[s.get("status")] = st.get(s.get("status"), 0) + 1
+    print(f"     states: " + "  ".join(f"{k}={v}" for k, v in sorted(st.items())))
+    check("no signal left in a status the resolver will ignore",
+          all(k in ("OPEN", "TRACKING", "WIN", "LOSS", "TIMEOUT-EXPIRED",
+                    "TIMEOUT") for k in st),
+          f"unexpected: {[k for k in st if k not in ('OPEN','TRACKING','WIN','LOSS','TIMEOUT-EXPIRED','TIMEOUT')]}")
+    # a TRACKING signal must have a timed_out_at stamp, else it is not being
+    # followed and the censoring fix is not actually engaging
+    tr = [s for s in g if s.get("status") == "TRACKING"]
+    check("every TRACKING signal carries timed_out_at",
+          all(s.get("timed_out_at") for s in tr),
+          f"{len(tr)} tracking")
+    print(f"     ⚠️  TIMEOUT is the OLD terminal state. Any signal still showing it")
+    print(f"        predates the censoring fix and its true outcome is unknown.")
+    n_old = st.get("TIMEOUT", 0)
+    if n_old:
+        print(f"        found {n_old} such signal(s).")
+else:
+    warn("gold-signals.json not found", False)
+
 print()
 print("=" * 82)
 if fails:

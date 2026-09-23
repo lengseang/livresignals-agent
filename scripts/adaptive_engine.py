@@ -427,6 +427,29 @@ def check_and_trade():
 
                 else:
                     events.append(f"signal but size=0 (edge too thin in {regime})")
+            else:
+                # WHY NOTHING HAPPENED — added 2026-09-22.
+                #
+                # The engine had run 1731 times and never said why it was not
+                # trading. This branch (strategy selected, no plan) and the one
+                # below (no features at all) are the two ways a run ends with no
+                # action, and neither appended anything. The log showed a bare
+                # "regime=RANGE+LOVOL, open=0" and nothing else, so a book that
+                # had opened nothing in 72 hours was indistinguishable from a
+                # book whose decision logic had silently broken.
+                #
+                # It turned out to be healthy — BTC at RSI 68.6 with a -0.58%
+                # drawdown is the opposite of the capitulation this strategy
+                # waits for. But proving that required reading the source,
+                # because the log would not say it. Now it does.
+                events.append(
+                    f"no signal: {regime} setup not present "
+                    f"(dd={f.get('drawdown_pct', 0)*100:.2f}% "
+                    f"rsi={f.get('rsi', 0):.0f} "
+                    f"red={f.get('red_bars', 0)} "
+                    f"atr_ratio={f.get('atr_ratio', 0):.2f})")
+        else:
+            events.append("no features returned (insufficient 30m history)")
 
     # Multi-strategy layer: run validated strategies (XRP/ETH/BTC 5m) on paper.
     events.extend(run_strategies(ex, s))
