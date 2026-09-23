@@ -85,3 +85,5 @@
 # daily fee audit — real commission from the exchange, gross-vs-net
 50 9 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python scripts/fee_audit.py >> /opt/trading-agent/logs/fee-audit.log 2>&1
 0 7 * * * cd /opt/trading-agent && /opt/trading-agent/venv/bin/python scripts/check-books.py >> /opt/trading-agent/logs/book-health.log 2>&1
+# daily code+config backup off-box — the source is otherwise only on this disk (04:35)
+35 4 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python scripts/agent_backup.py >> /tmp/agent_backup.log 2>&1

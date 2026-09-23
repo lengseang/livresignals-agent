@@ -290,6 +290,47 @@ try:
 except Exception as e:
     warn(f"off-box backup check could not run: {str(e)[:90]}")
 
+# ------------------------------------------- 8. AGENT CODE BACKUP (off-box)
+print("\n[8] AGENT CODE BACKUP (the source must not live on one disk only)")
+try:
+    import subprocess as _sp
+    _repo = "/opt/trading-agent"
+    _key = "/home/ubuntu/.ssh/id_ed25519_agent_backup"
+    _remote = "git@github.com:lengseang/livresignals-agent.git"
+    _env = {**__import__("os").environ,
+            "GIT_SSH_COMMAND": f"ssh -i {_key} -o IdentitiesOnly=yes "
+                               f"-o StrictHostKeyChecking=accept-new"}
+    if not Path(_key).exists():
+        fails.append("agent-backup deploy key missing")
+        print("  🔴 deploy key not present")
+    else:
+        r = _sp.run(["git", "ls-remote", "--heads", _remote], cwd=_repo,
+                    capture_output=True, text=True, timeout=60, env=_env)
+        out = (r.stdout or "") + (r.stderr or "")
+        # again: git exits 0 on auth failure, so judge on OUTPUT
+        reach = bool(r.stdout.strip()) and "ERROR" not in out.upper() \
+            and "fatal" not in out.lower()
+        check("agent backup remote reachable", reach,
+              "" if reach else out.strip()[:110])
+        lh = _sp.run(["git", "rev-parse", "HEAD"], cwd=_repo,
+                     capture_output=True, text=True, timeout=30).stdout.strip()
+        m = _sp.run(["git", "ls-remote", _remote, "main"], cwd=_repo,
+                    capture_output=True, text=True, timeout=60,
+                    env=_env).stdout.split()
+        rh = m[0] if m else ""
+        check("off-box code copy matches local HEAD", bool(lh) and lh == rh,
+              f"local {lh[:8]} vs remote {rh[:8]}" if lh != rh else "")
+        # secrets must never be tracked
+        envf = _sp.run(["git", "ls-files"], cwd=_repo, capture_output=True,
+                       text=True, timeout=30).stdout.split()
+        bad = [f for f in envf
+               if f.endswith(".env") or "/.env." in f
+               and not f.endswith(".example")]
+        check("no credential file is tracked by git", not bad,
+              f"{bad}" if bad else f"{len(envf)} files tracked")
+except Exception as e:
+    warn(f"agent code backup check could not run: {str(e)[:90]}")
+
 print()
 print("=" * 82)
 if fails:
