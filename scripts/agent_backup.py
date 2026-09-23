@@ -109,9 +109,47 @@ def push() -> int:
 
     code, d = sh("git status --porcelain")
     dirty = [x for x in d.splitlines() if x.strip()]
-    if not dirty:
-        print("  nothing to back up — working tree clean"
-              " (remote reachable ✅ verified)")
+
+    # 🔴 "nothing to back up" must mean NOTHING — including commits that exist
+    # locally but were never pushed.
+    #
+    # The first version of this script only looked at the working tree, so it
+    # reported "nothing to back up" while `git status -sb` read
+    #     ## main...origin/main [ahead 1]
+    # i.e. a committed change sitting on the disk with no off-box copy. That is
+    # the exact failure this whole script exists to prevent, reproduced inside
+    # the script itself: the box's only copy of a commit, and a green light.
+    #
+    # A clean tree is NOT the same as "in sync". Both conditions must hold.
+    _, ahead_out = sh("git rev-list --count origin/main..HEAD")
+    try:
+        ahead = int(ahead_out.strip().splitlines()[0])
+    except (ValueError, IndexError):
+        ahead = -1
+    if ahead < 0:
+        print("  ⛔ cannot determine how far ahead of the remote we are")
+        return 4
+
+    if not dirty and ahead == 0:
+        print("  nothing to back up — tree clean AND in sync with the remote")
+        print("  (remote reachable ✅ verified, HEAD matches ✅ verified)")
+        return 0
+
+    if not dirty and ahead > 0:
+        print(f"  found {ahead} committed but UNPUSHED commit(s) — pushing")
+        code, out = sh("git push -q origin main")
+        if code != 0:
+            print(f"  ⛔ push failed: {out[:250]}")
+            return 3
+        code, local = sh("git rev-parse HEAD")
+        lh = local.strip().splitlines()[0] if local.strip() else ""
+        _, rem = sh(f"git ls-remote {REMOTE} main")
+        rh = rem.split()[0] if rem.split() else ""
+        if not lh or lh != rh:
+            print(f"  ⛔ push claimed success but remote differs")
+            print(f"     local {lh[:12]} vs remote {rh[:12]}")
+            return 5
+        print(f"  ✅ pushed {ahead} commit(s) — verified at remote {rh[:12]}")
         return 0
 
     # SAFETY GATE: refuse to commit credential files, ever.
