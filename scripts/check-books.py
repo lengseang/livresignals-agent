@@ -140,14 +140,45 @@ FRESH = {
     "futures-trades.json": ("closed", 48, None, 0),
     "adaptive-state.json": ("closed_trades", 72, "open_positions", 24),
     "regime-state.json": ("log", 72, "positions", 4 * 21 + 12),   # HOLD=21 @4h
-    "trend-state.json": ("log", 72, None, 0),
+    # trend-state keeps its REAL positions under `real.open`, NOT a top-level
+    # "open" field. The first version looked for a top-level one, found nothing,
+    # and therefore never widened the limit — so a healthy, fully-invested
+    # 3-position book was reported as stale. Dotted paths are supported now.
+    "trend-state.json": ("log", 72, "real.open", 4 * 21 + 12),
 }
+
+# Log files that prove the PROCESS is still running even when it has no new
+# records to report.
+#
+# ⚠️ "no new trades" and "not running" are different conditions and must not
+# produce the same verdict. A bot that is alive and holding positions is
+# healthy; a bot that stopped writing its log is broken. Without this
+# distinction the freshness check flags every quiet, fully-invested book as a
+# FAILURE — and a watchdog that cries wolf on the normal case gets ignored on
+# the day it is right.
+LIVE = {
+    "adaptive-state.json": "logs/adaptive-engine.log",
+    "regime-state.json": "logs/regime.log",
+    "trend-state.json": "logs/trend.log",
+}
+
+
+def _dig(d, path):
+    """Follow a dotted path into nested dicts; None if any link is missing."""
+    cur = d
+    for part in path.split("."):
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+    return cur
+
+
 for fname, (key, max_h, open_field, hold_h) in FRESH.items():
     d = load(fname)
     if not d:
         continue
     recs = d.get(key) or []
-    open_n = len(d.get(open_field) or []) if open_field else 0
+    open_n = len(_dig(d, open_field) or []) if open_field else 0
     # generous but still finite: a book holding positions is allowed to be quiet
     effective = max_h + (hold_h if open_n else 0)
     if not recs:
@@ -167,8 +198,21 @@ for fname, (key, max_h, open_field, hold_h) in FRESH.items():
         continue
     age_h = (NOW - max(stamps)).total_seconds() / 3600
     note = f" [{open_n} open, limit widened to {effective}h]" if open_n else ""
+    ok = age_h <= effective
+    if not ok:
+        # before failing, ask whether the process is demonstrably still alive
+        rel = LIVE.get(fname)
+        lp = (D.parent / rel) if rel else None
+        if lp and lp.exists():
+            lh = (NOW - dt.datetime.fromtimestamp(
+                lp.stat().st_mtime, dt.timezone.utc)).total_seconds() / 3600
+            if lh <= effective:
+                warn(f"{fname}: no new records for {age_h:.1f}h, but the process"
+                     f" is ALIVE (log written {lh:.1f}h ago) — idle/holding,"
+                     f" not broken", False)
+                continue
     check(f"{fname}: newest record {age_h:.1f}h old (limit {effective}h){note}",
-          age_h <= effective)
+          ok)
 
 # ------------------------------------------------------------ 4. MONOTONIC
 print("\n[4] MONOTONIC (books are append-only; counts must never drop)")
@@ -288,7 +332,7 @@ try:
             check(f"mirror record count matches ledger", mn == ln,
                   f"ledger {ln} vs mirror {mn}" if mn != ln else f"{ln} records")
 except Exception as e:
-    warn(f"off-box backup check could not run: {str(e)[:90]}")
+    warn(f"off-box backup check could not run: {str(e)[:90]}", False)
 
 # ------------------------------------------- 8. AGENT CODE BACKUP (off-box)
 print("\n[8] AGENT CODE BACKUP (the source must not live on one disk only)")
@@ -329,7 +373,7 @@ try:
         check("no credential file is tracked by git", not bad,
               f"{bad}" if bad else f"{len(envf)} files tracked")
 except Exception as e:
-    warn(f"agent code backup check could not run: {str(e)[:90]}")
+    warn(f"agent code backup check could not run: {str(e)[:90]}", False)
 
 print()
 print("=" * 82)
