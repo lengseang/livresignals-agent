@@ -244,6 +244,52 @@ if GOLDS.exists():
 else:
     warn("gold-signals.json not found", False)
 
+# ------------------------------------------------- 7. OFF-BOX BACKUP HEALTH
+print("\n[7] OFF-BOX BACKUP (a backup nobody verifies is a backup that is dead)")
+try:
+    import subprocess
+    mirror = Path("/home/ubuntu/ledger-mirror")
+    if not (mirror / ".git").exists():
+        fails.append("off-box ledger mirror is MISSING")
+        print("  🔴 mirror directory does not exist")
+    else:
+        # ⚠️ git exits 0 even when it cannot reach the remote, so the exit code
+        # is worthless here. Check for actual ref output instead — that is the
+        # lesson from this script's own history: the replication was dead for
+        # five days while every check that trusted an exit code said "fine".
+        r = subprocess.run(["git", "ls-remote", "--heads", "origin"],
+                           cwd=str(mirror), capture_output=True, text=True,
+                           timeout=60,
+                           env={**__import__("os").environ,
+                                "GIT_SSH_COMMAND":
+                                "ssh -i /home/ubuntu/.ssh/id_ed25519_ledger_backup "
+                                "-o IdentitiesOnly=yes "
+                                "-o StrictHostKeyChecking=accept-new"})
+        out = (r.stdout or "") + (r.stderr or "")
+        reachable = bool(r.stdout.strip()) and "ERROR" not in out.upper() \
+            and "fatal" not in out.lower()
+        check("off-box ledger remote is reachable", reachable,
+              "" if reachable else out.strip()[:120])
+
+        # is the off-box copy actually CURRENT, or merely reachable?
+        local = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(mirror),
+                               capture_output=True, text=True, timeout=30)
+        lh = local.stdout.strip()
+        rh = r.stdout.split()[0] if r.stdout.split() else ""
+        check("off-box copy is at the same commit as local",
+              bool(lh) and lh == rh,
+              f"local {lh[:8]} vs remote {rh[:8]}" if lh != rh else "")
+        # and does it have as many records as the local ledger?
+        led = Path("/opt/trading-agent/data/signal-ledger.jsonl")
+        mir = mirror / "signal-ledger.jsonl"
+        if led.exists() and mir.exists():
+            ln = sum(1 for _ in led.open())
+            mn = sum(1 for _ in mir.open())
+            check(f"mirror record count matches ledger", mn == ln,
+                  f"ledger {ln} vs mirror {mn}" if mn != ln else f"{ln} records")
+except Exception as e:
+    warn(f"off-box backup check could not run: {str(e)[:90]}")
+
 print()
 print("=" * 82)
 if fails:

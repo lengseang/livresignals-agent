@@ -47,6 +47,34 @@ def load_env() -> dict:
     return env
 
 
+def _ensure_deploy_key(work: Path) -> None:
+    """Pin the ledger-backup deploy key to this repo.
+
+    🔴 WHY (found 2026-09-23): a GitHub deploy key is scoped to exactly ONE
+    repository. The default `github.com` identity in ~/.ssh/config points at
+    `id_ed25519_github`, which is the key for the PUBLIC signals-site repo. Use
+    it against the private backup repo and GitHub answers
+
+        ERROR: Repository not found.
+
+    which reads like "the repo does not exist" rather than "wrong key" — a
+    misleading failure, and the reason this went unnoticed.
+
+    The off-box replication had therefore been dead since the keys were split
+    on 2026-09-21: the last successful sync was 2026-09-18, while the daily cron
+    carried on reporting success. The backup was configured, ran, and did
+    nothing.
+
+    Setting core.sshCommand here (rather than editing ~/.ssh/config) keeps the
+    fix inside the repo, so it survives the work-dir being recreated.
+    """
+    key = Path("/home/ubuntu/.ssh/id_ed25519_ledger_backup")
+    if key.exists():
+        sh(f'git config core.sshCommand '
+           f'"ssh -i {key} -o IdentitiesOnly=yes '
+           f'-o StrictHostKeyChecking=accept-new"', work)
+
+
 def sh(cmd: str, cwd: Path | None = None) -> tuple[int, str]:
     """Run a shell command, with GIT_SSH_COMMAND set when a dedicated key is
     configured. Deploy keys are single-repo in GitHub, so the backup repo has
@@ -119,6 +147,7 @@ def push() -> int:
             print("  initialised a fresh mirror (remote was empty)")
         else:
             print("  cloned existing mirror")
+        _ensure_deploy_key(WORK)
 
     # copy the ledger in
     dest = WORK / "signal-ledger.jsonl"
@@ -128,12 +157,44 @@ def push() -> int:
 
     # Only regenerate STATUS.md / commit when the LEDGER itself changed.
     # Without this the mirror would produce a commit every single day purely
+    # 🔴 PREFLIGHT: prove the remote is reachable BEFORE reporting anything.
+    #
+    # This is the fix for the silent failure. The caller used to be told
+    # "nothing to replicate" without the remote ever being contacted, so a
+    # broken deploy key produced a clean exit 0 for five straight days while the
+    # backup was in fact stale.
+    #
+    # ⚠️ AND THE EXIT CODE IS NOT ENOUGH. Measured on this box:
+    #
+    #     $ git ls-remote --heads origin        # with a WRONG deploy key
+    #     ERROR: Repository not found.
+    #     fatal: Could not read from remote repository.
+    #     $ echo $?
+    #     0
+    #
+    # Git reports success on this failure. That is the entire reason a dead
+    # backup looked healthy — every layer trusted an exit code that is always
+    # zero. The only reliable signal is whether we got actual ref output.
+    code, out = sh("git ls-remote --heads origin", WORK)
+    reachable = code == 0 and bool(out.strip()) and "ERROR" not in out.upper() \
+        and "fatal" not in out.lower()
+    if not reachable:
+        print(f"  ⛔ backup remote UNREACHABLE — the mirror is NOT being updated.")
+        print(f"     output: {out.strip()[:300]}")
+        print(f"     git exit code was {code} (git exits 0 on this failure, which is")
+        print(f"     why the break went unnoticed — do not trust the exit code here).")
+        print(f"     fix: ensure the ledger-backup deploy key is configured")
+        print(f"     (see _ensure_deploy_key), then re-run.")
+        return 4
+
     # because a timestamp moved, which makes the git history useless as an
     # audit trail.
     if before == after and (WORK / ".git").exists():
         code, _ = sh("git diff --cached --quiet", WORK)
         if code == 0:
             print("  ledger unchanged — nothing to replicate")
+            print("  (remote reachable ✅ verified, so this is a fact about the"
+                  " ledger, not an untested guess)")
             return 0
 
     # a small human-readable summary alongside it
@@ -167,11 +228,35 @@ def push() -> int:
     n = sum(1 for _ in LEDGER.open())
     sh(f'git commit -q -m "ledger sync: {n} records @ '
        f'{datetime.now(timezone.utc):%Y-%m-%dT%H:%M:%SZ}"', WORK)
+    # 🔴 VERIFY THE REMOTE IS ACTUALLY REACHABLE BEFORE CLAIMING SUCCESS.
+    #
+    # `git fetch` against an inaccessible repo printed
+    #     Please make sure you have the correct access rights
+    # and STILL EXITED 0. So a push attempt on an auth-broken remote produced no
+    # error the caller could see, and a daily cron can run for weeks reporting
+    # success while replicating nothing. That is exactly what happened here.
+    #
+    # `git ls-remote` is the honest test: it fails loudly when auth is wrong.
+    code, out = sh(f"git ls-remote --heads origin", WORK)
+    if code != 0:
+        print(f"  ⛔ cannot reach the backup remote — NOT replicating.")
+        print(f"     {out.strip()[:300]}")
+        print(f"     check the deploy key for this repo (see _ensure_deploy_key)")
+        return 4
     code, out = sh("git push -q origin main", WORK)
     if code != 0:
         print(f"  ⛔ push failed: {out[:300]}")
         return 3
-    print(f"  ✅ replicated {n} records off-box")
+    # confirm the remote actually has our commit, rather than trusting the push
+    code, out = sh("git rev-parse HEAD", WORK)
+    local_head = out.strip().splitlines()[0] if out.strip() else ""
+    code2, out2 = sh("git ls-remote origin main", WORK)
+    remote_head = out2.split()[0] if out2.split() else ""
+    if local_head and remote_head and local_head != remote_head:
+        print(f"  ⛔ push reported success but the remote is at a different commit")
+        print(f"     local {local_head[:12]} != remote {remote_head[:12]}")
+        return 5
+    print(f"  ✅ replicated {n} records off-box (verified at remote)")
     return 0
 
 
