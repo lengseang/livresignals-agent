@@ -429,6 +429,28 @@ try:
 except Exception as e:
     warn(f"improvement-consumption check could not run: {str(e)[:80]}", False)
 
+# ------------------- 11. SITE CLAIMS RECONCILE WITH THE LEDGER
+print("\n[11] SITE CLAIMS (does every number the site renders match the ledger?)")
+try:
+    import subprocess as _sp4
+    _r4 = _sp4.run(["/opt/trading-agent/venv/bin/python", "-B",
+                    "/opt/trading-agent/scripts/audit_site_claims.py"],
+                   capture_output=True, text=True, timeout=120)
+    _o4 = (_r4.stdout or "") + (_r4.stderr or "")
+    if _r4.returncode == 0:
+        line = [l for l in _o4.splitlines() if "reconcile with the ledger" in l]
+        check("every site claim reconciles with the ledger", True,
+              line[0].strip() if line else "")
+    else:
+        # A site that prints a number the ledger does not support is the one
+        # failure this product cannot carry, so this is a FAILURE not a warning.
+        fails.append("the public site renders a claim the ledger does not support")
+        for l in _o4.splitlines():
+            if l.strip().startswith("- "):
+                print(f"  🔴{l}")
+except Exception as e:
+    warn(f"site-claim audit could not run: {str(e)[:80]}", False)
+
 print()
 print("=" * 82)
 if fails:
