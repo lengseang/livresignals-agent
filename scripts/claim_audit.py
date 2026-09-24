@@ -48,6 +48,30 @@ def build(ledger: Path) -> dict:
     sides = Counter(s.get("side") for s in sigs)
     reasons = Counter(c.get("why") for c in closes)
     held = [c.get("held_days") for c in closes if c.get("held_days") is not None]
+    held = [h for h in held if isinstance(h, (int, float))]
+
+    # 🔴 TWO DEFECTS FOUND HERE 2026-09-24, both making holding_period look
+    # better supported than it is.
+    #
+    # (1) `held` only contains closes that CARRY held_days, which on this record
+    #     is exactly the live closes — the 10 backfilled closes have no
+    #     held_days at all. The evidence string then said "over 13 closes" as if
+    #     13 were the record, when the record is 23. A sample that silently
+    #     drops 43% of the data is not a sample of that data.
+    #
+    # (2) `max(held) >= 1` let a SINGLE trade flip the claim to supported. On
+    #     this record 12 of 13 closes read held_days=0 and the whole non-zero
+    #     range came from one trade (#45 DOT, +8.40%, also the best trade in the
+    #     record). One observation cannot support "Holding period: days".
+    #
+    # So: report the true denominator, and require the claim to hold for a
+    # meaningful share of closes — not merely to be true of one of them.
+    n_closes = len(closes)
+    n_held = len(held)
+    n_days = sum(1 for h in held if h >= 1)
+    # the claim is about the strategy's behaviour, so it must be typical of the
+    # record, not an outlier within it. Majority is the honest bar.
+    days_share = (n_days / n_held) if n_held else 0.0
 
     n_long = sides.get("L", 0)
     n_short = sides.get("S", 0)
@@ -74,19 +98,31 @@ def build(ledger: Path) -> dict:
         {
             "id": "holding_period",
             "claim": "Holding period: days, not minutes",
-            "supported": bool(held) and max(held) >= 1,
+            # 🔴 `bool(held) and max(held) >= 1` made this claim true if ANY
+            # single close lasted a day. On this record one trade (#45 DOT)
+            # carried held_days=6 while the other 12 read 0 — so a claim about
+            # how the strategy behaves was supported by an outlier.
+            #
+            # A behaviour claim has to be true of the record, not merely
+            # somewhere inside it, so it now requires a majority of closes to
+            # last >= 1 day.
+            "supported": bool(held) and days_share > 0.5,
+            # The evidence must state the TRUE denominator. It used to read
+            # "over {len(held)} closes" — which presented the 13 closes that
+            # happen to carry held_days as if they were the whole record, hiding
+            # the 10 backfilled closes that carry none.
             "observed": (
-                "every closed trade exited within 24 hours"
-                if held and max(held) == 0
-                else f"held_days range {min(held)}-{max(held)} over {len(held)} closes"
+                f"{n_days} of {n_held} timed closes lasted >= 1 day "
+                f"({n_closes} closes in the record; {n_closes - n_held} carry "
+                f"no held_days and cannot be timed)"
                 if held else "no held_days recorded"
             ),
             "configured": "hours to days",
             "replacement": (
                 "Exits are driven by momentum decay, not a clock. On this "
-                "record every position closed within 24 hours, which is "
-                "shorter than the strategy expects."
-                if held and max(held) == 0 else None
+                f"record {n_days} of {n_held} timed closes lasted under 24 "
+                f"hours, which is shorter than the strategy expects."
+                if held and days_share <= 0.5 else None
             ),
         },
         {
