@@ -22,7 +22,7 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 |---|---|---|---|
 | T1.1 | Verify current Binance spot fee tier + BNB discount and the real round-trip cost; break-even edge and win-rate table per TP/SL | T0.1 | review (#8) |
 | T1.2 | Source inventory: exchange WS/REST (limits), news (RSS, CryptoPanic), sentiment (Fear & Greed), on-chain, funding/OI, public Telegram/Discord channels. Cost, limits, latency, terms | T0.1 | review (#9) |
-| T1.3 | Strategy audit: microstructure/scalping literature (order-book imbalance, trade-flow, VWAP reversion, funding, breakout, mean reversion) vs our 5 rules; verdict test/skip | T1.1 | todo |
+| T1.3 | Strategy audit: microstructure/scalping literature (order-book imbalance, trade-flow, VWAP reversion, funding, breakout, mean reversion) vs our 5 rules; verdict test/skip | T1.1 | review (#10) |
 | T1.4 | Inventory of existing strategies already in the repo (unified_trader, adaptive_engine, regime_trader, scalping_sweep, gold_scanner...) with their claimed evidence and where it lives | T0.1 | todo |
 | T1.5 | Plan to re-verify the `unified_trader.py:68` claim (5m 69% WR, +$0.37) from the ledger; list the exact files needed | T1.4 | todo |
 

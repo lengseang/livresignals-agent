@@ -3,6 +3,19 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-26 · T1.3 strategy audit
+- **Need check:** literature claims need citations, so I ran 4 web searches (OFI, crypto momentum, deflated Sharpe,
+  funding/intraday reversal). Cross-checked against T1.1 costs, T1.2 sources and SYSTEM_MAP §5.
+- **Done:** `docs/research/strategy-audit.md`: 10 ideas with verdicts. TEST: intraday momentum/reversal (hourly,
+  TP ≥ 1%), range breakout, regime-adaptive L/S (paper). FILTER: order-flow imbalance (moves are smaller than costs,
+  so it's entry timing only). BASELINE: trend_follower, adaptive capitulation. SKIP: taker mean reversion, funding
+  carry. DEFER: attention, option expiry. Gate for T3.3: Deflated Sharpe plus our 5 rules plus win rate shown beside p*.
+- **Found:** the repo contradicts itself on dip-buying (the runbook says ~70% WR, +0.44% EV; SYSTEM_MAP says a 66% WR
+  still loses). T1.4 must reconcile this.
+- **Anti-slop:** the carry-decay claim is marked as an unverified search summary; the paper summaries are
+  abstract-level and the doc says so.
+- **Evidence:** docs only.
+
 ## 2026-09-25 · T1.2 source inventory
 - **Need check:** everything is time- and network-sensitive, so each source was tested live from this machine
   (curl / aiohttp WS) and limits were read from the official Binance docs on GitHub; CryptoPanic terms via search.
