@@ -2,6 +2,13 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
+## E6 · Source decisions (T1.2, PR #9)
+(a) CryptoPanic is now paid-only: subscribe, or skip it (the RSS feeds are used instead)? (b) Reading public Telegram channels
+via `t.me/s/<channel>` is reachable but a terms gray area; allow it, use the official Telegram API with your account, or skip?
+(c) Reddit needs an OAuth app: create one or skip? (d) Can the VPS reach `fapi.binance.com` (live funding/OI)?
+The dev machine can't. Default until answered: skip a, b and c; defer funding/OI.
+**Answer:**
+
 ## E5 · Retire `live_executor manage` from cron? (T0.6, PR #6)
 It runs every 10 min (`config/crontab.trade`). If `config/LIVE_ENABLED` ever comes back, its exit path sells
 the **entire free balance** of coins the live trend book also holds (same wallet). Recommendation: remove that

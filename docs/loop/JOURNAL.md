@@ -3,6 +3,19 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-25 · T1.2 source inventory
+- **Need check:** everything is time- and network-sensitive, so each source was tested live from this machine
+  (curl / aiohttp WS) and limits were read from the official Binance docs on GitHub; CryptoPanic terms via search.
+- **Done:** `docs/research/sources.md`. **Key finding:** `api/stream/fapi.binance.com`, Bybit, OKX and Coinbase
+  are unreachable from dev, but the official market-data mirrors `data-api.binance.vision` and
+  `wss://data-stream.binance.vision` work (a live bookTicker was received). Phase 2 can run locally on
+  mirrors that physically can't trade. RSS x4, Fear & Greed, CoinGecko, mempool.space and Kraken futures
+  are reachable. CryptoPanic has gone paid-only.
+- **Escalations:** E6 (CryptoPanic/Reddit/Telegram-channel reading need owner decisions; VPS reachability of fapi).
+- **Anti-slop:** the WS limits are documented for `stream.binance.com`, not the mirror, and are now labelled "assumed
+  same". Removed an unverified claim about REST weight limits.
+- **Evidence:** the reachability table is from commands run at the time of writing (in this iteration's log).
+
 ## 2026-09-25 · T1.1 fees and break-even
 - **Need check:** fees are time-sensitive, so I searched. binance.com and developers.binance.com refuse connections
   from this machine (ECONNREFUSED); used the official API docs on GitHub (primary) plus secondary fee guides.
