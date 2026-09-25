@@ -11,7 +11,7 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 | T0.3 | Design only: F1 duplicate-buy on crash (`trend_follower.py:301/310`) | T0.1 | review (#3) |
 | T0.4 | Design only: F2 stranded position on failed sell (`trend_follower.py:239/271`) | T0.1 | review (#4) |
 | T0.5 | Design only: F3 dropped records + paper price on real exits, UNKNOWN rule | T0.1 | review (#5) |
-| T0.6 | Design only: F4 `live_executor.manage()` partial-drift reconcile + no invented exit | T0.1 | todo |
+| T0.6 | Design only: F4 `live_executor.manage()` partial-drift reconcile + no invented exit | T0.1 | review (#6) |
 | T0.7 | Commit `src/trading/data/` (F5) | owner files | owner |
 | T0.8 | CI fix: `check-books.py` base path from env (F6) | owner OK | owner |
 | T0.9 | `tests/test_forward.py::test_wallet_cap_no_dead_entries` reads the real `data/trading.db` (test line 35); fails off-VPS with `unable to open database file`. Make it use the temp-DB fixture the same file already has (line 46). Test-only change | T0.2 | todo |

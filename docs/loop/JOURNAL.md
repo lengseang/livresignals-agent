@@ -3,6 +3,20 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-25 · T0.6 design for F4 (live_executor)
+- **Need check:** read `live_executor.py` and `live_client.py`; confirmed both books use the same
+  `config/live.env` account. No external facts needed.
+- **Done:** `docs/loop/designs/T0.6.md`. The worst finding is not the 10% self-heal threshold: on exit,
+  `manage()` sells the **entire free balance** of the coin, and its universe overlaps the live
+  trend book's in the same wallet. If `LIVE_ENABLED` were restored, it would sell trend_follower's coins.
+  It also invents a sell qty (`size/entry`) and exit prices (ticker `px`) while the real fill is available.
+  Recommendation: **Option 0**, retire it (the owner removes the cron line). Option 1 is a fix via a shared
+  `real_order_journal.py` used by both scripts.
+- **Anti-slop self-review:** corrected `live_client.py` line refs (`privatePostOrder` at `:148`/`:115`),
+  and noted that `place_market_*` bypasses ccxt's `create_order`, so the T0.3 `params` approach needs a
+  raw `newClientOrderId` there.
+- **Evidence:** docs only.
+
 ## 2026-09-25 · T0.5 design for F3 (real exits not recorded)
 - **Need check:** who reads the real trend book, found by grep across `scripts/`. ccxt `fetch_my_trades` exists
   (`binance.py:8392`). No prod files needed for the design; confirming the lead needs E1.

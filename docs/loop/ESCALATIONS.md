@@ -2,7 +2,13 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
-## E4 · Review the F1, F2, F3 fix designs (PRs #3, #4, #5)
+## E5 · Retire `live_executor manage` from cron? (T0.6, PR #6)
+It runs every 10 min (`config/crontab.trade`). If `config/LIVE_ENABLED` ever comes back, its exit path sells
+the **entire free balance** of coins the live trend book also holds (same wallet). Recommendation: remove that
+cron line (crontab = your action) and keep the code marked retired. Yes/no?
+**Answer:**
+
+## E4 · Review the F1–F4 fix designs (PRs #3, #4, #5, #6)
 `docs/loop/designs/T0.3.md` and `T0.4.md`. F2 is High: a failed sell currently leaves a real position with **no hard stop**. Both need your approval before T8.1 can implement it, plus two facts:
 (a) the dust threshold for "this coin is held" (proposed $1); (b) the output of
 `df -T /opt/trading-agent` (whether atomic rename + fsync behaves as the design assumes).
