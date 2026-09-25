@@ -3,6 +3,19 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-26 · T2.2 tick ingest implemented
+- **Need check:** captured 69 **real** messages from the mirror as fixtures (no invented payloads).
+- **Done:** `src/trading/stream/` (normalize, gaps, throttle, recorder, book, ws_client, run_ingest) + `tests/loop/test_stream.py`.
+- **Evidence:** RED first (collection error) → `pytest tests/loop`: **30 passed, 1 skipped**; live smoke (LOOP_NETWORK=1) passed;
+  **real 2-minute run: 75,868 msgs, 0 gaps, 0 reconnects**; book throttle dropped 94.6% (qty-only); ~240 KB gz per 2 min
+  (≈170 MB/day).
+- **Bug caught by the runtime check, not the unit tests:** `REAL_SYMS` held `"btc"` not `"btcusdt"`; the server
+  silently accepts unknown stream names and sends nothing (first run: 0 msgs, 3 reconnects). Fixed + regression test
+  (verified failing on the bug by temporarily restoring it). Stalls now print a hint.
+- **Found:** dev PC clock is **~5.4 s ahead** of Binance server time (3 samples via `/api/v3/time`). Raw receive stamps are
+  kept as designed; T2.2b adds clock-offset records so replays can correct. Adjusting Windows time is the owner's call.
+- **Anti-slop:** removed a redundant `except (OSError, TimeoutError, Exception)`.
+
 ## 2026-09-26 · T2.1 tick ingest design
 - **Need check:** read payload specs from the official WS docs; **measured** live load instead of guessing: 30s on the mirror,
   15 symbols × 3 streams = 540 msg/s, 82 KiB/s, about 6.75 GiB/day raw, and bookTicker is 89%. Checked disk (D: 81 GB free).

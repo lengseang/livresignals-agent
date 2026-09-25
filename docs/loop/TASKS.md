@@ -31,7 +31,8 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 | ID | Task | Deps | Status |
 |---|---|---|---|
 | T2.1 | Design: tick ingest (bookTicker, aggTrade, kline_1s), reconnect, gap detection, storage format, retention | T1.2 | review (#14) |
-| T2.2 | Implement `src/trading/stream/` ingest + recorder to `data/local/` with fixture tests | T2.1 | todo |
+| T2.2 | Implement `src/trading/stream/` ingest + recorder to `data/local/` with fixture tests | T2.1 | review (#15) |
+| T2.2b | Record the local-vs-exchange clock offset (GET data-api.binance.vision/api/v3/time) as `clock` records at start + hourly, so replays can correct `ts_recv_ns`. Dev PC measured ~5.4s ahead of Binance on 2026-09-26 | T2.2 | todo |
 | T2.3 | Record 24h of real ticks for the paper universe on this machine; data-quality report | T2.2 | todo |
 | T2.4 | News + sentiment ingest (RSS, free APIs), timestamped, deduped, symbol-tagged | T1.2 | todo |
 
