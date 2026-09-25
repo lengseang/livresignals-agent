@@ -3,6 +3,21 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-26 · T1.4 existing strategy inventory
+- **Need check:** repo-only (docstrings, code, crontab files). Nothing executed. Live crontab unknown (E1).
+- **Done:** `docs/research/strategy-inventory.md`. There are **4 real-money books**, not 1: trend_follower (spot),
+  futures_executor (3x futures, every 10 min, **no enable flag**), lev_satellite_manage (3x SOL, no flag), and
+  live_executor (flag-gated). The two futures scripts were missing from the owner's never-run list, so I added
+  T1.4b to fix the loop's own boundary.
+- **Contradictions logged:** dip-buy 70.2% vs "66% still loses" (both can be true: split vs walk-forward, BTC-only;
+  re-gate before trusting either). The "ELITE 87–93%" claim is contradicted by the repo's own 3.6y OOS study
+  (unfiltered negative OOS; with the EMA200 filter, SOL WR 61%), and it trades 3x real money.
+  Whether regime_trader is "deployed" is unclear (SYSTEM_MAP says no; crontab.backup schedules it).
+- **Anti-slop:** before calling the ELITE claim unverified, read `futures_executor.py:178-200` and found the OOS
+  study, so the doc now cites the repo's own counter-evidence instead of just "no OOS".
+- **Learned (process):** in T1.3 I committed before cutting the branch; caught at push time. Rule: `git checkout -b` is
+  the first command of every iteration (done here).
+
 ## 2026-09-26 · T1.3 strategy audit
 - **Need check:** literature claims need citations, so I ran 4 web searches (OFI, crypto momentum, deflated Sharpe,
   funding/intraday reversal). Cross-checked against T1.1 costs, T1.2 sources and SYSTEM_MAP §5.
