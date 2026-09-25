@@ -25,6 +25,7 @@ BLOCKED_MODULES = frozenset({
     "live_executor",
     "trend_follower",
     "futures_executor",
+    "lev_satellite_manage",
     "unified_trader",
     "manager",
 })

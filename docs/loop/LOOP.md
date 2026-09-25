@@ -59,8 +59,11 @@ Companion files:
 - anything on the owner's no-touch list: `config/*.env`, ledger JSON/.jsonl,
   `check-*.py` and prebuild guards, the crontab, any code that places or manages an order
 - modifying existing real-money scripts: `trend_follower.py`, `live_executor.py`,
-  `futures_executor.py`, `unified_trader.py`, `manager.py`, `src/trading/exchange/live_client.py`
-- running `live_executor.py`, `trend_follower.py`, `night_tuner.py`, `watchdog_alert.py`
+  `futures_executor.py`, `lev_satellite_manage.py`, `unified_trader.py`, `manager.py`,
+  `src/trading/exchange/live_client.py`
+- running `live_executor.py`, `trend_follower.py`, `night_tuner.py`, `watchdog_alert.py`,
+  `futures_executor.py`, `lev_satellite_manage.py` (the last two place real futures orders with **no
+  enable flag**: they trade whenever `config/live.env` exists; see `docs/research/strategy-inventory.md`)
 - merging any PR (all merges are the owner's review step), deploying to the VPS,
   touching pm2 or cron
 - sending a real Telegram message or posting publicly (dry-run until approved)

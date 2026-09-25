@@ -32,7 +32,8 @@ def test_raw_socket_connect_is_refused():
         s.close()
 
 
-@pytest.mark.parametrize("name", ["trading.exchange.live_client", "live_executor", "trend_follower"])
+@pytest.mark.parametrize("name", ["trading.exchange.live_client", "live_executor", "trend_follower",
+                                  "futures_executor", "lev_satellite_manage"])
 def test_real_money_modules_cannot_be_imported(name):
     with pytest.raises(ImportError, match="real-money module"):
         importlib.import_module(name)
