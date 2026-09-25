@@ -1,0 +1,70 @@
+name: checks
+
+# WHY THIS EXISTS
+# ---------------
+# This repo runs 37 cron jobs and a real-money trading book. It also carries a
+# set of check scripts that nobody runs automatically, and that has already let
+# real defects through:
+#
+#   * an optimizer that selected on its TEST SET (in-sample produced zero
+#     trades, so the gate `isp >= -1.0` could never fail)
+#   * a nightly tuner that reported tightening LIVE_STOP_PCT when its regex had
+#     matched nothing
+#   * a self-improve loop that reported success after verifying nothing
+#   * a claim in the public site that flipped to "supported" on a single trade
+#
+# None of those are caught by a compile check. They are caught by the guard
+# scripts in this repo. This workflow runs them on every push and PR.
+#
+# DESIGN NOTE: `check-books.py` imports ONLY the Python standard library plus
+# the local `book_units` module. So this job does not install requirements.txt
+# at all -- it is fast, and it cannot fail because of an unrelated dependency
+# problem. If a guard later needs third-party packages, add an install step
+# with a pinned requirements file.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guards:
+    name: check-books + guards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Match the production interpreter version (the box runs 3.12.3).
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Show python version
+        run: python3 --version
+
+      # The main health check: 11 groups covering ledger integrity, positions,
+      # cron wiring, backup freshness and the verify-consumption check.
+      # Run from scripts/ because it imports local modules by name.
+      - name: check-books (11 groups)
+        working-directory: scripts
+        run: python3 -B check-books.py
+
+      # Verify-consumption: every self-improve change must be provably
+      # consumed. This exists because a change was once written, reported as
+      # applied, and silently ignored.
+      - name: verify self-improve changes are consumed
+        run: python3 -B scripts/check-improvement-consumed.py
+
+      # The public site must never render a number the ledger does not
+      # support. This is the one failure this product cannot carry.
+      - name: audit site claims against the ledger
+        run: python3 -B scripts/audit_site_claims.py
+
+      # Byte-compile every script. Catches syntax errors before they reach a
+      # cron job at 03:20 on a box nobody is watching.
+      - name: byte-compile all scripts
+        run: python3 -m compileall -q scripts/ && echo "all scripts compile"
