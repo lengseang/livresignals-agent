@@ -1,12 +1,12 @@
 # Task board
 
-Status: `todo` · `doing` · `done` · `blocked (reason)` · `owner` (escalated, waits for the owner)
-Pick the first `todo` whose deps are `done`. Add tasks you discover at the end of their phase.
+Status: `todo` · `doing` · `review (#PR)` · `done` (merged) · `blocked (reason)` · `owner` (escalated, waits for the owner)
+Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover at the end of their phase.
 
 ## Phase 0: Foundations
 | ID | Task | Deps | Status |
 |---|---|---|---|
-| T0.1 | Loop scaffolding: LOOP, ROADMAP, TASKS, JOURNAL, ESCALATIONS | none | done |
+| T0.1 | Loop scaffolding: LOOP, ROADMAP, TASKS, JOURNAL, ESCALATIONS | none | review (#1) |
 | T0.2 | `tests/loop/` harness + conftest that runs without `trading.data`; one smoke test | T0.1 | todo |
 | T0.3 | Design only: F1 duplicate-buy on crash (`trend_follower.py:301/310`) | T0.1 | todo |
 | T0.4 | Design only: F2 stranded position on failed sell (`trend_follower.py:239/271`) | T0.1 | todo |

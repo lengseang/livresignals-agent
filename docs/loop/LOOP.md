@@ -28,12 +28,16 @@ Companion files:
 4. **Design** (if the task changes behaviour). Write `designs/<task-id>.md`:
    problem, options, choice, failure modes, test plan. Then run an adversarial
    self-review ("it is 3 months later and this failed: why?") and record it in the design.
-5. **Build** on branch `loop/<task-id>-<slug>`, cut from `loop/integration`.
+5. **Build** on branch `loop/<task-id>-<slug>`. Cut it from the tip of the most recent
+   unmerged loop branch (a stack), or from `loop/integration` if nothing is pending.
 6. **Verify.** Run the real checks: pytest on the new tests with `.venv` (CPython 3.12.3),
    `python -m compileall` on the touched dirs, and a real runtime check if it runs.
    Paste the command and its result into the PR body.
-7. **Ship.** One task = one PR into `loop/integration`, with the reason in the commit
-   message. Merge only if the verification passed. Never merge into `main`.
+7. **Ship.** One task = one PR, with the reason in the commit message. The PR's base is
+   the branch it was cut from, so each PR shows only its own diff. **The loop never
+   merges anything; the owner reviews and merges.** Record the PR link in `TASKS.md`
+   as `review (#N)`. A task whose deps are in `review` counts as satisfied for picking,
+   because it builds on the stacked branch.
 8. **Record.** Mark the task `done` (or `blocked` with the reason), add a
    `JOURNAL.md` entry, and add any new tasks you discovered to `TASKS.md`.
 9. **Reflect.** If you learned something durable (a pitfall, an API quirk, a
@@ -47,7 +51,7 @@ Companion files:
 - adding **new** modules for paper-only features (no import of any live/order client)
 - adding tests, fixtures, and local data recordings under `data/local/` (gitignored)
 - running local services on this machine for testing
-- opening and merging PRs into `loop/integration`
+- opening PRs (stacked, see §1 step 7); never merging them
 - in `livresignals` (front end): branch work for the operator terminal, on a
   `loop/*` branch only, from Phase 6 on
 
@@ -57,7 +61,8 @@ Companion files:
 - modifying existing real-money scripts: `trend_follower.py`, `live_executor.py`,
   `futures_executor.py`, `unified_trader.py`, `manager.py`, `src/trading/exchange/live_client.py`
 - running `live_executor.py`, `trend_follower.py`, `night_tuner.py`, `watchdog_alert.py`
-- merging to `main`, deploying to the VPS, touching pm2 or cron
+- merging any PR (all merges are the owner's review step), deploying to the VPS,
+  touching pm2 or cron
 - sending a real Telegram message or posting publicly (dry-run until approved)
 - signing up for services, using or creating API keys, spending money
 - anything illegal, including scraping paid or private signal groups; public sources only
