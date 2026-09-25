@@ -3,6 +3,19 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-25 · T0.4 design for F2 (stranded real position)
+- **Need check:** ccxt exception classes and Binance error mapping, verified in the installed
+  ccxt 4.5.73 (`InsufficientFunds` at `binance.py:2791`, `-2010` → `InvalidOrder` at `:2523`). No prod files needed.
+- **Done:** `docs/loop/designs/T0.4.md`. A failed sell flips the paper flag first, so the exit is
+  never retried, **the hard stop turns off** and the same coin can be bought again. Design: a
+  real exit pass driven by `real.open`, `exit_pending` retries classified by exception,
+  never holding a symbol twice, exits recorded from the fill price or `UNKNOWN`.
+- **Anti-slop self-review:** the first draft said a blind retry after a client-side timeout
+  would fail harmlessly with `InsufficientFunds`. That's false when the wallet holds other units
+  of the coin (as in the DOGE incident). Replaced with a sell-side `clientOrderId` lookup
+  before any retry.
+- **Evidence:** docs only. The implementation is T8.1 (owner-gated).
+
 ## 2026-09-25 · T0.3 design for F1 (duplicate real buy)
 - **Need check:** time-sensitive facts about Binance order IDs and ccxt behaviour, so I checked
   primary sources: [binance-spot-api-docs rest-api.md](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md)

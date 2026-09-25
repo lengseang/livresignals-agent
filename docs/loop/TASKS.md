@@ -9,7 +9,7 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 | T0.1 | Loop scaffolding: LOOP, ROADMAP, TASKS, JOURNAL, ESCALATIONS | none | done (#1) |
 | T0.2 | `tests/loop/` harness + conftest that runs without `trading.data`; one smoke test | T0.1 | review (#2) |
 | T0.3 | Design only: F1 duplicate-buy on crash (`trend_follower.py:301/310`) | T0.1 | review (#3) |
-| T0.4 | Design only: F2 stranded position on failed sell (`trend_follower.py:239/271`) | T0.1 | todo |
+| T0.4 | Design only: F2 stranded position on failed sell (`trend_follower.py:239/271`) | T0.1 | review (#4) |
 | T0.5 | Design only: F3 dropped records + paper price on real exits, UNKNOWN rule | T0.1 | todo |
 | T0.6 | Design only: F4 `live_executor.manage()` partial-drift reconcile + no invented exit | T0.1 | todo |
 | T0.7 | Commit `src/trading/data/` (F5) | owner files | owner |

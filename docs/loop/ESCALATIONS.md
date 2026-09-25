@@ -2,8 +2,8 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
-## E4 · Review the F1 fix design (T0.3, PR #3)
-`docs/loop/designs/T0.3.md`. It needs your approval before T8.1 can implement it, plus two facts:
+## E4 · Review the F1 and F2 fix designs (T0.3 PR #3, T0.4 PR #4)
+`docs/loop/designs/T0.3.md` and `T0.4.md`. F2 is High: a failed sell currently leaves a real position with **no hard stop**. Both need your approval before T8.1 can implement it, plus two facts:
 (a) the dust threshold for "this coin is held" (proposed $1); (b) the output of
 `df -T /opt/trading-agent` (whether atomic rename + fsync behaves as the design assumes).
 **Answer:**
