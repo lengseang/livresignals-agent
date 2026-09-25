@@ -10,11 +10,12 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 | T0.2 | `tests/loop/` harness + conftest that runs without `trading.data`; one smoke test | T0.1 | review (#2) |
 | T0.3 | Design only: F1 duplicate-buy on crash (`trend_follower.py:301/310`) | T0.1 | review (#3) |
 | T0.4 | Design only: F2 stranded position on failed sell (`trend_follower.py:239/271`) | T0.1 | review (#4) |
-| T0.5 | Design only: F3 dropped records + paper price on real exits, UNKNOWN rule | T0.1 | todo |
+| T0.5 | Design only: F3 dropped records + paper price on real exits, UNKNOWN rule | T0.1 | review (#5) |
 | T0.6 | Design only: F4 `live_executor.manage()` partial-drift reconcile + no invented exit | T0.1 | todo |
 | T0.7 | Commit `src/trading/data/` (F5) | owner files | owner |
 | T0.8 | CI fix: `check-books.py` base path from env (F6) | owner OK | owner |
 | T0.9 | `tests/test_forward.py::test_wallet_cap_no_dead_entries` reads the real `data/trading.db` (test line 35); fails off-VPS with `unable to open database file`. Make it use the temp-DB fixture the same file already has (line 46). Test-only change | T0.2 | todo |
+| T0.10 | Readers stop labelling the paper trend log as real money: `expectancy_vs_fee.py:101`, `fee_audit.py:97-115` (hardcoded $5 stake), add `real.closed` row to `book_units.py`. Design in `designs/T0.5.md` §4; its own PR. Useful before `real.closed` exists: relabel + print "no real closes recorded yet" | T0.5 | todo |
 
 ## Phase 1: Research (docs only)
 | ID | Task | Deps | Status |

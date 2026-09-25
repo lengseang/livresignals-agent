@@ -2,7 +2,7 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
-## E4 · Review the F1 and F2 fix designs (T0.3 PR #3, T0.4 PR #4)
+## E4 · Review the F1, F2, F3 fix designs (PRs #3, #4, #5)
 `docs/loop/designs/T0.3.md` and `T0.4.md`. F2 is High: a failed sell currently leaves a real position with **no hard stop**. Both need your approval before T8.1 can implement it, plus two facts:
 (a) the dust threshold for "this coin is held" (proposed $1); (b) the output of
 `df -T /opt/trading-agent` (whether atomic rename + fsync behaves as the design assumes).
@@ -20,6 +20,9 @@ credentials). They get committed with a `!src/trading/data/` gitignore exception
 **Answer:**
 
 ## E1 · Work item 1 (live-record discrepancy): snapshot request
+**Lead (from T0.5):** the real trend book writes no closed record, and `fee_audit.py` /
+`expectancy_vs_fee.py` report the 53-symbol *paper* log as "REAL $". First check with the
+snapshot: does the reported real PnL match `trend-state.json` `log` × $5 rather than the wallet's trade history?
 Read-only: `data/trend-state.json`, `data/live-trades.json`, `data/fee-audit.json`,
 `reports/signal-ledger.json`, the last ~500 lines of `logs/trend.log` plus every `ERR`/`record dropped`
 line, `crontab -l`, wallet quantities for the 3 open coins, and whether `config/LIVE_ENABLED` exists.

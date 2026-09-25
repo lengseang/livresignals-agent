@@ -3,6 +3,21 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-25 · T0.5 design for F3 (real exits not recorded)
+- **Need check:** who reads the real trend book, found by grep across `scripts/`. ccxt `fetch_my_trades` exists
+  (`binance.py:8392`). No prod files needed for the design; confirming the lead needs E1.
+- **Done:** `docs/loop/designs/T0.5.md`. The real book has **no closed-trade record**: a real sell
+  writes nothing, a sub-minimum balance deletes the record, and `st.log` is the 53-symbol paper
+  log. Yet `expectancy_vs_fee.py:101` labels that log "REAL $" and `fee_audit.py` prices it at a
+  hardcoded $5 stake. Design: a `real.closed` list with fill-based values and `*_status` fields,
+  UNKNOWN when missing, no deletions, trade-history reconstruction only when quantities reconcile.
+- **Lead for work item 1:** the "live-record discrepancy" is plausibly real numbers being derived from
+  the paper log. Added to E1 as the first thing to check.
+- **New task:** T0.10 (readers stop calling the paper log real).
+- **Anti-slop self-review:** verified the symbol counts by parsing the file (SYMS=53, REAL_SYMS=15) and
+  corrected a line range (`fee_audit.py:97-115`).
+- **Evidence:** docs only.
+
 ## 2026-09-25 · T0.4 design for F2 (stranded real position)
 - **Need check:** ccxt exception classes and Binance error mapping, verified in the installed
   ccxt 4.5.73 (`InsufficientFunds` at `binance.py:2791`, `-2010` → `InvalidOrder` at `:2523`). No prod files needed.
