@@ -3,6 +3,16 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-25 · T0.9 test_forward uses a seeded DB
+- **Need check:** none external; read `forward.advance` and `AllocationConfig`.
+- **Done:** `test_wallet_cap_no_dead_entries` now uses the file's own `_seed_db` fixture and an explicit
+  config ($10 wallet, $4 buys), and asserts the exact entries `[4, 4, 2]`. Before, it read the real
+  `data/trading.db`: it failed off-VPS, and on an empty table every assertion passed vacuously.
+- **Evidence:** `pytest tests/test_forward.py`: `4 passed`. **Mutation check:** deleting the wallet cap
+  (`forward.py:75-76`) makes the test fail (`1 failed`), and the file was restored afterwards (`git status` shows only
+  the test file). Full suite: `54 passed, 3 skipped, 10 errors`. **0 failures** (was 1).
+- **Anti-slop:** the replaced test asserted `processed >= 0`, which is always true (test theater). The new one fails when the cap is broken.
+
 ## 2026-09-25 · T0.6 design for F4 (live_executor)
 - **Need check:** read `live_executor.py` and `live_client.py`; confirmed both books use the same
   `config/live.env` account. No external facts needed.
