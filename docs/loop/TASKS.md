@@ -30,7 +30,7 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 ## Phase 2: Data
 | ID | Task | Deps | Status |
 |---|---|---|---|
-| T2.1 | Design: tick ingest (bookTicker, aggTrade, kline_1s), reconnect, gap detection, storage format, retention | T1.2 | todo |
+| T2.1 | Design: tick ingest (bookTicker, aggTrade, kline_1s), reconnect, gap detection, storage format, retention | T1.2 | review (#14) |
 | T2.2 | Implement `src/trading/stream/` ingest + recorder to `data/local/` with fixture tests | T2.1 | todo |
 | T2.3 | Record 24h of real ticks for the paper universe on this machine; data-quality report | T2.2 | todo |
 | T2.4 | News + sentiment ingest (RSS, free APIs), timestamped, deduped, symbol-tagged | T1.2 | todo |
