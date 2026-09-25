@@ -3,6 +3,17 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-26 · T1.5 claims vs fees
+- **Need check:** repo-only. The exit rules (breakeven lock, trail, time stops) mean fixed-TP/SL p* doesn't apply,
+  so I switched to a "net per trade" test; the ledger files are needed (added to E1).
+- **Done:** `docs/research/claims-vs-fees.md`. **Derived from the repo's own numbers:** the 152-trade ledger behind the
+  2026-09-06 aggressive shift sums to +$0.52 gross on $5 positions, and at 0.144% RT that is net-positive only under 72
+  trades, so it was **net negative**. The studies behind the 70.2% capitulation and 15m SHARP claims contain **no fee
+  handling**. Only regime_trader's headline states fees included. Re-test order: futures SHARP (3x real money) → regime L/S →
+  capitulation → unified buckets.
+- **Escalation:** E7 (should `futures_executor` keep trading 3x real money on a signal whose only evidence is gross?).
+- **Anti-slop:** every figure not read from the repo is labelled **derived**, with its arithmetic shown.
+
 ## 2026-09-26 · T1.4 existing strategy inventory
 - **Need check:** repo-only (docstrings, code, crontab files). Nothing executed. Live crontab unknown (E1).
 - **Done:** `docs/research/strategy-inventory.md`. There are **4 real-money books**, not 1: trend_follower (spot),

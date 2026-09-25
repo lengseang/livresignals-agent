@@ -24,7 +24,7 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 | T1.2 | Source inventory: exchange WS/REST (limits), news (RSS, CryptoPanic), sentiment (Fear & Greed), on-chain, funding/OI, public Telegram/Discord channels. Cost, limits, latency, terms | T0.1 | review (#9) |
 | T1.3 | Strategy audit: microstructure/scalping literature (order-book imbalance, trade-flow, VWAP reversion, funding, breakout, mean reversion) vs our 5 rules; verdict test/skip | T1.1 | review (#10) |
 | T1.4 | Inventory of existing strategies already in the repo (unified_trader, adaptive_engine, regime_trader, scalping_sweep, gold_scanner...) with their claimed evidence and where it lives | T0.1 | review (#11) |
-| T1.5 | Plan to re-verify the `unified_trader.py:68` claim (5m 69% WR, +$0.37) from the ledger; list the exact files needed | T1.4 | todo |
+| T1.5 | Plan to re-verify the `unified_trader.py:68` claim (5m 69% WR, +$0.37) from the ledger; list the exact files needed | T1.4 | review (#13) |
 | T1.4b | Add `futures_executor.py` + `lev_satellite_manage.py` (real-money futures, no enable flag) to LOOP.md never-run/never-edit lists and to `tests/loop` BLOCKED_MODULES | T1.4 | review (#12) |
 
 ## Phase 2: Data

@@ -2,6 +2,13 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
+## E7 · Pause `futures_executor` until its signal is re-tested net of fees? (T1.5, PR #13)
+It trades **3x real futures** (every 10 min in `crontab.backup`, no enable flag) on the 15m SHARP + EMA200 signal. The
+only evidence is a gross study (its scripts have no fee handling): "SOL WR 51% → 61%, OOS +13.5%". At 3x, fees are
+charged on 3x the margin. Recommendation: pause its cron line (your action) until the T3.3 gate re-tests it with fees.
+Also: which crontab is live? (`crontab -l`, E1)
+**Answer:**
+
 ## E6 · Source decisions (T1.2, PR #9)
 (a) CryptoPanic is now paid-only: subscribe, or skip it (the RSS feeds are used instead)? (b) Reading public Telegram channels
 via `t.me/s/<channel>` is reachable but a terms gray area; allow it, use the official Telegram API with your account, or skip?
@@ -33,6 +40,7 @@ credentials). They get committed with a `!src/trading/data/` gitignore exception
 **Answer:**
 
 ## E1 · Work item 1 (live-record discrepancy): snapshot request
+**Also needed (T1.5):** `data/unified-paper.json`, `data/futures-trades.json`, `data/exit-params.json`, and the source of `/tmp/live_fine.json` (3.6y study data, not in git).
 **Lead (from T0.5):** the real trend book writes no closed record, and `fee_audit.py` /
 `expectancy_vs_fee.py` report the 53-symbol *paper* log as "REAL $". First check with the
 snapshot: does the reported real PnL match `trend-state.json` `log` × $5 rather than the wallet's trade history?
