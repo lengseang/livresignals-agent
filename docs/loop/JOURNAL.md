@@ -3,6 +3,24 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-25 · T0.3 design for F1 (duplicate real buy)
+- **Need check:** time-sensitive facts about Binance order IDs and ccxt behaviour, so I checked
+  primary sources: [binance-spot-api-docs rest-api.md](https://github.com/binance/binance-spot-api-docs/blob/master/rest-api.md)
+  (`newClientOrderId` is unique only among OPEN orders; a filled one can be reused) and the
+  installed ccxt 4.5.73 source. No prod files needed.
+- **Done:** `docs/loop/designs/T0.3.md`. It found three paths to a duplicate buy, not one:
+  (A) a kill between order and save, (B) a torn write that `load()` silently reads as an empty
+  book, (C) overlapping cron runs with no lock. Design: atomic save, fail closed on a corrupt
+  state file, a run lock, a write-ahead intent with a client order ID that is resolved at the
+  next start, and a wallet-count cap. Entry price comes from the fill, otherwise `UNKNOWN`.
+- **Anti-slop self-review:** fixed wrong ccxt line references (they pointed at
+  `edit_spot_order_request`, not `create_order_request`), removed an ungrounded
+  "exception escapes the loop" path (the loop catches at `:307`), removed speculation about
+  Binance order retention, marked the $1 dust threshold and the VPS filesystem as owner-to-confirm,
+  and added path C. The audit is recorded here instead of a separate `docs/local/audits` file, to
+  keep this PR to one change.
+- **Evidence:** docs only; nothing to execute. The implementation is T8.1 (owner-gated).
+
 ## 2026-09-25 · T0.2 tests/loop harness
 - **Need check:** no external data or prod files; test-only code.
 - **Done:** `tests/loop/conftest.py` with two autouse guards (no network unless
