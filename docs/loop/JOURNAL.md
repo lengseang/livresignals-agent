@@ -3,6 +3,17 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-25 · T1.1 fees and break-even
+- **Need check:** fees are time-sensitive, so I searched. binance.com and developers.binance.com refuse connections
+  from this machine (ECONNREFUSED); used the official API docs on GitHub (primary) plus secondary fee guides.
+  The docs' BNB-discount examples contradict each other (0.25 vs 0.75), so the account's real rate is UNKNOWN until E1.
+- **Done:** `research/07-breakeven.py` (tested, `tests/loop/test_breakeven.py`) and `docs/research/fees-and-breakeven.md`.
+  Result: symmetric scalps at TP ≤ 0.3% need 74–90%+ win rates to break even, and 0.2% is near impossible.
+  Viable zone: TP ≥ ~1%, asymmetric R, or maker entries. This constrains Phase 3 (score signals net of cost)
+  and Phase 4 (targets ≥ 1%, and the fill model must price non-fill risk).
+- **Evidence:** `pytest tests/loop`: `10 passed`. The table is script output, not hand-typed.
+- **Anti-slop:** no fee number is presented as this account's actual rate; the scenarios are labelled scenarios.
+
 ## 2026-09-25 · T0.9 test_forward uses a seeded DB
 - **Need check:** none external; read `forward.advance` and `AllocationConfig`.
 - **Done:** `test_wallet_cap_no_dead_entries` now uses the file's own `_seed_db` fixture and an explicit
