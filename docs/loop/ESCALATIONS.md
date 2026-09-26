@@ -2,6 +2,17 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
+## E8 · Operator terminal decisions (T6.1, PR #21 §11)
+(1) Should `/terminal` exist on the public deploy, or only in local dev? (The design keeps it inert without a feed URL.)
+(2) Approve the new `term-*` colour token namespace (the front end's AGENTS.md requires approval for token changes).
+(3) Hide the animated background on `/terminal` with one scoped CSS rule, or use separate root layouts?
+(4) Keep numbers in Inter tabular figures (the site rule is "no monospace for money"), or go all-mono in the terminal?
+(5) Checks + screenshots only, or add a dev-only JS test runner (a new dependency)?
+(6) May T6.2 add the terminal's naming and feed-validation rules to the front end's AGENTS.md?
+(7) Widen `check-tokens.py`'s glob yourself, or rely on the flat `components/Term*.tsx` naming?
+(8) The profit/loss colour contrast measures 1.50 by WCAG vs 1.19 in the config comment. Which method was intended?
+**Answer:**
+
 ## E7 · Pause `futures_executor` until its signal is re-tested net of fees? (T1.5, PR #13)
 It trades **3x real futures** (every 10 min in `crontab.backup`, no enable flag) on the 15m SHARP + EMA200 signal. The
 only evidence is a gross study (its scripts have no fee handling): "SOL WR 51% → 61%, OOS +13.5%". At 3x, fees are
