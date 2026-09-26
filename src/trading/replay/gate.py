@@ -19,8 +19,17 @@ With N = 1 there is no selection, SR0 = 0 and DSR is the plain PSR against zero.
 published worked example (SR0 = 0.1132, DSR = 0.9004), see tests/loop/test_gate.py.
 
 Here the observations are the strategy's **out-of-sample closed trades** (net per-trade returns of the
-shared "net" account), because the replay does not persist its equity curve. Every logged trial counts
-toward N, including variants that were looked at and discarded.
+shared "net" account), because the replay does not persist its equity curve.
+
+What counts as a trial (T3.3b). N is the number of DISTINCT hypotheses in the trial log, not the number of
+logged runs. A hypothesis is `trial_key()`: strategy + params + universe (symbols, order-free) + trade window.
+Re-running the same hypothesis on a different cost model or broker (flat costs vs the measured paper fill
+model), or with a new run_id, is the same trial: it re-prices the same selection, it does not add one. A
+different universe or window IS a new trial (it is a researcher choice, and counting it keeps N
+conservative). Every variant that was looked at and discarded still counts. The raw log is never rewritten;
+the grouping is recomputed on each gate run and written into gate.json (checks.dsr.trials). Each distinct
+trial contributes one Sharpe to V[SR_n]: the gated run's own for its group, otherwise the latest logged run
+of that group whose Sharpe is recoverable.
 """
 from __future__ import annotations
 
@@ -249,6 +258,38 @@ def trial_sharpe(run: Path) -> float | None:
     return sharpe_moments([t["net_ret"] for t in tr])["sr"]
 
 
+# Fields of a trial-log line that define the hypothesis. Everything else (run_id, broker, costs, fill model,
+# holdout_opened, mode) describes how or when it was executed, not what was tried.
+TRIAL_IDENTITY = ("strategy", "params", "symbols", "trade_from", "to")
+
+
+def trial_key(t: dict) -> str:
+    """Canonical identity of one logged run's hypothesis (see the module docstring)."""
+    syms = t.get("symbols")
+    ident = {"strategy": t.get("strategy"), "params": t.get("params") or {},
+             "symbols": sorted(syms) if syms else None, "trade_from": t.get("trade_from"), "to": t.get("to")}
+    return json.dumps(ident, sort_keys=True, separators=(",", ":"))
+
+
+def distinct_trials(trials: list[dict]) -> list[dict]:
+    """Group logged runs by trial_key, in first-logged order: [{key, run_ids}] (run_ids in log order)."""
+    groups: dict[str, dict] = {}
+    for t in trials:
+        k = trial_key(t)
+        groups.setdefault(k, {"key": json.loads(k), "run_ids": []})["run_ids"].append(t.get("run_id"))
+    return list(groups.values())
+
+
+def _group_sharpe(root: Path, run_ids: list, gated_run_id: str | None) -> tuple[float | None, str | None]:
+    """One Sharpe per distinct trial: the gated run's if it is in this group, else the latest recoverable."""
+    order = ([gated_run_id] if gated_run_id in run_ids else []) + [r for r in reversed(run_ids) if r]
+    for rid in order:
+        sr = trial_sharpe(root / rid)
+        if sr is not None:
+            return sr, rid
+    return None, None
+
+
 def evaluate(run: Path, trials_path: Path | None = None, split_cli: str | None = None) -> dict:
     s = json.loads((run / "summary.json").read_text(encoding="utf-8"))
     trials_path = trials_path or run.parent / "trials.jsonl"
@@ -258,8 +299,15 @@ def evaluate(run: Path, trials_path: Path | None = None, split_cli: str | None =
 
     trials = [json.loads(x) for x in trials_path.read_text(encoding="utf-8").splitlines() if x.strip()] \
         if trials_path.exists() else []
-    n_trials = max(len(trials), 1)
-    sharpes = [trial_sharpe(trials_path.parent / t["run_id"]) for t in trials] if n_trials > 1 else None
+    groups = distinct_trials(trials)
+    n_trials = max(len(groups), 1)
+    sharpes = None
+    if n_trials > 1:
+        sharpes = []
+        for g in groups:
+            sr, src = _group_sharpe(trials_path.parent, g["run_ids"], s.get("run_id"))
+            g["sharpe"], g["sharpe_from"] = sr, src
+            sharpes.append(sr)
 
     acc, bh = s["accounts"]["net"], s.get("buy_and_hold", {}).get("net", {})
     exits = s.get("params", {}).get("exits")
@@ -270,6 +318,10 @@ def evaluate(run: Path, trials_path: Path | None = None, split_cli: str | None =
                   oos_btc_net_return=bh.get("periods", {}).get("OOS", {}).get("ret"),
                   regime=s.get("regime", {}).get("OOS"), cost_model=s["costs"]["net"],
                   n_trials=n_trials, trial_sharpes=sharpes, exits=exits)
+    res["checks"]["dsr"].update(
+        n_logged_runs=len(trials), trials=groups,
+        trial_rule="N = distinct (strategy, params, symbols, trade window) in the trial log; re-runs of the "
+                   "same set on another cost model or broker are the same trial (raw log kept intact)")
     return {"mode": "REPLAY", "label": LABEL, "run_id": s.get("run_id"), "strategy": s.get("strategy"),
             "params": s.get("params"), "verdict": res["verdict"], "reasons": res["reasons"],
             "oos_window": {"from": split, "to": end, "split_source": split_src,
@@ -277,7 +329,7 @@ def evaluate(run: Path, trials_path: Path | None = None, split_cli: str | None =
             "trials_log": str(trials_path), "checks": res["checks"],
             "gated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "caveats": ["Observations for DSR are OOS per-trade net returns (the equity curve is not persisted).",
-                        "N counts logged trials only; choices made before logging (e.g. SMA50 chosen over "
+                        "N counts distinct logged parameter sets only; choices made before logging (e.g. SMA50 chosen over "
                         "100/150/200 by the live script's author) are not in N, so N is a lower bound.",
                         "Fees, spread and slippage are the run's stated assumptions (real values UNKNOWN).",
                         *s.get("caveats", [])]}
@@ -313,7 +365,9 @@ def markdown(r: dict) -> str:
                      f"({_p(e['mean_gross_return_per_trade'])} vs {e['round_trip_cost']:.3%}); win rate "
                      f"{_wr(e['win_rate_net'])} | {'ok' if e['ok'] else 'not positive'} |")
     dv = "not computed: " + d.get("why_not_computed", "") if d["value"] is None else f"{d['value']:.4f}"
-    lines.append(f"| DSR (N = {d['n_trials']}, T = {d['t']}, SR/trade = "
+    runs = d.get("n_logged_runs")
+    lines.append(f"| DSR (N = {d['n_trials']} distinct parameter sets"
+                 f"{'' if runs is None else f' from {runs} logged runs'}, T = {d['t']}, SR/trade = "
                  f"{'UNKNOWN' if d['sr_per_trade'] is None else round(d['sr_per_trade'], 4)}, "
                  f"skew {'UNKNOWN' if d['skew'] is None else round(d['skew'], 2)}, kurt "
                  f"{'UNKNOWN' if d['kurtosis'] is None else round(d['kurtosis'], 2)}) | {dv} "

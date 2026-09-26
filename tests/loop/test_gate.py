@@ -223,3 +223,103 @@ def test_gate_never_imports_an_exchange_client():
     env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[2] / "src"))
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True)
     assert out.stdout.strip() == ""
+
+
+# ----- T3.3b: a trial is a distinct parameter set, not a logged run ------------------------------
+# The real log on 2026-09-26 held 5 runs: trend_sma sma 50/100/150/200 on the flat cost model, plus
+# sma 50 again on the measured paper broker. Only the cost model changed on the 5th, so N must be 4.
+_BASE = {"mode": "REPLAY", "strategy": "trend_sma", "symbols": ["BTCUSDT", "ETHUSDT"],
+         "trade_from": "2017-11-01T00:00:00Z", "to": "2026-03-01T00:00:00Z", "holdout_opened": False}
+
+
+def _trial(run_id, sma, **extra):
+    return {**_BASE, "run_id": run_id, "params": {"sma": sma, "btc_sma": sma, "btc": "BTCUSDT", "interval": "1d"},
+            **extra}
+
+
+def test_trial_key_ignores_broker_run_id_and_holdout_flag():
+    a = _trial("r1", 50)
+    b = _trial("r1-paper", 50, broker="paper", holdout_opened=True)
+    assert gate.trial_key(a) == gate.trial_key(b)
+
+
+def test_trial_key_ignores_param_and_symbol_order():
+    a = _trial("r1", 50)
+    b = dict(a, params=dict(reversed(list(a["params"].items()))), symbols=list(reversed(a["symbols"])))
+    assert gate.trial_key(a) == gate.trial_key(b)
+
+
+def test_trial_key_changes_with_params_strategy_universe_or_window():
+    a = _trial("r1", 50)
+    assert gate.trial_key(a) != gate.trial_key(_trial("r2", 100))
+    assert gate.trial_key(a) != gate.trial_key(dict(a, strategy="trend_real"))
+    assert gate.trial_key(a) != gate.trial_key(dict(a, symbols=["BTCUSDT"]))
+    assert gate.trial_key(a) != gate.trial_key(dict(a, trade_from="2019-01-01T00:00:00Z"))
+
+
+def test_distinct_trials_on_the_real_log_shape_is_four():
+    log = [_trial("a", 50), _trial("b", 100), _trial("c", 50, broker="paper"), _trial("d", 150), _trial("e", 200)]
+    groups = gate.distinct_trials(log)
+    assert len(groups) == 4
+    assert [g["run_ids"] for g in groups] == [["a", "c"], ["b"], ["d"], ["e"]]    # first-logged order
+
+
+def _write_named_run(root: Path, run_id: str, n_trades: int, ret: float, params: dict) -> Path:
+    run = root / run_id
+    run.mkdir(parents=True)
+    split = 1640995200000                                          # 2022-01-01
+    summary = {
+        "mode": "REPLAY", "run_id": run_id, "strategy": "s", "params": params,
+        "costs": {"net": {"fee_rate": 0.001, "spread_bps": 2.0, "slippage_bps": 2.0}},
+        "window": {"trade_from": "2021-01-01T00:00:00Z", "to": "2023-01-01T00:00:00Z", "is_oos_split": "2022-01"},
+        "accounts": {"net": {"return_liquidated": 0.4, "periods": {"OOS": {"ret": 0.2}, "full": {"ret": 0.4}}}},
+        "buy_and_hold": {"net": {"periods": {"OOS": {"ret": 0.1}}}},
+        "regime": {"OOS": {"label": "range, low-vol"}},
+    }
+    (run / "summary.json").write_text(json.dumps(summary), encoding="utf-8")
+    with open(run / "events.jsonl", "w", encoding="utf-8") as f:
+        for i in range(n_trades):
+            t = split + i * 86_400_000
+            sid = f"s:X:{t}"
+            f.write(json.dumps({"type": "signal", "ts_ms": t, "payload": {"id": sid, "account": "net"}}) + "\n")
+            r = ret + (0.01 if i % 2 else -0.01) + (0.002 if i % 3 == 0 else 0.0)
+            f.write(json.dumps({"type": "close", "ts_ms": t + 3_600_000,
+                                "payload": {"id": sid, "account": "net", "net_ret": r, "gross_ret": r + 0.003}}) + "\n")
+    return run
+
+
+_COMMON = {"strategy": "s", "symbols": ["X"], "trade_from": "2021-01-01T00:00:00Z", "to": "2023-01-01T00:00:00Z"}
+
+
+def test_cli_counts_distinct_parameter_sets_and_keeps_the_raw_log(tmp_path):
+    r1 = _write_named_run(tmp_path, "r1", 40, 0.02, {"n": 1})
+    _write_named_run(tmp_path, "r1-paper", 40, 0.01, {"n": 1})
+    _write_named_run(tmp_path, "r2", 40, 0.005, {"n": 2})
+    log = [dict(_COMMON, run_id="r1", params={"n": 1}),
+           dict(_COMMON, run_id="r1-paper", params={"n": 1}, broker="paper"),
+           dict(_COMMON, run_id="r2", params={"n": 2})]
+    raw = "".join(json.dumps(x) + "\n" for x in log)
+    (tmp_path / "trials.jsonl").write_text(raw, encoding="utf-8")
+
+    rep = gate.main(["--run", str(r1)])
+    d = rep["checks"]["dsr"]
+    assert d["n_trials"] == 2                         # {n:1} and {n:2}; the paper re-run is not a new trial
+    assert d["n_logged_runs"] == 3
+    assert d["trial_sharpes_found"] == 2              # one Sharpe per distinct trial, not per run
+    assert [g["run_ids"] for g in d["trials"]] == [["r1", "r1-paper"], ["r2"]]
+    assert d["trials"][0]["sharpe_from"] == "r1"      # the gated run represents its own group
+    assert d["trials"][1]["sharpe_from"] == "r2"
+    assert (tmp_path / "trials.jsonl").read_text(encoding="utf-8") == raw     # raw log untouched
+    assert "N = 2" in (r1 / "gate.md").read_text(encoding="utf-8")
+
+
+def test_group_sharpe_uses_latest_run_when_gated_run_is_elsewhere(tmp_path):
+    r3 = _write_named_run(tmp_path, "r3", 40, 0.02, {"n": 3})
+    _write_named_run(tmp_path, "r1", 40, 0.02, {"n": 1})
+    _write_named_run(tmp_path, "r1-paper", 40, 0.01, {"n": 1})
+    log = [dict(_COMMON, run_id="r1", params={"n": 1}), dict(_COMMON, run_id="r1-paper", params={"n": 1}),
+           dict(_COMMON, run_id="r3", params={"n": 3})]
+    (tmp_path / "trials.jsonl").write_text("".join(json.dumps(x) + "\n" for x in log), encoding="utf-8")
+    d = gate.main(["--run", str(r3)])["checks"]["dsr"]
+    assert d["n_trials"] == 2
+    assert d["trials"][0]["sharpe_from"] == "r1-paper"      # latest logged run of that parameter set
