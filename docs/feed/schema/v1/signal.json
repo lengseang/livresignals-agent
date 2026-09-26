@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/signal.json",
+  "title": "signal",
+  "description": "Replayable. class and cost_rt_pct are nullable in v1 (T6.1 had them required): trend_sma has no expected move and no measured cost, so they are null and listed in unknown.",
+  "type": "object",
+  "required": [
+    "action",
+    "class",
+    "cost_rt_pct",
+    "evidence",
+    "expected_move_pct",
+    "extra",
+    "family",
+    "gate_status_at_fire",
+    "interval",
+    "latency_ms",
+    "p_star",
+    "params",
+    "reason",
+    "ref_price",
+    "side",
+    "signal_id",
+    "sl_pct",
+    "source",
+    "strategy_id",
+    "strategy_version",
+    "symbol",
+    "tp_pct",
+    "unknown"
+  ],
+  "properties": {
+    "signal_id": {
+      "type": "string"
+    },
+    "strategy_id": {
+      "type": "string"
+    },
+    "strategy_version": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "family": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "params": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "side": {
+      "enum": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "action": {
+      "enum": [
+        "open",
+        "close",
+        null
+      ]
+    },
+    "interval": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "class": {
+      "enum": [
+        "TRADEABLE",
+        "OBSERVED",
+        null
+      ]
+    },
+    "ref_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "tp_pct": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "sl_pct": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "expected_move_pct": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "cost_rt_pct": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "p_star": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "gate_status_at_fire": {
+      "enum": [
+        "PASSED",
+        "FAILED",
+        "PENDING",
+        "INSUFFICIENT"
+      ]
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "evidence": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "latency_ms": {
+      "type": "object",
+      "required": [
+        "tick_to_signal"
+      ],
+      "properties": {
+        "tick_to_signal": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "kind",
+        "run_id",
+        "seq",
+        "ts_emit_ms"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "scanner",
+            "replay"
+          ]
+        },
+        "seq": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ts_emit_ms": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "extra": {
+      "type": "object",
+      "description": "every source key not mapped to a v1 field, verbatim (nothing dropped)"
+    },
+    "unknown": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "names of fields that are null because the source cannot know them (status UNKNOWN)"
+    }
+  },
+  "additionalProperties": false
+}

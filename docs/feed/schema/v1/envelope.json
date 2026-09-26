@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/envelope.json",
+  "title": "Feed envelope v1",
+  "description": "Every SSE event. simulated must be true (there is no rendering path for real money). seq: strictly increasing over replayable events (which carry SSE id = seq); control events (hello, heartbeat, quotes, resync) repeat the last replayable seq and carry no SSE id. ts_event_ms is null where the source has no market time.",
+  "type": "object",
+  "required": [
+    "data",
+    "mode",
+    "run_id",
+    "seq",
+    "simulated",
+    "ts_emit_ms",
+    "ts_event_ms",
+    "type",
+    "v"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "type": {
+      "enum": [
+        "hello",
+        "heartbeat",
+        "quotes",
+        "signal",
+        "paper_fill",
+        "position",
+        "strategy_status",
+        "data_quality",
+        "resync"
+      ]
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ts_emit_ms": {
+      "type": "integer"
+    },
+    "ts_event_ms": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "LIVE_PAPER",
+        "REPLAY"
+      ]
+    },
+    "simulated": {
+      "const": true
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,454 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/strategy_status.json",
+  "title": "strategy_status",
+  "description": "Replayable batch of strategy rows (same shape as /v1/strategies items). Rule: win_rate_pct is non-null only with win_rate_basis 'p_star' and p_star_pct non-null, or 'mean_net_vs_cost' with expectancy_net_pct and cost_rt_pct non-null. No gate.json => gate.status PENDING and every evidence number null.",
+  "type": "object",
+  "required": [
+    "items"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/row"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "row": {
+      "type": "object",
+      "required": [
+        "caveats",
+        "evidence",
+        "family",
+        "gate",
+        "live",
+        "params",
+        "params_hash",
+        "run_id",
+        "state",
+        "strategy_id",
+        "symbols",
+        "timeframe",
+        "unknown",
+        "version"
+      ],
+      "properties": {
+        "strategy_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "family": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "params": {
+          "type": "object"
+        },
+        "params_hash": {
+          "type": "string"
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timeframe": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "enum": [
+            "SCANNING",
+            "PAUSED",
+            "DISABLED",
+            "ERROR",
+            null
+          ]
+        },
+        "gate": {
+          "type": "object",
+          "required": [
+            "evaluated_ms",
+            "reasons",
+            "status"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "PASSED",
+                "FAILED",
+                "PENDING",
+                "INSUFFICIENT"
+              ]
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "evaluated_ms": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        "evidence": {
+          "type": "object",
+          "required": [
+            "cost_rt_pct",
+            "dsr",
+            "dsr_trials",
+            "expectancy_gross_pct",
+            "expectancy_net_pct",
+            "is_window",
+            "max_dd_pct",
+            "oos_status",
+            "oos_window",
+            "p_star_pct",
+            "profit_factor_net",
+            "regime",
+            "sharpe_oos",
+            "sl_pct",
+            "source",
+            "sr_per_trade_oos",
+            "tp_pct",
+            "trades",
+            "unknown",
+            "vs_btc",
+            "win_rate_basis",
+            "win_rate_pct"
+          ],
+          "properties": {
+            "source": {
+              "enum": [
+                "LIVE_PAPER",
+                "REPLAY"
+              ]
+            },
+            "is_window": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "from_ms",
+                    "to_ms"
+                  ],
+                  "properties": {
+                    "from_ms": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "to_ms": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "oos_window": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "required": [
+                    "from_ms",
+                    "to_ms"
+                  ],
+                  "properties": {
+                    "from_ms": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "to_ms": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "trades": {
+              "type": "object",
+              "required": [
+                "is",
+                "oos"
+              ],
+              "properties": {
+                "is": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "oos": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "win_rate_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "win_rate_basis": {
+              "enum": [
+                "p_star",
+                "mean_net_vs_cost",
+                null
+              ]
+            },
+            "p_star_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "tp_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "sl_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "cost_rt_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "expectancy_net_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "expectancy_gross_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "profit_factor_net": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "sharpe_oos": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "sr_per_trade_oos": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "dsr": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "dsr_trials": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "oos_status": {
+              "enum": [
+                "POSITIVE",
+                "NEGATIVE",
+                "INSUFFICIENT",
+                "NOT_RUN"
+              ]
+            },
+            "vs_btc": {
+              "type": "object",
+              "required": [
+                "beats",
+                "btc_ret_pct",
+                "strategy_ret_pct"
+              ],
+              "properties": {
+                "strategy_ret_pct": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "btc_ret_pct": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "beats": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "regime": {
+              "type": "object",
+              "required": [
+                "label",
+                "trend",
+                "vol"
+              ],
+              "properties": {
+                "trend": {
+                  "enum": [
+                    "trend",
+                    "range",
+                    null
+                  ]
+                },
+                "vol": {
+                  "enum": [
+                    "high",
+                    "low",
+                    null
+                  ]
+                },
+                "label": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            },
+            "max_dd_pct": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "unknown": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "names of fields that are null because the source cannot know them (status UNKNOWN)"
+            }
+          },
+          "additionalProperties": false
+        },
+        "live": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "last_signal_ms",
+                "open_positions",
+                "pnl_net_pct_24h",
+                "signals_24h"
+              ],
+              "properties": {
+                "signals_24h": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "last_signal_ms": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "open_positions": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "pnl_net_pct_24h": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "caveats": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unknown": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "names of fields that are null because the source cannot know them (status UNKNOWN)"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

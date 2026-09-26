@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/quotes.json",
+  "title": "quotes",
+  "description": "Conflated top of book, at most 1 batch/s, LIVE_PAPER only (a replay has no book). quote_recv_ms is local receive time (book quotes have no exchange time); trade_ms is exchange time.",
+  "type": "object",
+  "required": [
+    "items"
+  ],
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/quote"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "quote": {
+      "type": "object",
+      "required": [
+        "ask",
+        "bid",
+        "chg_1h_pct",
+        "chg_1m_pct",
+        "gap_open",
+        "last",
+        "msgs_per_s",
+        "quote_recv_ms",
+        "spread_bp",
+        "symbol",
+        "trade_ms",
+        "unknown"
+      ],
+      "properties": {
+        "symbol": {
+          "type": "string"
+        },
+        "bid": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "ask": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "last": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "spread_bp": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "chg_1m_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "chg_1h_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "msgs_per_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "quote_recv_ms": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "trade_ms": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "gap_open": {
+          "type": "boolean"
+        },
+        "unknown": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "names of fields that are null because the source cannot know them (status UNKNOWN)"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

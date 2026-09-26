@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/paper_fill.json",
+  "title": "paper_fill",
+  "description": "Replayable. account = the replay's scenario account (net, gross, stress, bh_*): scenarios are separate simulations of the same signals and must not be summed.",
+  "type": "object",
+  "required": [
+    "account",
+    "extra",
+    "fee_bp",
+    "fee_quote",
+    "fill_id",
+    "fill_price",
+    "flags",
+    "intent",
+    "liquidity",
+    "model_version",
+    "modelled_latency_ms",
+    "qty",
+    "ref_price",
+    "side",
+    "signal_id",
+    "slippage_bp",
+    "spread_paid_bp",
+    "status",
+    "strategy_id",
+    "symbol",
+    "unknown"
+  ],
+  "properties": {
+    "fill_id": {
+      "type": "string"
+    },
+    "signal_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "strategy_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "side": {
+      "enum": [
+        "BUY",
+        "SELL",
+        null
+      ]
+    },
+    "intent": {
+      "enum": [
+        "OPEN",
+        "CLOSE"
+      ]
+    },
+    "status": {
+      "enum": [
+        "FILLED",
+        "PARTIAL",
+        "NOT_FILLED"
+      ]
+    },
+    "liquidity": {
+      "enum": [
+        "MAKER",
+        "TAKER",
+        null
+      ]
+    },
+    "ref_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "fill_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "qty": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "fee_quote": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "fee_bp": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "spread_paid_bp": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "slippage_bp": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "modelled_latency_ms": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "model_version": {
+      "type": "string"
+    },
+    "account": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "flags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "extra": {
+      "type": "object",
+      "description": "every source key not mapped to a v1 field, verbatim (nothing dropped)"
+    },
+    "unknown": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "names of fields that are null because the source cannot know them (status UNKNOWN)"
+    }
+  },
+  "additionalProperties": false
+}

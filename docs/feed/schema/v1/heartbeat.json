@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/heartbeat.json",
+  "title": "heartbeat",
+  "description": "Control event, per connection. latency/rates are null (UNKNOWN) until measured; clock is the recorder's latest exchange-clock offset sample (recv clock minus server clock), if any.",
+  "type": "object",
+  "required": [
+    "clients",
+    "clock",
+    "components",
+    "dropped_total",
+    "latency_ms",
+    "rates",
+    "refused_total",
+    "replay",
+    "seq",
+    "unknown",
+    "uptime_s"
+  ],
+  "properties": {
+    "uptime_s": {
+      "type": "number"
+    },
+    "seq": {
+      "type": "integer"
+    },
+    "clients": {
+      "type": "integer"
+    },
+    "dropped_total": {
+      "type": "integer"
+    },
+    "refused_total": {
+      "type": "integer"
+    },
+    "components": {
+      "type": "object",
+      "required": [
+        "ingest",
+        "paper_engine",
+        "recorder",
+        "scanner"
+      ],
+      "properties": {
+        "ingest": {
+          "enum": [
+            "ok",
+            "degraded",
+            "down",
+            "unknown"
+          ]
+        },
+        "scanner": {
+          "enum": [
+            "ok",
+            "degraded",
+            "down",
+            "unknown"
+          ]
+        },
+        "paper_engine": {
+          "enum": [
+            "ok",
+            "degraded",
+            "down",
+            "unknown"
+          ]
+        },
+        "recorder": {
+          "enum": [
+            "ok",
+            "degraded",
+            "down",
+            "unknown"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "latency_ms": {
+      "type": "object",
+      "required": [
+        "exch_to_recv_p50",
+        "exch_to_recv_p99",
+        "recv_to_scan_p50",
+        "scan_to_emit_p50"
+      ],
+      "properties": {
+        "exch_to_recv_p50": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "exch_to_recv_p99": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "recv_to_scan_p50": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "scan_to_emit_p50": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "rates": {
+      "type": "object",
+      "required": [
+        "signals_per_min",
+        "ticks_per_s"
+      ],
+      "properties": {
+        "ticks_per_s": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "signals_per_min": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "replay": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "progress",
+            "sim_time_ms"
+          ],
+          "properties": {
+            "sim_time_ms": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "progress": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "clock": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "offset_ms",
+            "recv_ms",
+            "rtt_ms",
+            "status"
+          ],
+          "properties": {
+            "offset_ms": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "rtt_ms": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "status": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "recv_ms": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "unknown": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "names of fields that are null because the source cannot know them (status UNKNOWN)"
+    }
+  },
+  "additionalProperties": false
+}
