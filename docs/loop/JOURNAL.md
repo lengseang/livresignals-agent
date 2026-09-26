@@ -3,6 +3,25 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-26 · Parallel wave 1 (owner: "do them all now"): 4 sub-agents, 5 PRs
+Each agent worked in an isolated worktree with a self-contained brief. I **verified each PR myself** in a fresh checkout
+(scope, tests, key claims) before recording it here.
+- **T2.4 news, #19:** 4 RSS + Fear & Greed; real run 109 items, 0 errors, dedupe across runs verified. Verified: 14 new files only,
+  `tests/loop` 94 passed, no exchange imports. The agent caught a real bug (email.utils treats unknown zones like "CEST" as UTC, so
+  those are now UNKNOWN).
+- **T4.1 fill model, #20:** measured spreads over 7.56 h (not ~15 h; my brief misread UTC log times as local). Spread ≈ 1 tick
+  89–100% of the time: BTC 0.0012 bp (verified = 0.01/84000), DOT 8.4 bp. A $50 order exceeds L1 at 13–25% of trades on the liquid
+  coins. Verified: 4 files, 49 passed.
+- **T6.1 terminal design, #21:** 11 feed event types, SSE (FastAPI 0.141.1 `fastapi.sse` verified present), square corners,
+  win rate never shown without p*. It flags 2 front-end guard pitfalls and has 8 owner questions (E8). Verified: 1 file.
+- **T3.0/T3.1 replay, #18 + #22:** bar-by-bar replay on the same strategy interface, look-ahead canaries (each guard disabled
+  in turn made its tests fail), walk-forward, holdout untouched. Handled real data defects (ms→µs timestamps in 2025, off-grid
+  2017-18 bars, one bad row per symbol, dropped and counted). Verified: 15 files, 72 passed, no exchange imports, figures match
+  `summary.json`. **Baseline (trend SMA50, BTC+ETH, REPLAY):** net OOS 2022-01..2026-03 +152.6% vs BTC hold +44.9%; full net DD
+  −58.4% vs hold −84.0%; daily Sharpe 1.36 vs 0.75; 139 trades, 27% WR, avg win +53%, avg loss −4%. **Caveats:** SMA50 was chosen on
+  this same history (OOS tests stability, not discovery); survivors only; it lagged BTC in the 2022-23, 2023-24 and 2024-25 windows;
+  no DSR yet; costs are assumed (fee UNKNOWN).
+
 ## 2026-09-26 · T2.6 full-history backfill + replay plan (owner request)
 - **Owner idea:** pull all history and replay it through the live scan/signal code, beginning to end.
 - **Need check (sizing, measured):** 30 days of aggTrades for 15 coins = 1.5 GB (BTC 358 MB/month), so all-time trades
