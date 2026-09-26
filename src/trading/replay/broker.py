@@ -9,6 +9,7 @@ from __future__ import annotations
 from array import array
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Protocol
 
 from trading.replay.bars import Bar
 from trading.replay.context import LookAheadError
@@ -38,6 +39,22 @@ class CostModel:
         return mid * (1 - self.side_frac)
 
 
+class Broker(Protocol):
+    """What the replay engine needs from an account. PaperAccount (legacy flat cost model) and
+    trading.paper.broker.KlineBroker (measured fill model, T4.2) both implement it; strategies never
+    see it except through ctx.position()."""
+    positions: dict
+    fills: int
+    start_equity: float
+    curve: array
+
+    def submit(self, sig: Signal) -> None: ...
+    def on_open(self, bar: Bar) -> None: ...
+    def mark(self, bar: Bar) -> None: ...
+    def record(self) -> None: ...
+    def equity(self) -> float: ...
+
+
 class PaperAccount:
     def __init__(self, equity: float, slots: int, costs: CostModel, name: str = ""):
         self.start_equity = self.cash = float(equity)
@@ -50,6 +67,24 @@ class PaperAccount:
         self.fills = 0
         self.curve = array("d")
         self._peak = self._mdd = 0.0
+
+    # --- pricing hooks: a fill model overrides these (trading.paper.broker.KlineBroker) -----
+    def buy_price(self, symbol: str, mid: float) -> float:
+        return self.costs.buy(mid)
+
+    def sell_price(self, symbol: str, mid: float) -> float:
+        return self.costs.sell(mid)
+
+    def size_budget(self, symbol: str, budget: float) -> tuple[float, list]:
+        """Entry budget after any per-fill cap, plus flags for the fill record."""
+        return budget, []
+
+    def exit_flags(self, symbol: str, notional: float) -> list:
+        return []
+
+    def fill_meta(self, flags: list) -> dict:
+        """Extra fields on every fill record (the legacy model adds none)."""
+        return {}
 
     # --- orders ------------------------------------------------------------------
     def submit(self, sig: Signal) -> None:
@@ -86,7 +121,8 @@ class PaperAccount:
         budget = min(self.cash, self.equity() / self.slots)
         if budget <= 0:
             return self._skip(sig, "no cash")
-        price = self.costs.buy(bar.open)
+        price = self.buy_price(sig.symbol, bar.open)
+        budget, flags = self.size_budget(sig.symbol, budget)
         qty = budget / (price * (1 + self.costs.fee_rate))
         fee = qty * price * self.costs.fee_rate
         self.cash -= budget
@@ -100,13 +136,13 @@ class PaperAccount:
                             "payload": {"id": sid, "source": f"replay:{sig.strategy}", "symbol": sig.symbol,
                                         "side": sig.side, "entry": price, "opened": iso(bar.open_ms),
                                         "qty": qty, "fee": fee, "signal_ts": iso(sig.ts_ms),
-                                        "why": sig.reason, "account": self.name}})
+                                        "why": sig.reason, "account": self.name, **self.fill_meta(flags)}})
 
     def _close(self, sig: Signal, bar: Bar) -> None:
         pos = self.positions.pop(sig.symbol, None)
         if pos is None:
             return self._skip(sig, "not held")
-        price = self.costs.sell(bar.open)
+        price = self.sell_price(sig.symbol, bar.open)
         proceeds = pos["qty"] * price
         fee = proceeds * self.costs.fee_rate
         self.cash += proceeds - fee
@@ -123,7 +159,8 @@ class PaperAccount:
                                         "net_ret": net, "pnl": t["pnl"], "fee": fee, "fee_total": t["fee"],
                                         "why": sig.reason, "closed_ts": iso(bar.open_ms),
                                         "held_days": (bar.open_ms - pos["opened_ms"]) / 86_400_000,
-                                        "account": self.name}})
+                                        "account": self.name,
+                                        **self.fill_meta(self.exit_flags(sig.symbol, proceeds))}})
 
     # --- marking -----------------------------------------------------------------
     def mark(self, bar: Bar) -> None:
@@ -136,7 +173,7 @@ class PaperAccount:
     def liquidation_value(self) -> float:
         """Equity if every position were sold at the last mid, paying spread, slippage and fee."""
         f = self.costs.fee_rate
-        return self.cash + sum(p["qty"] * self.costs.sell(self.last[s]) * (1 - f) for s, p in self.positions.items())
+        return self.cash + sum(p["qty"] * self.sell_price(s, self.last[s]) * (1 - f) for s, p in self.positions.items())
 
     def record(self) -> None:
         e = self.equity() if self.positions else self.cash
