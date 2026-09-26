@@ -43,8 +43,11 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 |---|---|---|---|
 | T3.0 | Design: **historical replay harness** (owner idea 2026-09-26): replay history bar-by-bar through the *same* scanner/strategy/paper-execution code as live, beginning to end. Guarantees: no look-ahead (strategies see only data <= t; a canary test must fail if they peek), walk-forward (fit on past window, trade the next, roll), a final holdout (last 6 months) never used for tuning, every replayed variant counted as a trial for the Deflated Sharpe gate, fills charged fees + measured spread. Output: signals + paper fills in the live ledger schema, labelled REPLAY | T2.6, T1.3 | review (#18) |
 | T3.1 | Design: strategy plugin interface, signal event schema, scanner loop, evidence store — one interface for live ticks AND replay (T3.0) | T2.1, T1.4, T3.0 | review (#22) |
-| T3.2 | Implement registry + scanner over live/replayed ticks | T3.1, T2.2 | todo |
-| T3.3 | Validation gate: shared-account sim, IS/OOS, fees, BTC benchmark, deflated Sharpe | T3.1 | todo |
+| T3.2 | Implement registry + scanner over live/replayed ticks | T3.1, T2.2 | review (#26) |
+| T3.2b | Prime the live scanner from history + a REST top-up of the gap to now (data-api.binance.vision klines), so it doesn't start cold for 50 days | T3.2 | todo |
+| T3.3 | Validation gate: shared-account sim, IS/OOS, fees, BTC benchmark, deflated Sharpe | T3.1 | review (#24) |
+| T3.3b | Gate counts DISTINCT parameter sets as trials (a cost-model re-run of the same params is not a new trial); keep the raw log | T3.3 | todo |
+| T3.3c | Re-test the trend rule as it actually trades: 15 coins, 4-hourly checks, −15% hard stop; log every variant as a trial; gate it | T3.3 | todo |
 | T3.4 | Port 3 existing strategies as plugins (read-only copies, no edits to the originals) | T3.2 | todo |
 | T3.5 | Variant generator (parameter grids) feeding the gate; report survivors | T3.3, T3.4 | todo |
 
@@ -52,7 +55,7 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 | ID | Task | Deps | Status |
 |---|---|---|---|
 | T4.1 | Design: fill model (fees from T1.1, spread, depth slippage, latency) | T1.1, T2.1 | review (#20) |
-| T4.2 | Paper execution engine, with an import guard proving it cannot reach a live client | T4.1 | todo |
+| T4.2 | Paper execution engine, with an import guard proving it cannot reach a live client | T4.1 | review (#25) |
 | T4.3 | Implement the T1.3 "test" scalping strategies; run on T2.3 data; net-of-cost OOS report | T4.2, T2.3, T3.3 | todo |
 
 ## Phase 5: Distribution

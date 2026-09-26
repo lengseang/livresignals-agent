@@ -3,6 +3,25 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-26 · Parallel wave 2: scanner, gate, paper engine (PRs #24–#26) + honest re-gate
+All verified by me in fresh checkouts before recording.
+- **T3.3 gate, #24:** Deflated Sharpe (Bailey & López de Prado 2014). **Independently re-derived** the published numerical example:
+  SR0 0.1132, DSR 0.9004, an exact match. 98 passed.
+- **T4.2 paper engine, #25:** the measured fill model, all 11 T4.1 test items covered, 104 passed. Baseline re-run with measured spreads:
+  net +8689.6% vs +8333.9% (BTC/ETH spreads are about 0, so the fee is the whole cost; depth is unmodelled at $500/fill).
+- **T3.2 live scanner, #26:** the same strategy interface live and in replay. **Equivalence verified by me with real history**
+  (93 passed, the history test ran): 29,913 = 29,913 signals over 521,280 bars; a 1s→1m rebuild matches Binance's own 1m bars 1440/1440.
+  The live run caught a startup partial-bar bug (fixed and tested).
+- **Honest re-gate of the trend baseline (I ran it):** the SMA50 was chosen over 100/150/200 on the same history, so I replayed those 3
+  (same costs and window, holdout closed). Daily Sharpe: SMA50 1.36, 100 1.07, 150 0.83, 200 0.77. **Gate verdict: FAIL**, DSR 0.8898
+  (N=4 distinct) / 0.8809 (N=5 incl. a cost re-run), threshold 0.95. The live real-money trend_follower rests on a rule that
+  **does not clear the repo's own multiple-testing bar** with 76 OOS trades. Not proof of no edge: all variants have positive Sharpe
+  and beat BTC hold on drawdown. Next: T3.3c re-tests it as it actually trades (15 coins, 4h, −15% stop).
+- **Correction:** wave-1's replay report quoted BTC buy&hold net +934.91%; the run's own `summary.json` says **+933.57%** (9.3357).
+- **New tasks:** T3.3b (count distinct params as trials), T3.2b (prime the scanner from history), T3.3c (re-test the trend rule as traded).
+- **Still running:** the live recorder (13.6M+ msgs, 0 trade gaps). History complete: 1m since 2017 (1,268 files), 1s 12 months
+  (180), 30 days of trades (870), 10.6 GiB, 0 checksum failures.
+
 ## 2026-09-26 · Parallel wave 1 (owner: "do them all now"): 4 sub-agents, 5 PRs
 Each agent worked in an isolated worktree with a self-contained brief. I **verified each PR myself** in a fresh checkout
 (scope, tests, key claims) before recording it here.
