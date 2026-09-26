@@ -32,7 +32,7 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 |---|---|---|---|
 | T2.1 | Design: tick ingest (bookTicker, aggTrade, kline_1s), reconnect, gap detection, storage format, retention | T1.2 | review (#14) |
 | T2.2 | Implement `src/trading/stream/` ingest + recorder to `data/local/` with fixture tests | T2.1 | review (#15) |
-| T2.2b | Record the local-vs-exchange clock offset (GET data-api.binance.vision/api/v3/time) as `clock` records at start + hourly, so replays can correct `ts_recv_ns`. Dev PC measured ~5.4s ahead of Binance on 2026-09-26 | T2.2 | todo |
+| T2.2b | Record the local-vs-exchange clock offset (GET data-api.binance.vision/api/v3/time) as `clock` records at start + hourly, so replays can correct `ts_recv_ns`. Dev PC measured ~5.4s ahead of Binance on 2026-09-26 | T2.2 | review (#28) |
 | T2.3 | Record 24h of real ticks for the paper universe on this machine; data-quality report | T2.2 | doing (live recorder running since 2026-09-25 17:26 UTC; history backfill via T2.5) |
 | T2.4 | News + sentiment ingest (RSS, free APIs), timestamped, deduped, symbol-tagged | T1.2 | review (#19) |
 | T2.5 | Backfill public daily history (aggTrades + 1s klines, 15 coins) from data.binance.vision, SHA-256 verified; spot bookTicker isn't published historically, so spreads come from the live recorder | T2.2 | review (#16) |
@@ -46,9 +46,9 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 | T3.2 | Implement registry + scanner over live/replayed ticks | T3.1, T2.2 | review (#26) |
 | T3.2b | Prime the live scanner from history + a REST top-up of the gap to now (data-api.binance.vision klines), so it doesn't start cold for 50 days | T3.2 | todo |
 | T3.3 | Validation gate: shared-account sim, IS/OOS, fees, BTC benchmark, deflated Sharpe | T3.1 | review (#24) |
-| T3.3b | Gate counts DISTINCT parameter sets as trials (a cost-model re-run of the same params is not a new trial); keep the raw log | T3.3 | todo |
-| T3.3c | Re-test the trend rule as it actually trades: 15 coins, 4-hourly checks, −15% hard stop; log every variant as a trial; gate it | T3.3 | todo |
-| T3.4 | Port 3 existing strategies as plugins (read-only copies, no edits to the originals) | T3.2 | todo |
+| T3.3b | Gate counts DISTINCT parameter sets as trials (a cost-model re-run of the same params is not a new trial); keep the raw log | T3.3 | review (#29) |
+| T3.3c | Re-test the trend rule as it actually trades: 15 coins, 4-hourly checks, −15% hard stop; log every variant as a trial; gate it | T3.3 | review (#31) |
+| T3.4 | Port 3 existing strategies as plugins (read-only copies, no edits to the originals) | T3.2 | review (#32) |
 | T3.5 | Variant generator (parameter grids) feeding the gate; report survivors | T3.3, T3.4 | todo |
 
 ## Phase 4: Paper scalping
@@ -61,7 +61,7 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 ## Phase 5: Distribution
 | ID | Task | Deps | Status |
 |---|---|---|---|
-| T5.1 | Signal feed API (FastAPI, JSON + SSE), every payload labelled SIMULATED | T3.2 | todo |
+| T5.1 | Signal feed API (FastAPI, JSON + SSE), every payload labelled SIMULATED | T3.2 | review (#30) |
 | T5.2 | Telegram broadcaster, dry-run only (renders to log); escalate for the first real send | T5.1 | todo |
 
 ## Phase 6: Operator terminal (livresignals repo)
