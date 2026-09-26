@@ -65,9 +65,22 @@ def _rows(path: Path) -> list[tuple]:
         cols = list(zip(*rows))
         arrays = {c: np.array(v, dtype=np.int64 if c in ("open_raw", "close_raw", "trades") else np.float64)
                   for c, v in zip(_COLS, cols)}
-        tmp = cache.with_name(cache.stem + ".tmp.npz")
-        np.savez(tmp, stamp=stamp, **arrays)
-        tmp.replace(cache)
+        # Parallel replays may build the same cache at once: each writes its own temp file, and losing
+        # the race is harmless (the winner wrote identical bytes from the same zip). A failed write only
+        # means this run didn't cache; the parsed rows are still returned.
+        import os
+        import uuid
+        tmp = cache.with_name(f"{cache.stem}.{os.getpid()}-{uuid.uuid4().hex[:8]}.tmp.npz")
+        try:
+            np.savez(tmp, stamp=stamp, **arrays)
+            tmp.replace(cache)
+        except OSError:
+            pass
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
     return rows
 
 

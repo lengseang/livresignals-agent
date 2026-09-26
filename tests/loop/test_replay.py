@@ -512,3 +512,25 @@ def test_kline_cache_returns_exactly_what_the_csv_parser_returned(tmp_path):
     with zipfile.ZipFile(z, "w") as f:       # the zip changes: the cache must not be trusted
         f.writestr("BTCUSDT-1m-2026-01.csv", csv_text.splitlines()[0] + "\n")
     assert len(_rows(z)) == 1
+
+
+def test_kline_cache_survives_parallel_processes_building_it_at_once(tmp_path):
+    """L1b bug found in the L2a re-run batch: parallel replays collided on one shared temp file (Windows
+    refused the rename) and 13 of 28 jobs died. Every process must get identical rows and never raise."""
+    import subprocess
+    import sys
+    import zipfile
+    z = tmp_path / "ETHUSDT-1m-2026-01.zip"
+    rows = "\n".join(f"{1767225600000000 + i * 60_000_000},3000.{i % 10},3001,2999,3000.5,1.5,"
+                     f"{1767225600000000 + i * 60_000_000 + 59_999_999},4500.0,7,0.7,2100.0,0" for i in range(20000))
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr("ETHUSDT-1m-2026-01.csv", rows + "\n")
+    code = ("import sys,json; sys.path.insert(0, sys.argv[1]); from pathlib import Path; "
+            "from trading.replay.loader import _rows; r=_rows(Path(sys.argv[2])); print(len(r), r[-1][4])")
+    src = str(Path(__file__).resolve().parents[2] / "src")
+    procs = [subprocess.Popen([sys.executable, "-c", code, src, str(z)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True) for _ in range(6)]
+    outs = [p.communicate(timeout=120) for p in procs]
+    assert all(p.returncode == 0 for p in procs), [e[-300:] for _, e in outs]
+    assert len({o for o, _ in outs}) == 1 and outs[0][0].startswith("20000 ")
+    assert not list(tmp_path.glob("*.tmp.npz"))          # no temp files left behind
