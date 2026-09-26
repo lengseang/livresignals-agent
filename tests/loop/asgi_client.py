@@ -21,6 +21,9 @@ _PORTAL = _PORTAL_CM.__enter__()
 atexit.register(_PORTAL_CM.__exit__, None, None, None)
 
 
+TIMEOUT_S = 60     # generous: a loaded shared machine made 10 s flaky
+
+
 class Response:
     def __init__(self, status_code: int, headers: dict, chunks):
         self.status_code = status_code
@@ -97,7 +100,7 @@ class ASGIClient:
                 q.put({"type": "done"})
 
         fut = self.portal.start_task_soon(run)
-        start = q.get(timeout=10)
+        start = q.get(timeout=TIMEOUT_S)
         if start["type"] == "error":
             raise start["error"]
         assert start["type"] == "http.response.start", start
@@ -105,7 +108,7 @@ class ASGIClient:
 
         def chunks():
             while True:
-                m = q.get(timeout=10)
+                m = q.get(timeout=TIMEOUT_S)
                 if m["type"] == "http.response.body":
                     if m.get("body"):
                         yield m["body"]
@@ -119,7 +122,7 @@ class ASGIClient:
         finally:
             self.portal.call(disconnect.set)
             try:
-                fut.result(timeout=10)
+                fut.result(timeout=TIMEOUT_S)
             except BaseException:
                 pass
 

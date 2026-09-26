@@ -21,6 +21,8 @@ from fastapi.sse import EventSourceResponse, ServerSentEvent
 from trading.feed import adapter
 from trading.feed.channel import Hub, LiveChannel
 from trading.feed.sources import LIVE_ID_RE, DataRoot, component_status, read_json
+from trading.replay.gate import DSR_THRESHOLD, MIN_OOS_TRADES   # imported up front: numpy/scipy are slow to load
+from trading.scanner.registry import DEFAULT as REGISTRY
 
 SERVER_VERSION = "feed-v1 (T5.1)"
 ALLOWED_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -155,12 +157,11 @@ def create_app(data_root: Path | str, *, heartbeat_s: float = 1.0, quotes_s: flo
                     items.append(adapter.strategy_row_from_run(
                         rid, read_json(run["dir"] / "summary.json") or {}, read_json(run["dir"] / "gate.json")))
         else:
-            from trading.scanner.registry import DEFAULT
             _, day, _ = live_day_or_400(run_id)
             n, last = live_signal_stats(day)
             items = [adapter.strategy_row_from_registry(
                 info, None if n == 0 and not data.signals_file(day).exists() else n, last)
-                for info in DEFAULT.list()]
+                for info in REGISTRY.list()]
         counts = {k: 0 for k in ("PASSED", "FAILED", "PENDING", "INSUFFICIENT")}
         for it in items:
             counts[it["gate"]["status"]] += 1
@@ -302,7 +303,6 @@ _RESYNC_DETAIL = {
 
 
 def _thresholds() -> dict:
-    from trading.replay.gate import DSR_THRESHOLD, MIN_OOS_TRADES
     return {"min_trades": MIN_OOS_TRADES, "dsr_min": DSR_THRESHOLD}
 
 

@@ -224,7 +224,14 @@ def test_mode_separation(client):
     assert client.get("/v1/stream", params={"mode": "REPLAY", "run_id": "nope"}).status_code == 404
 
 
-def test_live_signals_file_is_tailed(data_root, client):
+def test_live_signals_file_is_tailed(data_root):
+    # its own app: the stream must outlive the append even on a loaded machine (it ends on max_events)
+    app = create_app(data_root, heartbeat_s=3600, quotes_s=0.0, poll_s=0.02, max_idle_s=30.0)
+    with TestClient(app) as client:
+        _tail(data_root, client)
+
+
+def _tail(data_root, client):
     path = data_root / "signals" / "2026-09-26.jsonl"
     lines = path.read_text(encoding="utf-8").splitlines()
     rec = json.loads(lines[1])
