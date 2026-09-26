@@ -10,7 +10,7 @@ from array import array
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from trading.replay.bars import Bar
+from trading.replay.bars import Bar, BarOpen
 from trading.replay.context import LookAheadError
 from trading.replay.strategy import Signal
 
@@ -39,7 +39,8 @@ class CostModel:
 
 
 class PaperAccount:
-    def __init__(self, equity: float, slots: int, costs: CostModel, name: str = ""):
+    def __init__(self, equity: float, slots: int, costs: CostModel, name: str = "", mode: str = MODE):
+        self.mode = mode               # "REPLAY", or "LIVE_PAPER" when the live scanner owns the account
         self.start_equity = self.cash = float(equity)
         self.slots, self.costs, self.name = slots, costs, name
         self.positions: dict[str, dict] = {}
@@ -58,8 +59,11 @@ class PaperAccount:
             return
         self.pending.append(sig)
 
-    def on_open(self, bar: Bar) -> None:
-        """Fill pending orders for bar.symbol at this bar's open (the first price after the signal)."""
+    def on_open(self, bar: Bar | BarOpen) -> None:
+        """Fill pending orders for bar.symbol at this bar's open (the first price after the signal).
+
+        Only symbol, open_ms and open are read, so a live BarOpen (all that is known at the open) works.
+        """
         if not self.pending:
             return
         keep = []
@@ -73,7 +77,7 @@ class PaperAccount:
         self.pending = keep
 
     def _skip(self, sig: Signal, why: str) -> None:
-        self.events.append({"mode": MODE, "type": "skip", "ts": iso(sig.ts_ms), "ts_ms": sig.ts_ms,
+        self.events.append({"mode": self.mode, "type": "skip", "ts": iso(sig.ts_ms), "ts_ms": sig.ts_ms,
                             "payload": {"symbol": sig.symbol, "action": sig.action, "why": why,
                                         "strategy": sig.strategy, "account": self.name}})
 
@@ -96,7 +100,7 @@ class PaperAccount:
                                       "fee": fee}
         self.last[sig.symbol] = bar.open
         self.fills += 1
-        self.events.append({"mode": MODE, "type": "signal", "ts": iso(bar.open_ms), "ts_ms": bar.open_ms,
+        self.events.append({"mode": self.mode, "type": "signal", "ts": iso(bar.open_ms), "ts_ms": bar.open_ms,
                             "payload": {"id": sid, "source": f"replay:{sig.strategy}", "symbol": sig.symbol,
                                         "side": sig.side, "entry": price, "opened": iso(bar.open_ms),
                                         "qty": qty, "fee": fee, "signal_ts": iso(sig.ts_ms),
@@ -118,7 +122,7 @@ class PaperAccount:
              "closed_ms": bar.open_ms, "entry": pos["entry"], "exit": price, "qty": pos["qty"],
              "fee": pos["fee"] + fee, "gross_ret": gross, "net_ret": net, "pnl": proceeds - fee - pos["spent"]}
         self.trades.append(t)
-        self.events.append({"mode": MODE, "type": "close", "ts": iso(bar.open_ms), "ts_ms": bar.open_ms,
+        self.events.append({"mode": self.mode, "type": "close", "ts": iso(bar.open_ms), "ts_ms": bar.open_ms,
                             "payload": {"id": pos["id"], "symbol": sig.symbol, "exit": price, "ret": net, "gross_ret": gross,
                                         "net_ret": net, "pnl": t["pnl"], "fee": fee, "fee_total": t["fee"],
                                         "why": sig.reason, "closed_ts": iso(bar.open_ms),

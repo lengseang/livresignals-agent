@@ -43,6 +43,9 @@ def _kline(d: dict, ts_recv_ns: int) -> Tick:
         "interval": k["i"], "start_ms": int(k["t"]),
         "open": float(k["o"]), "high": float(k["h"]), "low": float(k["l"]), "close": float(k["c"]),
         "volume": float(k["v"]), "trades": int(k["n"]), "closed": bool(k["x"]),
+        # needed to build full 1m bars (T3.2); None, never 0, if a payload lacks them
+        "quote_volume": float(k["q"]) if "q" in k else None,
+        "taker_buy_base": float(k["V"]) if "V" in k else None,
     })
 
 
