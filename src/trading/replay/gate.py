@@ -134,7 +134,7 @@ def breakeven_win_rate(tp: float, sl: float, cost: float) -> float:
 # ----- verdict -----------------------------------------------------------------------------------
 def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, oos_net_return,
             oos_btc_net_return, regime, cost_model, n_trials, trial_sharpes=None, exits=None,
-            symbols=None) -> dict:
+            symbols=None, dsr_daily=None) -> dict:
     fails, short, checks = [], [], {}
     net = [float(r) for r in oos_net_trade_returns]
     gross = [float(r) for r in oos_gross_trade_returns]
@@ -193,6 +193,7 @@ def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, 
                      f"(mean gross {mean_gross:+.3%} vs round-trip cost {c:.3%})")
     checks["trade_economics"] = econ
 
+    fails_before_dsr, short_before_dsr = len(fails), len(short)
     mom = sharpe_moments(net)
     trial_sr = [s for s in (trial_sharpes or []) if s is not None]
     var = float(np.var(trial_sr, ddof=1)) if len(trial_sr) >= 2 else None
@@ -223,12 +224,62 @@ def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, 
             d["why_not_computed"] = str(e)
             short.append(f"DSR not computable: {e}")
     checks["dsr"] = d
+    if dsr_daily is not None:
+        # L2a (pre-registered): the verdict uses the DSR on OOS daily net returns; per-trade stays as secondary
+        checks["dsr_per_trade"] = d
+        del fails[fails_before_dsr:], short[short_before_dsr:]
+        d = {**dsr_daily, "threshold": DSR_THRESHOLD}
+        if d.get("value") is None:
+            short.append(f"daily DSR not computable: {d.get('why_not_computed', 'UNKNOWN')}")
+        else:
+            d["ok"] = d["value"] >= DSR_THRESHOLD
+            if not d["ok"]:
+                fails.append(f"daily DSR {d['value']:.4f} < {DSR_THRESHOLD} (N = {d['n_trials']} trials, "
+                             f"T = {d['t']} OOS days)")
+        checks["dsr"] = d
 
     v = FAIL if fails else INSUFFICIENT if short else PASS
     reasons = fails + short if v != PASS else [
         f"{n} OOS trades >= {MIN_OOS_TRADES}; shared-account and OOS net positive; mean net per trade positive; "
-        f"DSR {d['value']:.4f} >= {DSR_THRESHOLD} with N = {n_trials}"]
+        f"{'daily ' if dsr_daily is not None else ''}DSR {d['value']:.4f} >= {DSR_THRESHOLD} with N = {d.get('n_trials', n_trials)}"]
     return {"verdict": v, "reasons": reasons, "checks": checks}
+
+
+# ----- L2a: DSR on OOS daily returns (docs/loop/designs/L2a-daily-dsr.md) ---------------------------------
+def oos_daily_returns(series: list, t0: int, t1: int) -> list[float]:
+    """Daily returns in (t0, t1), starting from the last daily mark at or before t0."""
+    days = [d for d, _ in series]
+    i0 = next((i for i in range(len(days) - 1, -1, -1) if days[i] <= t0), None)
+    if i0 is None:
+        return []
+    vals = [v for d, v in series[i0:] if d < t1]
+    return [b / a - 1 for a, b in zip(vals, vals[1:])]
+
+
+def _daily_curve(run: Path, account: str = "net") -> list | None:
+    p = run / "equity_daily.json"
+    return json.loads(p.read_text(encoding="utf-8")).get(account) if p.exists() else None
+
+
+def daily_dsr(run: Path, trial_runs: list[Path], t0: int, t1: int) -> dict:
+    """Deflated Sharpe of `run`'s OOS daily net returns against every distinct trial's OOS daily Sharpe.
+    Never mixes bases: a trial without a daily curve makes it not computable."""
+    out = {"basis": "OOS daily net returns", "n_trials": len(trial_runs), "value": None, "sr0": None}
+    missing = [r.name for r in trial_runs if _daily_curve(r) is None]
+    if missing or _daily_curve(run) is None:
+        out["why_not_computed"] = f"trial(s) {', '.join(missing or [run.name])} lacks a daily curve; re-run them"
+        return out
+    trial_sr = [sharpe_moments(oos_daily_returns(_daily_curve(r), t0, t1))["sr"] for r in trial_runs]
+    mom = sharpe_moments(oos_daily_returns(_daily_curve(run), t0, t1))
+    out.update(t=mom["n"], sr_daily=mom["sr"], skew=mom["skew"], kurtosis=mom["kurtosis"], trial_sharpes=trial_sr)
+    if mom["sr"] is None or mom["skew"] is None or any(x is None for x in trial_sr):
+        out["why_not_computed"] = "a daily return series has zero variance or too few days"
+        return out
+    var = float(np.var(trial_sr, ddof=1)) if len(trial_sr) >= 2 else None
+    out["var_trial_sr"] = var
+    out["sr0"] = expected_max_sharpe(var, len(trial_runs))
+    out["value"] = psr(mom["sr"], mom["n"], mom["skew"], mom["kurtosis"], out["sr0"])
+    return out
 
 
 # ----- reading a run -----------------------------------------------------------------------------
@@ -327,6 +378,16 @@ def evaluate(run: Path, trials_path: Path | None = None, split_cli: str | None =
             g["sharpe"], g["sharpe_from"] = sr, src
             sharpes.append(sr)
 
+    root = trials_path.parent
+    reps = []
+    for g in groups or [{"run_ids": [s.get("run_id")]}]:
+        ids = [r for r in g["run_ids"] if r]
+        pick = s.get("run_id") if s.get("run_id") in ids else next((r for r in ids if (root / r / "equity_daily.json").exists()), ids[0] if ids else None)
+        reps.append(run if pick == s.get("run_id") else root / pick)
+    # L2a: runs saved with a daily curve use the daily DSR; legacy runs (made before L2a) keep the per-trade
+    # basis, labelled as such, until they are re-run
+    dsr_daily = daily_dsr(run, reps, _ms(split), _ms(end)) if (run / "equity_daily.json").exists() else None
+
     acc, bh = s["accounts"]["net"], s.get("buy_and_hold", {}).get("net", {})
     exits = s.get("params", {}).get("exits")
     res = verdict(oos_net_trade_returns=[t["net_ret"] for t in trades],
@@ -335,7 +396,9 @@ def evaluate(run: Path, trials_path: Path | None = None, split_cli: str | None =
                   oos_net_return=acc.get("periods", {}).get("OOS", {}).get("ret"),
                   oos_btc_net_return=bh.get("periods", {}).get("OOS", {}).get("ret"),
                   regime=s.get("regime", {}).get("OOS"), cost_model=s["costs"]["net"], symbols=s.get("symbols"),
-                  n_trials=n_trials, trial_sharpes=sharpes, exits=exits)
+                  n_trials=n_trials, trial_sharpes=sharpes, exits=exits, dsr_daily=dsr_daily)
+    res["checks"]["dsr_basis"] = ("OOS daily net returns (L2a)" if dsr_daily is not None
+                                  else "OOS per-trade net returns (legacy run without a daily curve; re-run for L2a)")
     res["checks"]["dsr"].update(
         n_logged_runs=len(trials), trials=groups,
         trial_rule="N = distinct (strategy, params, symbols, trade window) in the trial log; re-runs of the "

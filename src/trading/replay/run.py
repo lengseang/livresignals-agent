@@ -197,6 +197,10 @@ def main(argv: list[str] | None = None) -> dict:
             for e in acc.events:
                 f.write(json.dumps(e) + "\n")
     (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    # L2a: daily equity per account (last mark of each UTC day) so the gate can use daily returns
+    daily = {name: metrics.daily_series(res.ts, acc.curve) for name, acc in accts.items()}
+    daily.update({f"bh_{k}": metrics.daily_series(res.ts, acc.curve) for k, (_, acc) in bench.items()})
+    (out / "equity_daily.json").write_text(json.dumps(daily), encoding="utf-8")
     with open(Path(a.out) / "trials.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"mode": "REPLAY", "run_id": run_id, "strategy": strat.name, "params": strat.params,
                             "broker": a.broker,

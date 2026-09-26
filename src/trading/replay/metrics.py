@@ -48,6 +48,17 @@ def daily_sharpe(ts, curve, t0: int | None = None, t1: int | None = None) -> flo
     return None if sd == 0 else float(np.mean(r) / sd * math.sqrt(365))
 
 
+def daily_series(ts, curve) -> list[list]:
+    """[[utc_day_start_ms, last equity mark of that day], ...], the sampling daily_sharpe uses (L2a)."""
+    ts = np.frombuffer(ts, dtype=np.int64) if not isinstance(ts, np.ndarray) else ts
+    eq = np.frombuffer(curve, dtype=np.float64) if not isinstance(curve, np.ndarray) else curve
+    if not len(ts):
+        return []
+    day = ts // DAY
+    last_of_day = np.nonzero(np.append(day[1:] != day[:-1], True))[0]
+    return [[int(day[i] * DAY), float(eq[i])] for i in last_of_day]
+
+
 def regime(btc_daily: tuple[Bar, ...], t0: int, t1: int, sma: int = 200) -> dict:
     """BTC regime over (t0, t1]: total return, annualised vol of daily returns, share of days above SMA200.
 

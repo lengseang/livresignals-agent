@@ -31,3 +31,8 @@ Changing the basis after seeing results can be p-hacking. The safeguards are: th
 predates every daily-DSR number; the rule is the paper's own standard rather than a new invention;
 it applies to all 28 trials at once; and a PASS under it still has to survive the out-of-universe
 coins and the untouched holdout.
+
+## Clarification (2026-09-26, while implementing; before any daily DSR was computed on a real run)
+Runs made before L2a have no `equity_daily.json`. They keep the per-trade DSR, labelled
+`dsr_basis: legacy` in `gate.json`, until they are re-run. Every one of the 28 logged trials is
+re-run under L2a, so all real verdicts from here on use the daily basis.
