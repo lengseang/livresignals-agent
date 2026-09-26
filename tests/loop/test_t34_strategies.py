@@ -435,3 +435,31 @@ def test_run_cli_runs_a_registry_strategy_with_params_and_a_tag(tmp_path):
     assert trial["strategy"] == "regime_ls" and trial["run_id"] == summ["run_id"]
     rep = gate.evaluate(tmp_path / "o" / summ["run_id"])
     assert rep["verdict"] in (gate.PASS, gate.FAIL, gate.INSUFFICIENT)
+
+
+# ================================================================ loader: late-closing traded bars (found by the T3.4 runs)
+
+def test_loader_drops_and_counts_a_traded_bar_closing_up_to_2s_late_and_still_rejects_worse(tmp_path):
+    """Measured: LTCUSDT-1m-2018-02 has open 1518321540000, close_time 1518321600999 (1 s past the bar), 28 trades.
+    Keeping its real end would overlap the next bar; clamping it would leak up to 2 s of the future. It is dropped
+    (a 1-minute data gap, no look-ahead) and counted."""
+    import zipfile
+
+    from trading.replay import loader
+
+    def z(path, rows):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(path, "w") as f:
+            f.writestr(path.name.replace(".zip", ".csv"), "\n".join(rows) + "\n")
+        return path
+
+    t = 1518321540000
+    ok = f"{t - MIN},1,1,1,1,1,{t - 1},1,3,0.5,0.5,0"
+    late = f"{t},133,134,132,133.4,133.43915,1518321600999,1,28,0.5,0.5,0"
+    nxt = f"{t + MIN},2,2,2,2,1,{t + 2 * MIN - 1},1,3,0.5,0.5,0"
+    stats = {}
+    got = list(loader.iter_klines(z(tmp_path / "LTCUSDT-1m-2018-02.zip", [ok, late, nxt]), "LTCUSDT", stats=stats))
+    assert [b.open_ms for b in got] == [t - MIN, t + MIN] and stats == {"LTCUSDT:dropped_late_close": 1}
+    worse = f"{t},1,1,1,1,1,{t + MIN + 2_500},1,3,0.5,0.5,0"                   # 2.5 s late: still a defect
+    with pytest.raises(ValueError):
+        list(loader.iter_klines(z(tmp_path / "x" / "LTCUSDT-1m-2018-02.zip", [worse]), "LTCUSDT"))

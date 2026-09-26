@@ -22,6 +22,7 @@ from pathlib import Path
 
 from trading.replay.bars import INTERVAL_MS, Bar, to_ms
 
+LATE_CLOSE_MS = 2_000      # tolerance for the late-close rows dropped below; anything later still raises
 _MONTH = re.compile(r"^(?P<sym>[A-Z0-9]+)-(?P<iv>\w+)-(?P<ym>\d{4}-\d{2})\.zip$")
 
 
@@ -39,6 +40,13 @@ def iter_klines(path: Path, symbol: str, interval: str = "1m", stats: dict | Non
                 if end_ms <= open_ms and int(r[8]) == 0 and float(r[5]) == 0:
                     if stats is not None:
                         stats[f"{symbol}:dropped_placeholder"] = stats.get(f"{symbol}:dropped_placeholder", 0) + 1
+                    continue
+                if open_ms + step + 1 < end_ms <= open_ms + step + LATE_CLOSE_MS:
+                    # a traded bar closing up to 2 s late (T3.4 scan: 5 rows in 15 coins, e.g. LTCUSDT
+                    # 2018-02-11 04:00). Its real end overlaps the next bar and a clamped end would leak the
+                    # future, so it is dropped (a 1-minute gap) and counted, never repaired.
+                    if stats is not None:
+                        stats[f"{symbol}:dropped_late_close"] = stats.get(f"{symbol}:dropped_late_close", 0) + 1
                     continue
                 if not open_ms < end_ms <= open_ms + step + 1:
                     raise ValueError(f"{path.name}: close_time {r[6]} is not within a {interval} bar at {r[0]}")
