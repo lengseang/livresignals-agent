@@ -3,6 +3,16 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-26 · T2.6 full-history backfill + replay plan (owner request)
+- **Owner idea:** pull all history and replay it through the live scan/signal code, beginning to end.
+- **Need check (sizing, measured):** 30 days of aggTrades for 15 coins = 1.5 GB (BTC 358 MB/month), so all-time trades
+  would be ~60–100 GB against 79 GB free: **rejected**. 1m klines ~2 MB/month/coin, so all-time is ~2–3 GB: **taken**.
+  1s klines 68 MB/month BTC, so 12 months ~4–6 GB: **taken**. BTC monthly history starts 2017-08 (07 → 404).
+- **Done:** monthly-file support in `history.py` (`--monthly klines_1m --since 2017-08`). Tests RED (4 failed) → GREEN
+  (40 passed). Both pulls are running in the background. Added **T3.0 replay harness** with guard rails (no look-ahead canary,
+  walk-forward, a 6-month untouched holdout, variants counted as DSR trials) and made T3.1 serve live and replay through one interface.
+- **Daily backfill (T2.5):** 800/900 files done, the 26 missing are the unpublished 09-25 files.
+
 ## 2026-09-26 · T2.5 history backfill (owner: "harness the old data, keep the live data")
 - **Need check:** probed data.binance.vision: spot aggTrades and 1s klines are published daily (latest 2026-09-24);
   spot and futures bookTicker are **not** (404), so spread/slippage can only come from the live recorder.

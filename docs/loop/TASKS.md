@@ -36,11 +36,13 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 | T2.3 | Record 24h of real ticks for the paper universe on this machine; data-quality report | T2.2 | doing (live recorder running since 2026-09-25 17:26 UTC; history backfill via T2.5) |
 | T2.4 | News + sentiment ingest (RSS, free APIs), timestamped, deduped, symbol-tagged | T1.2 | todo |
 | T2.5 | Backfill public daily history (aggTrades + 1s klines, 15 coins) from data.binance.vision, SHA-256 verified; spot bookTicker isn't published historically, so spreads come from the live recorder | T2.2 | review (#16) |
+| T2.6 | Full-history backfill via monthly files: 1m klines since 2017-08 (all 15 coins, ~2-3 GB) + 12 months of 1s klines (~4-6 GB). Full-history aggTrades rejected: ~60-100 GB > 79 GB free | T2.5 | review (#17) |
 
 ## Phase 3: Scanner + registry
 | ID | Task | Deps | Status |
 |---|---|---|---|
-| T3.1 | Design: strategy plugin interface, signal event schema, scanner loop, evidence store | T2.1, T1.4 | todo |
+| T3.0 | Design: **historical replay harness** (owner idea 2026-09-26): replay history bar-by-bar through the *same* scanner/strategy/paper-execution code as live, beginning to end. Guarantees: no look-ahead (strategies see only data <= t; a canary test must fail if they peek), walk-forward (fit on past window, trade the next, roll), a final holdout (last 6 months) never used for tuning, every replayed variant counted as a trial for the Deflated Sharpe gate, fills charged fees + measured spread. Output: signals + paper fills in the live ledger schema, labelled REPLAY | T2.6, T1.3 | todo |
+| T3.1 | Design: strategy plugin interface, signal event schema, scanner loop, evidence store — one interface for live ticks AND replay (T3.0) | T2.1, T1.4, T3.0 | todo |
 | T3.2 | Implement registry + scanner over live/replayed ticks | T3.1, T2.2 | todo |
 | T3.3 | Validation gate: shared-account sim, IS/OOS, fees, BTC benchmark, deflated Sharpe | T3.1 | todo |
 | T3.4 | Port 3 existing strategies as plugins (read-only copies, no edits to the originals) | T3.2 | todo |

@@ -49,3 +49,29 @@ def test_plan_lists_every_symbol_kind_day_and_skips_verified_files(tmp_path):
 def test_days_back_ends_yesterday_or_earlier():
     ds = history.days_back(3, today=date(2026, 9, 26))
     assert ds == [date(2026, 9, 23), date(2026, 9, 24), date(2026, 9, 25)]
+
+
+# --- monthly files (full history) ---------------------------------------------
+
+def test_monthly_urls_follow_the_published_layout():
+    assert history.month_url("klines_1m", "BTCUSDT", "2017-08") == (
+        "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2017-08.zip")
+    assert history.month_url("klines_1s", "SUIUSDT", "2025-09") == (
+        "https://data.binance.vision/data/spot/monthly/klines/SUIUSDT/1s/SUIUSDT-1s-2025-09.zip")
+
+
+def test_months_span_is_inclusive_and_stops_before_the_current_month():
+    ms = history.months_span("2025-11", today=date(2026, 2, 14))
+    assert ms == ["2025-11", "2025-12", "2026-01"]
+
+
+def test_months_back_counts_full_months_only():
+    assert history.months_back(2, today=date(2026, 9, 26)) == ["2026-07", "2026-08"]
+
+
+def test_monthly_plan_puts_files_under_monthly_and_skips_verified(tmp_path):
+    jobs = history.plan_monthly(["BTCUSDT"], ["klines_1m"], ["2026-07", "2026-08"], tmp_path)
+    assert [j.dest.relative_to(tmp_path).as_posix() for j in jobs] == [
+        "monthly/klines_1m/BTCUSDT/BTCUSDT-1m-2026-07.zip",
+        "monthly/klines_1m/BTCUSDT/BTCUSDT-1m-2026-08.zip",
+    ]

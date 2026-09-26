@@ -34,6 +34,9 @@ a local recorder, and real-time news and sentiment, all timestamped.
 A strategy plugin interface, a signal event schema, a 24/7 scanner, and an evidence
 store. Many strategy variants are allowed, but every one stays paper until it
 passes the validation gate (IS/OOS, fees, shared account, multiple-testing correction).
+**Replay is first-class** (owner, 2026-09-26): the same scanner and strategy code runs on live ticks and on
+history replayed bar-by-bar from 2017 to now, with no look-ahead, walk-forward fitting, and a 6-month final
+holdout nobody tunes on. Replay results are labelled REPLAY and never mixed with live paper results.
 **Exit:** 3+ existing strategies ported and gated; generated variants scored honestly.
 
 ## Phase 4: Paper scalping

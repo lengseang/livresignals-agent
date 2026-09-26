@@ -4,7 +4,8 @@ Every file is checked against Binance's published SHA-256 before it is kept; a
 file that fails is deleted, never used. Spot bookTicker is not published
 historically, so spreads come only from the live recorder (run_ingest).
 
-    python -m trading.stream.history --days 30
+    python -m trading.stream.history --days 30                              # daily files
+    python -m trading.stream.history --monthly klines_1m --since 2017-08   # full history
 """
 from __future__ import annotations
 
@@ -22,6 +23,14 @@ BASE = "https://data.binance.vision/data/spot/daily"
 KINDS = {
     "aggTrades": "aggTrades/{sym}/{sym}-aggTrades-{d}.zip",
     "klines_1s": "klines/{sym}/1s/{sym}-1s-{d}.zip",
+}
+
+
+MONTHLY_BASE = "https://data.binance.vision/data/spot/monthly"
+MONTHLY_KINDS = {
+    "klines_1m": "klines/{sym}/1m/{sym}-1m-{m}.zip",
+    "klines_1s": "klines/{sym}/1s/{sym}-1s-{m}.zip",
+    "aggTrades": "aggTrades/{sym}/{sym}-aggTrades-{m}.zip",
 }
 
 
@@ -66,6 +75,43 @@ def plan(symbols: list[str], kinds: list[str], days: list[date], root: Path) -> 
     return jobs
 
 
+def month_url(kind: str, symbol: str, ym: str) -> str:
+    if kind not in MONTHLY_KINDS:
+        raise ValueError(f"unknown monthly kind {kind!r}; known: {sorted(MONTHLY_KINDS)}")
+    return f"{MONTHLY_BASE}/{MONTHLY_KINDS[kind].format(sym=symbol, m=ym)}"
+
+
+def months_span(start_ym: str, today: date | None = None) -> list[str]:
+    """Every month from start_ym through the last complete month (monthly files exist only for those)."""
+    today = today or date.today()
+    y, m = map(int, start_ym.split("-"))
+    out = []
+    while (y, m) < (today.year, today.month):
+        out.append(f"{y:04d}-{m:02d}")
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+def months_back(n: int, today: date | None = None) -> list[str]:
+    today = today or date.today()
+    y, m = today.year, today.month
+    for _ in range(n):
+        y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+    return months_span(f"{y:04d}-{m:02d}", today)
+
+
+def plan_monthly(symbols: list[str], kinds: list[str], months: list[str], root: Path) -> list[Job]:
+    jobs = []
+    for kind in kinds:
+        for sym in symbols:
+            for ym in months:
+                url = month_url(kind, sym, ym)
+                dest = root / "monthly" / kind / sym / url.rsplit("/", 1)[1]
+                if not (dest.parent / (dest.name + ".ok")).exists():
+                    jobs.append(Job(url, dest))
+    return jobs
+
+
 def fetch(job: Job, retries: int = 3) -> str:
     """Return 'ok', 'missing' (404, not published yet) or 'bad:<reason>'."""
     for attempt in range(retries):
@@ -100,8 +146,15 @@ def main() -> None:
     ap.add_argument("--kinds", default=",".join(KINDS))
     ap.add_argument("--out", default="data/local/history")
     ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--monthly", default=None, help="monthly kinds, e.g. klines_1m,klines_1s (replaces daily mode)")
+    ap.add_argument("--since", default=None, help="first month YYYY-MM for --monthly (listing gaps return 404)")
+    ap.add_argument("--months", type=int, default=None, help="last N full months for --monthly")
     a = ap.parse_args()
-    jobs = plan(a.symbols.split(","), a.kinds.split(","), days_back(a.days), Path(a.out))
+    if a.monthly:
+        months = months_span(a.since) if a.since else months_back(a.months or 12)
+        jobs = plan_monthly(a.symbols.split(","), a.monthly.split(","), months, Path(a.out))
+    else:
+        jobs = plan(a.symbols.split(","), a.kinds.split(","), days_back(a.days), Path(a.out))
     print(f"{len(jobs)} files to fetch", flush=True)
     results: dict[str, int] = {}
     with ThreadPoolExecutor(a.workers) as pool:
