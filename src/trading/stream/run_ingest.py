@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from trading.stream.book import TopOfBook
+from trading.stream.clock import Due, measure
 from trading.stream.gaps import AggGapDetector
 from trading.stream.normalize import parse
 from trading.stream.recorder import Recorder
@@ -39,6 +40,7 @@ async def run(symbols: list[str], root: Path, hours: float | None, keep_days: in
     stats = {"messages": 0, "reconnects": 0, "agg_gaps": 0}
     stop_at = time.monotonic() + hours * 3600 if hours else None
     backoff, last_report = 1.0, time.monotonic()
+    clock_due = Due(3600.0)
     prune(root, keep_days)
     try:
         while stop_at is None or time.monotonic() < stop_at:
@@ -58,6 +60,10 @@ async def run(symbols: list[str], root: Path, hours: float | None, keep_days: in
                     if t.kind == "book" and not throttle.keep(t):
                         continue
                     rec.write(t.kind, t.to_record(), ts)
+                    if clock_due.due(time.monotonic()):
+                        # blocking but short (10 s timeout, hourly); the socket buffers meanwhile
+                        c = measure()
+                        rec.write("clock", c, c["ts_recv_ns"])
                     if time.monotonic() - last_report >= 60:
                         rec.flush()
                         prune(root, keep_days)
