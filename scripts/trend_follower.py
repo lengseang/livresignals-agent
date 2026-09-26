@@ -238,6 +238,134 @@ def _wallet_held(bal, prices):
     return n
 
 
+def _ccxt_error(name):
+    try:
+        import ccxt
+        return getattr(ccxt, name)
+    except (ImportError, AttributeError):          # tests stub ccxt; a class nothing raises is harmless
+        return type(name, (Exception,), {})
+
+
+def _real_exit_reason(rp, closes, pos):
+    """(why, stop_basis) if this REAL position must be sold now, else (None, basis). Uses the real book."""
+    if not closes:
+        return None, None
+    px = closes[-1]
+    basis, ent = "real", rp.get("entry")
+    if not ent:                                    # entry UNKNOWN (F1): measure the stop from paper, and say so
+        basis, ent = "paper", (pos.get(rp["symbol"]) or {}).get("entry") or None
+    if ent and px / ent - 1 <= -HARD_STOP:
+        return "HARD-STOP", basis
+    if not coin_trend(closes):
+        return "trend-broke", basis
+    return None, basis
+
+
+def _book_real_exit(real, rp, od, events):
+    """Move a sold position to real.closed from the SELL fill. Unknown values stay null + UNKNOWN."""
+    ep = rp["exit_pending"]
+    filled, avg = od.get("filled"), od.get("average")
+    entry = rp.get("entry")
+    rec = {"book": "real", "symbol": rp["symbol"], "cid": ep["cid"], "order_id": str(od.get("id", "")),
+           "qty": float(filled) if filled else None, "qty_status": "FILL" if filled else "UNKNOWN",
+           "entry": entry, "entry_status": rp.get("entry_status", "BOOKED"),   # pre-F1 entries were the candle px
+           "exit": float(avg) if avg else None, "exit_status": "FILL" if avg else "UNKNOWN",
+           "reason": ep["why"], "stop_basis": ep.get("stop_basis"), "attempts": ep["attempts"],
+           "open_ts": rp.get("ts"), "close_ts": datetime.now(timezone.utc).isoformat()}
+    real.setdefault("closed", []).append(rec)
+    real["open"].remove(rp)
+    ret = (rec["exit"] / entry - 1) if rec["exit"] and entry else None
+    events.append(("EXIT", rp["symbol"], rec["exit"], {"ret": ret, "why": ep["why"], "real": True}))
+
+
+def _block_exit(rp, reason, events):
+    """Stop retrying a sell that can't succeed. The position stays in real.open and a human decides."""
+    rp["exit_blocked"] = {"since": datetime.now(timezone.utc).isoformat(), "reason": reason}
+    events.append(("ERR", rp["symbol"], None, f"real exit blocked: {reason}"))
+    notify(f"⛔ Real exit blocked: {rp['symbol']}",
+           f"{reason}\nThe position is still tracked; it won't be retried until a human clears exit_blocked.")
+
+
+def _real_exits(ex, st, closes_by, events):
+    """Sell real positions whose trend broke or whose hard stop hit. Returns how many were sold.
+
+    Decided from real.open, not the paper flag. A failed sell keeps exit_pending and is retried
+    next run; a retry first looks up the previous sell's clientOrderId, so it never sells twice.
+    """
+    real, pos = st["real"], st["positions"]
+    OrderNotFound = _ccxt_error("OrderNotFound")
+    InvalidOrder = _ccxt_error("InvalidOrder")
+    NetworkError = _ccxt_error("NetworkError")    # includes RateLimitExceeded and RequestTimeout
+    sold = 0
+    for rp in list(real["open"]):
+        s = rp["symbol"]
+        if rp.get("exit_blocked"):
+            continue
+        ep = rp.get("exit_pending")
+        if ep and ep.get("cid"):
+            try:
+                od = ex.fetch_order(None, s, params={"clientOrderId": ep["cid"]})
+            except OrderNotFound:                  # must precede InvalidOrder: it is a subclass of it
+                od = None                          # the last sell never reached Binance: send again
+            except Exception as e:  # noqa: BLE001 - can't prove the last sell failed, so don't send another
+                ep["last_error"] = f"{type(e).__name__}: {str(e)[:80]}"
+                events.append(("ERR", s, None, f"can't check sell {ep['cid']}: not re-sent this run"))
+                continue
+            if od is not None:
+                status = str(od.get("status", "")).lower()
+                if status == "closed":
+                    _book_real_exit(real, rp, od, events)
+                    sold += 1
+                    save(st)
+                    continue
+                if not (status in ("canceled", "cancelled", "rejected", "expired") and not (od.get("filled") or 0)):
+                    events.append(("ERR", s, None, f"sell {ep['cid']} is {status or 'UNKNOWN'}: waiting"))
+                    continue
+        if not ep:
+            why, basis = _real_exit_reason(rp, closes_by.get(s), pos)
+            if not why:
+                continue
+            ep = rp["exit_pending"] = {"since": datetime.now(timezone.utc).isoformat(), "attempts": 0,
+                                       "why": why, "stop_basis": basis}
+        try:
+            # Sell only what is actually there: DOGE was booked at 58 while the wallet held 23.
+            free = float((ex.fetch_balance().get(s.split("/")[0]) or {}).get("free") or 0)
+            qty = min(float(rp["qty"]), free)
+            mmin = float(ex.market(s).get("limits", {}).get("amount", {}).get("min") or 0)
+        except Exception as e:  # noqa: BLE001
+            ep["last_error"] = f"{type(e).__name__}: {str(e)[:80]}"
+            save(st)
+            events.append(("ERR", s, None, f"can't size the sell ({type(e).__name__}): retry next run"))
+            continue
+        if qty <= 0 or qty < mmin:
+            # How this exit is recorded is F3 (T0.5). Until then: keep the record, never delete it.
+            _block_exit(rp, f"no sellable balance (free={free:g}, booked={float(rp['qty']):g})", events)
+            save(st)
+            continue
+        ep["cid"] = _new_cid(s)
+        ep["attempts"] += 1
+        ep["qty"] = qty
+        save(st)                                   # write-ahead, as for buys
+        try:
+            od = ex.create_order(s, "market", "sell", qty, params={"clientOrderId": ep["cid"]})
+        except InvalidOrder as e:
+            _block_exit(rp, f"{type(e).__name__}: {str(e)[:80]}", events)
+            save(st)
+            continue
+        except Exception as e:  # noqa: BLE001 - it may have executed; the cid lookup next run decides
+            ep["last_error"] = f"{type(e).__name__}: {str(e)[:80]}"
+            save(st)
+            events.append(("ERR", s, None, f"sell failed (attempt {ep['attempts']}): {ep['last_error'][:60]}"))
+            if ep["attempts"] == 3 or (ep["attempts"] == 1 and not isinstance(e, NetworkError)):
+                notify(f"⚠️ Real sell failing: {s}",
+                       f"Attempt {ep['attempts']}: {ep['last_error']}\nStill tracked; retried every run.")
+            continue
+        _book_real_exit(real, rp, od, events)
+        sold += 1
+        save(st)
+    return sold
+
+
 def notify(title, body):
     try:
         sys.path.insert(0, str(BASE / "src"))
@@ -276,7 +404,7 @@ def _build_message(events, n_real, real_on) -> tuple[str, str]:
             ret = extra.get("ret")
             if H:
                 line = (f"{H.trend_emoji(ret)} <b>Sold {H.esc(sym)}</b>"
-                        f" at {H.money(px)}"
+                        f" at {H.money(px) if px is not None else 'UNKNOWN price'}"
                         + (f" · {H.pct(ret)}" if ret is not None else "")
                         + f"\n     <i>{H.esc(H.why_plain(extra.get('why', '')))}</i>")
             else:
@@ -360,6 +488,7 @@ def _run():
 
     candidates = []   # (momentum, symbol, px) for real ranking
     last_px = {}
+    closes_by = {}    # symbol -> daily closes, reused by the real exit pass
     for s in SYMS:
         try:
             o = ex.fetch_ohlcv(s, "1d", limit=300)
@@ -397,39 +526,19 @@ def _run():
                 # Tag whether this exit was REAL money, so the notification can
                 # separate real actions from paper ones. Without it the owner sees
                 # a real sell and a paper sell in the same undifferentiated list.
-                was_real = any(rp["symbol"] == s
-                               for rp in (real.get("open") or []))
-                events.append(("EXIT", s, px,
-                               {"ret": ret, "why": why, "real": was_real}))
-                if REAL:
-                    for rp in list(real["open"]):
-                        if rp["symbol"] == s:
-                            try:
-                                # Sell only what is actually there. The recorded qty
-                                # drifts: DOGE was booked at 58 while the exchange held
-                                # 23 after an unrecorded partial sell on 09-13, so the
-                                # old create_order(qty=rp["qty"]) would have been
-                                # rejected forever — stranding the position with no
-                                # retry and no reconciliation against the exchange.
-                                base = s.split("/")[0]
-                                bal = ex.fetch_balance()
-                                free = float(bal.get(base, {}).get("free", 0) or 0)
-                                qty = min(float(rp["qty"]), free)
-                                mmin = float(ex.market(s).get("limits", {})
-                                             .get("amount", {}).get("min") or 0)
-                                if qty <= 0 or qty < mmin:
-                                    real["open"].remove(rp)
-                                    events.append(("ERR", s, px,
-                                                   f"no sellable balance "
-                                                   f"(free={free:g}, booked="
-                                                   f"{rp['qty']:g}) — record dropped"))
-                                    continue
-                                ex.create_order(s, "market", "sell", qty)
-                                real["open"].remove(rp)
-                            except Exception as e:
-                                events.append(("ERR", s, px, str(e)[:60]))
+                # Paper only. Real money is sold by _real_exits() from real.open (F2, T0.4):
+                # selling here, behind the paper flag, stranded a real position with no
+                # stop whenever the sell failed after the flag had already flipped.
+                events.append(("EXIT", s, px, {"ret": ret, "why": why, "real": False}))
+            closes_by[s] = closes
         except Exception:
             continue
+
+    if REAL and _real_exits(ex, st, closes_by, events):
+        try:
+            bal = ex.fetch_balance()               # coins just sold no longer count toward MAX_POS
+        except Exception:
+            pass                                   # keep the older, more conservative balance
 
     # REAL EXECUTION — open the top MAX_POS candidates ranked by 30d momentum,
     # but ONLY from REAL_SYMS. `candidates` is drawn from the full paper universe,
@@ -443,6 +552,8 @@ def _run():
         for mom, s, px in candidates:
             if s not in REAL_SYMS:
                 continue                      # paper-only until promoted
+            if any(r["symbol"] == s for r in real["open"] + real["pending"]):
+                continue                      # never hold the same coin twice
             if held_now >= MAX_POS:           # counts what the WALLET holds, not only what the state file says
                 break
             if free_usdt < 5.01:          # need the $5 min notional
