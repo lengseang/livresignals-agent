@@ -20,9 +20,18 @@ from trading.paper.fills import FillConfig
 from trading.replay import loader, metrics, windows
 from trading.replay.broker import CostModel, PaperAccount, iso
 from trading.replay.engine import replay
+from trading.replay.plugins.trend_real import TrendReal
 from trading.replay.plugins.trend_sma import TrendSMA
 
 LABEL = "REPLAY (simulated; research, not evidence of edge)"
+TREND_REAL_CAVEATS = [
+    "Port of scripts/trend_follower.py as traded (rules and line numbers: docs/loop/designs/T3.3c.md).",
+    "Sizing is the shared account's min(cash, equity/slots), compounding; live uses a fixed $5.50 per position, "
+    "a $5.01 free-USDT check and a $5 min-notional bump, none of which is modelled.",
+    "Fills at the next 1m open after the 4h :10 check; the live wallet is shared with other books (UNKNOWN).",
+    "Spreads measured in 2026 are applied to 2017-2026; early spreads were probably wider (size UNKNOWN).",
+    "Coins enter the universe when their Binance data starts; nothing is backfilled.",
+]
 
 
 def _pct(x) -> str:
@@ -47,8 +56,13 @@ def main(argv: list[str] | None = None) -> dict:
     ap.add_argument("--open-holdout", action="store_true")
     ap.add_argument("--equity", type=float, default=1000.0)
     ap.add_argument("--slots", type=int, default=None, help="default = number of symbols")
+    ap.add_argument("--strategy", choices=("trend_sma", "trend_real"), default="trend_sma",
+                    help="trend_sma = the T3.1 daily baseline; trend_real = trend_follower.py as it trades (T3.3c)")
     ap.add_argument("--sma", type=int, default=50)
-    ap.add_argument("--btc-sma", type=int, default=50)
+    ap.add_argument("--btc-sma", type=int, default=None,
+                    help="BTC regime SMA; default 50 for trend_sma, 200 for trend_real (as traded)")
+    ap.add_argument("--hard-stop", default="0.15", help="trend_real: disaster stop fraction, or 'none'")
+    ap.add_argument("--max-pos", type=int, default=3, help="trend_real: MAX_POS (also the account's slots)")
     ap.add_argument("--fee", type=float, default=0.001)
     ap.add_argument("--spread-bps", type=float, default=2.0)
     ap.add_argument("--slippage-bps", type=float, default=2.0)
@@ -64,13 +78,15 @@ def main(argv: list[str] | None = None) -> dict:
     a = ap.parse_args(argv)
 
     root, syms = Path(a.history_root), a.symbols.split(",")
+    if a.strategy == "trend_real" and a.benchmark not in syms:
+        ap.error(f"trend_real reads the BTC regime from {a.benchmark}; it must be in --symbols")
     last_complete = min(loader.month_files(root, s)[-1][0] for s in syms)
     hold = windows.holdout_start(last_complete)
     end_ym = a.end or hold
     t_warm, t_trade, t_end = windows.ym_ms(a.warmup_start), windows.ym_ms(a.trade_start), windows.ym_ms(end_ym)
     windows.check_window(t_trade, t_end, hold, a.open_holdout)
 
-    slots = a.slots or len(syms)
+    slots = a.slots or (a.max_pos if a.strategy == "trend_real" else len(syms))
     if a.broker == "paper":
         cap = None if a.fill_cap_usd.lower() == "none" else float(a.fill_cap_usd)
         base = FillConfig(fee_taker=a.fee, fee_maker=a.fee, fill_cap_usd=cap, over_cap=a.over_cap)
@@ -90,8 +106,16 @@ def main(argv: list[str] | None = None) -> dict:
             return PaperAccount(a.equity, n, cms[k], name=name)
     accts = {k: make(k, slots, k) for k in ("net", "gross", "stress")}
     bench = {k: (a.benchmark, make(k, 1, f"bh_{k}")) for k in ("gross", "net", "stress")}
-    strat = TrendSMA(a.sma, a.btc_sma, btc=a.benchmark)
-    run_id = (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + f"-{strat.name}"
+    if a.strategy == "trend_real":
+        stop = None if a.hard_stop.lower() == "none" else float(a.hard_stop)
+        strat = TrendReal(sma=a.sma, hard_stop=stop, max_pos=a.max_pos, btc=a.benchmark, universe=tuple(syms),
+                          btc_sma=a.btc_sma or 200)
+    else:
+        strat = TrendSMA(a.sma, a.btc_sma or 50, btc=a.benchmark)
+    # trend_real variants are launched in parallel: the variant tag keeps same-second run_ids distinct
+    tag = (f"-sma{a.sma}-stop{'off' if strat.params['hard_stop'] is None else strat.params['hard_stop']}"
+           if a.strategy == "trend_real" else "")
+    run_id = (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + f"-{strat.name}" + tag
               + ("-paper" if a.broker == "paper" else ""))
 
     data_stats: dict = {}
@@ -111,7 +135,8 @@ def main(argv: list[str] | None = None) -> dict:
     def acct_block(acc: PaperAccount) -> dict:
         per = {}
         for name, (p0, p1) in periods.items():
-            per[name] = metrics.window_stats(res.ts, acc.curve, acc.start_equity, p0, p1)
+            per[name] = {**metrics.window_stats(res.ts, acc.curve, acc.start_equity, p0, p1),
+                         "sharpe_daily_ann": metrics.daily_sharpe(res.ts, acc.curve, p0, p1)}
         return {"final_equity_mid": acc.equity(), "final_equity_liquidated": acc.liquidation_value(),
                 "return_liquidated": acc.liquidation_value() / acc.start_equity - 1,
                 "max_dd_1m": acc.max_drawdown(), "sharpe_daily_ann": metrics.daily_sharpe(res.ts, acc.curve),
@@ -144,7 +169,8 @@ def main(argv: list[str] | None = None) -> dict:
             "SMA50 was chosen by the live script's author over 100/150/200 on this same history: not clean OOS.",
             "Universe is today's survivors (survivorship bias).",
             "Per-period numbers are slices of one continuous run, marked to mid at 1m closes.",
-            "Port differs from scripts/trend_follower.py: no -15% hard stop, daily not 4-hourly checks.",
+            *(TREND_REAL_CAVEATS if a.strategy == "trend_real" else
+              ["Port differs from scripts/trend_follower.py: no -15% hard stop, daily not 4-hourly checks."]),
         ],
     }
 

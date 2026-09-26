@@ -28,11 +28,16 @@ def window_stats(ts, curve, start_equity: float, t0: int, t1: int) -> dict:
     return {"ret": float(seg[-1] / e0 - 1), "max_dd": float(np.max(1 - seg / peak)), "n": int(i1 - i0)}
 
 
-def daily_sharpe(ts, curve) -> float | None:
+def daily_sharpe(ts, curve, t0: int | None = None, t1: int | None = None) -> float | None:
     """Annualised (sqrt 365) Sharpe of daily equity returns (last mark of each UTC day). Informational only;
-    the gate (T3.3) uses the Deflated Sharpe over all logged trials."""
-    ts = np.frombuffer(ts, dtype=np.int64)
-    eq = np.frombuffer(curve, dtype=np.float64)
+    the gate (T3.3) uses the Deflated Sharpe over all logged trials. With t0/t1, only marks in (t0, t1]
+    count, plus the last mark at or before t0 as the starting value."""
+    ts = np.frombuffer(ts, dtype=np.int64) if not isinstance(ts, np.ndarray) else ts
+    eq = np.frombuffer(curve, dtype=np.float64) if not isinstance(curve, np.ndarray) else curve
+    if t0 is not None or t1 is not None:
+        i0 = max(int(np.searchsorted(ts, t0, side="right")) - 1, 0) if t0 is not None else 0
+        i1 = int(np.searchsorted(ts, t1, side="right")) if t1 is not None else len(ts)
+        ts, eq = ts[i0:i1], eq[i0:i1]
     day = ts // DAY
     last_of_day = np.nonzero(np.append(day[1:] != day[:-1], True))[0]
     d = eq[last_of_day]

@@ -49,7 +49,7 @@ class Broker(Protocol):
     curve: array
 
     def submit(self, sig: Signal) -> None: ...
-    def on_open(self, bar: Bar) -> None: ...
+    def on_open(self, bar: Bar, action: str | None = None) -> None: ...
     def mark(self, bar: Bar) -> None: ...
     def record(self) -> None: ...
     def equity(self) -> float: ...
@@ -94,16 +94,18 @@ class PaperAccount:
             return
         self.pending.append(sig)
 
-    def on_open(self, bar: Bar | BarOpen) -> None:
+    def on_open(self, bar: Bar | BarOpen, action: str | None = None) -> None:
         """Fill pending orders for bar.symbol at this bar's open (the first price after the signal).
 
         Only symbol, open_ms and open are read, so a live BarOpen (all that is known at the open) works.
+        `action` ("open" | "close") restricts this call to one side, so the engine can fill every sale at an
+        instant before any purchase (a real account must sell to free the slot and the cash first).
         """
         if not self.pending:
             return
         keep = []
         for sig in self.pending:
-            if sig.symbol != bar.symbol:
+            if sig.symbol != bar.symbol or (action is not None and sig.action != action):
                 keep.append(sig)
                 continue
             if bar.open_ms < sig.ts_ms:

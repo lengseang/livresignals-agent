@@ -138,8 +138,12 @@ class LoopCore:
                     for sym, a in self._bench:
                         if sym == b.symbol:
                             a.submit(Signal("buy_and_hold", sym, "open", t, "benchmark", b.open, "1m"))
-                for a in self._marked:
-                    a.on_open(b)
+            # every sale at this instant fills before any purchase, across symbols: a real account sells
+            # first to free the slot and the cash (trend_follower.py exits in its loop, buys after it)
+            for action in ("close", "open"):
+                for b in opens:
+                    for a in self._marked:
+                        a.on_open(b, action)
         res.steps += 1
         return fired
 
