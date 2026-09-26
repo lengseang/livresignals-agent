@@ -80,6 +80,20 @@ that file stays as history.
 ### L5 · Operator terminal (front end)
 - After L3 is producing a live feed. Needs E8 answers. Built against the T5.1 feed contract.
 
+### M1 · Next milestone: "the terminal shows the thinking" (agreed 2026-09-26)
+Order, one PR each:
+1. **Lab runner (L1)**: fast data cache, timeframe-native replay, vectorised screening, parallel workers, daily digest.
+2. **Explainable scans**: every scanner evaluation emits `scan_cycle` with per-rule values, thresholds, and fired or
+   blocked plus the reason. This feeds the strategy board, the signal inspector and Live Scan.
+3. **Paper account events**: equity, PnL, exposure (feeds the equity sparkline, the risk and exposure bars).
+4. **Terminal v2** (front end, from the owner's concept): live strategy board; a signal inspector with check chips,
+   score breakdown and sizing chain; a "signal field" chart mode (score vs confidence); richer side panels; strategy
+   markers on candles toggleable per strategy; LIVE_PAPER vs REPLAY-run marker source (never mixed on one screen).
+5. **Shared risk engine**: circuit breakers, daily-loss halt, drawdown scaler, correlation penalty, used by paper and
+   future live alike (the sizing chain in the concept).
+Later: replay scrubbing in the terminal, a real-book reconciliation view, Telegram alerts (dry-run first).
+A composite multi-strategy score is itself a strategy: it must pass the gate before it sizes anything.
+
 ## When can we redeploy to the VPS?
 
 There are three different deploys with three different gates:
