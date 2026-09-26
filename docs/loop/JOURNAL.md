@@ -3,6 +3,20 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-09-26 · Wave 3: feed API, honest trend re-test, new strategies (PRs #28–#32) — nothing passes the gate
+Verified by me (fresh checkouts / gate files) before recording.
+- **T2.2b clock offset, #28:** recorder writes hourly `clock` records; the PC runs **6.8 s ahead** of Binance (was 5.4 s).
+- **T5.1 feed API, #30:** 197 passed; live check: GET 200, POST/PUT/DELETE 405, `--host 0.0.0.0` refused, loopback only.
+- **T3.3b distinct trials, #29 / T3.3c trend_real, #31:** 179 passed; all 8 pre-registered variants of the trend rule **as it
+  actually trades** (15 coins, 4h, SMA 50/100/150/200 × −15% stop on/off) **FAIL** (confirmed in each `gate.json`). Every
+  variant beats BTC hold OOS (+57%…+125% vs +44.9%), but DSR ≤ 0.097 at N=12; per-trade returns are extremely fat-tailed
+  (skew 9–12). The live config (SMA50, −15%) has the largest IS→OOS decay (+2718% → +82%, OOS DD −63%).
+- **T3.4 new strategies, #32:** the agent hit a usage limit after all 16 pre-registered runs finished; I graded them with the
+  fixed gate. **All 16 FAIL** at N=28: hourly momentum/reversal/breakout lose 21–99% after costs; regime L/S net-positive in
+  2 variants but DSR ≈ 0.002. The T1.1 cost floor is confirmed on real history.
+- **Where this leaves us:** no strategy has earned real capital. The live trend book runs on an un-validated rule; E7 (pause
+  3x futures) and a review of the trend book's sizing are the owner's calls.
+
 ## 2026-09-26 · Parallel wave 2: scanner, gate, paper engine (PRs #24–#26) + honest re-gate
 All verified by me in fresh checkouts before recording.
 - **T3.3 gate, #24:** Deflated Sharpe (Bailey & López de Prado 2014). **Independently re-derived** the published numerical example:
