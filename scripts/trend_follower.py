@@ -54,6 +54,15 @@ SIZE_USD = 5.5      # per position
 HARD_STOP = 0.15    # disaster stop: exit at -15% even if the trend hasn't broken
 REAL = os.environ.get("TREND_REAL", "0") == "1"
 
+# F1 (docs/loop/designs/T0.3.md): never buy the same coin twice after a crash.
+LOCK = BASE / "data" / "trend-follower.lock"
+DUST_USD = 1.0            # a wallet coin worth less than this does not count as held (owner, 2026-09-27)
+INTENT_TRUST_H = 24       # "order not found" is trusted only for intents younger than this
+
+
+class StateCorrupt(Exception):
+    """trend-state.json exists but can't be read. Trading must stop: an empty book would re-buy."""
+
 
 def sma(v, n):
     return sum(v[-n:]) / n
@@ -96,17 +105,137 @@ def signal(coin_closes, btc_closes):
 
 
 def load():
-    if STATE.exists():
-        try:
-            return json.loads(STATE.read_text())
-        except Exception:
-            pass
-    return {"positions": {}, "log": [], "real": {"open": []}}
+    """The saved state, or a fresh one on the very first run.
+
+    A file that exists but can't be parsed raises StateCorrupt. It used to come back as an empty
+    book, and the next run then bought up to MAX_POS coins on top of the ones already held.
+    """
+    if not STATE.exists():
+        return {"positions": {}, "log": [], "real": {"open": [], "pending": []}}
+    try:
+        return json.loads(STATE.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        raise StateCorrupt(f"{STATE}: {type(e).__name__}: {e}") from e
 
 
 def save(s):
+    """Atomic: the file is always the old version or the new one, never half-written."""
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(s, indent=2), encoding="utf-8")
+    tmp = STATE.with_suffix(".json.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(json.dumps(s, indent=2))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, STATE)
+
+
+def _acquire_lock(path):
+    """Exclusive non-blocking lock; None if another run holds it. The OS drops it if the process dies."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fh = open(path, "a+")
+    try:
+        try:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except ImportError:                       # Windows (dev and tests)
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        fh.close()
+        return None
+    return fh
+
+
+def _release_lock(fh):
+    if fh is None:
+        return
+    try:
+        try:
+            import fcntl
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        except ImportError:
+            import msvcrt
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    except OSError:
+        pass
+    fh.close()
+
+
+def _new_cid(symbol):
+    import uuid
+    return f"tf-{symbol.split('/')[0]}-{datetime.now(timezone.utc):%Y%m%d%H%M}-{uuid.uuid4().hex[:6]}"
+
+
+def _open_record(symbol, od, requested_qty, cid):
+    """A real position built from the exchange's fill. Missing values are UNKNOWN, never invented."""
+    filled, avg = od.get("filled"), od.get("average")
+    rec = {"symbol": symbol, "cid": cid, "oid": str(od.get("id", "")),
+           "ts": datetime.now(timezone.utc).isoformat()}
+    if filled:
+        rec.update(qty=float(filled), qty_status="FILL")
+    else:
+        rec.update(qty=float(requested_qty), qty_status="REQUESTED")   # what was sent; the fill is unknown
+    if avg:
+        rec.update(entry=float(avg), entry_status="FILL")
+    else:
+        rec.update(entry=None, entry_status="UNKNOWN")
+    return rec
+
+
+def _resolve_pending(ex, real, events):
+    """Settle every buy intent left by an earlier run. Returns True if new buys must be blocked this run."""
+    try:
+        from ccxt import OrderNotFound
+    except ImportError:                           # pragma: no cover - ccxt is a hard dependency in production
+        OrderNotFound = type("OrderNotFound", (Exception,), {})
+    blocked = False
+    keep = []
+    for it in real.get("pending", []):
+        try:
+            od = ex.fetch_order(None, it["symbol"], params={"clientOrderId": it["cid"]})
+        except OrderNotFound:
+            age_h = (datetime.now(timezone.utc) - datetime.fromisoformat(it["ts"])).total_seconds() / 3600
+            if age_h < INTENT_TRUST_H:
+                events.append(("ERR", it["symbol"], None, f"intent {it['cid']} never reached Binance: dropped"))
+                continue
+            keep.append(it)
+            blocked = True
+            events.append(("ERR", it["symbol"], None,
+                           f"intent {it['cid']} is {age_h:.0f}h old and not found: kept, buys blocked"))
+            continue
+        except Exception as e:  # noqa: BLE001 - unknown state: keep it and buy nothing
+            keep.append(it)
+            blocked = True
+            events.append(("ERR", it["symbol"], None, f"can't check {it['cid']} ({type(e).__name__}): buys blocked"))
+            continue
+        status = str(od.get("status", "")).lower()
+        if status == "closed":
+            real["open"].append(_open_record(it["symbol"], od, it["qty"], it["cid"]))
+            events.append(("ERR", it["symbol"], od.get("average"), f"recovered buy {it['cid']} from Binance"))
+        elif status in ("canceled", "cancelled", "rejected", "expired") and not (od.get("filled") or 0):
+            events.append(("ERR", it["symbol"], None, f"intent {it['cid']} {status} with no fill: dropped"))
+        else:                                      # open / partially filled / odd: wait, add no risk meanwhile
+            keep.append(it)
+            blocked = True
+            events.append(("ERR", it["symbol"], None, f"order {it['cid']} is {status or 'UNKNOWN'}: buys blocked"))
+    real["pending"] = keep
+    return blocked
+
+
+def _wallet_held(bal, prices):
+    """REAL_SYMS coins the wallet actually holds (value >= DUST_USD). A coin with no known price counts as held."""
+    n = 0
+    for s in REAL_SYMS:
+        base = s.split("/")[0]
+        total = float((bal.get(base) or {}).get("total") or 0)
+        if total <= 0:
+            continue
+        px = prices.get(s)
+        if px is None or total * px >= DUST_USD:
+            n += 1
+    return n
 
 
 def notify(title, body):
@@ -178,12 +307,36 @@ def _build_message(events, n_real, real_on) -> tuple[str, str]:
 def main():
     sys.path.insert(0, str(BASE / "scripts"))
     sys.path.insert(0, str(BASE / "src"))   # required: `trading` package lives in src/
+    lock = _acquire_lock(LOCK)
+    if lock is None:
+        print("previous trend_follower run still active: exiting without trading")
+        notify("⚠️ Trend follower skipped a run", "The previous run is still active, so this one did nothing.")
+        sys.exit(3)
+    try:
+        _run()
+    finally:
+        _release_lock(lock)
+
+
+def _run():
     from trading.exchange.live_client import make_live_exchange
+    try:
+        st = load()
+    except StateCorrupt as e:
+        print(f"trend-state.json is unreadable, NOT trading: {e}")
+        notify("⛔ Trend follower stopped",
+               "trend-state.json is unreadable, so no order was placed. Restore it from the nightly backup. "
+               "Do NOT delete it: an empty state would re-buy coins that are already held.")
+        sys.exit(2)
     ex = make_live_exchange()
-    st = load()
     pos = st.setdefault("positions", {})
     real = st.setdefault("real", {"open": []})
+    real.setdefault("pending", [])
     events = []
+    buys_blocked = False
+    if REAL:
+        buys_blocked = _resolve_pending(ex, real, events)
+        save(st)                                   # persist what was resolved before doing anything else
 
     btc = None
     try:
@@ -197,14 +350,16 @@ def main():
         return
 
     free_usdt = 0.0
+    bal = {}
     if REAL:
         try:
             bal = ex.fetch_balance()
             free_usdt = float(bal.get("USDT", {}).get("free", 0))
         except Exception:
-            pass
+            buys_blocked = True                   # can't see the wallet, so can't prove there's room
 
     candidates = []   # (momentum, symbol, px) for real ranking
+    last_px = {}
     for s in SYMS:
         try:
             o = ex.fetch_ohlcv(s, "1d", limit=300)
@@ -212,6 +367,7 @@ def main():
                 continue
             closes = [c[4] for c in o]
             px = closes[-1]
+            last_px[s] = px
             want = signal(closes, btc)
             # Enter requires BOTH the coin's own trend and the market regime.
             #
@@ -279,12 +435,15 @@ def main():
     # but ONLY from REAL_SYMS. `candidates` is drawn from the full paper universe,
     # so without this gate widening SYMS would quietly widen real-money exposure —
     # which is the exact opposite of the intent.
-    if REAL and candidates:
+    if REAL and candidates and buys_blocked:
+        events.append(("ERR", "trend", None, "new buys blocked this run until earlier orders are resolved"))
+    if REAL and candidates and not buys_blocked:
         candidates.sort(reverse=True)
+        held_now = max(len(real["open"]) + len(real["pending"]), _wallet_held(bal, last_px))
         for mom, s, px in candidates:
             if s not in REAL_SYMS:
                 continue                      # paper-only until promoted
-            if len(real["open"]) >= MAX_POS:
+            if held_now >= MAX_POS:           # counts what the WALLET holds, not only what the state file says
                 break
             if free_usdt < 5.01:          # need the $5 min notional
                 break
@@ -298,14 +457,27 @@ def main():
                 notional = qty * px
                 if notional < 5.0 or notional > free_usdt:
                     continue
-                od = ex.create_order(s, "market", "buy", qty)
-                real["open"].append({"symbol": s, "qty": qty, "entry": px,
-                                     "oid": str(od.get("id", "")),
-                                     "ts": datetime.now(timezone.utc).isoformat()})
+                # write-ahead: the intent is on disk BEFORE the order, so a crash can't forget it
+                cid = _new_cid(s)
+                intent = {"cid": cid, "symbol": s, "qty": qty,
+                          "ts": datetime.now(timezone.utc).isoformat(), "state": "sent"}
+                real["pending"].append(intent)
+                save(st)
+                od = ex.create_order(s, "market", "buy", qty, params={"clientOrderId": cid})
+                real["pending"].remove(intent)
+                rec = _open_record(s, od, qty, cid)
+                real["open"].append(rec)
+                save(st)
+                held_now += 1
                 free_usdt -= notional
-                events.append(("REALBUY", s, px, {"qty": qty, "notional": round(notional, 2)}))
+                events.append(("REALBUY", s, rec["entry"] if rec["entry"] is not None else px,
+                               {"qty": rec["qty"], "notional": round(notional, 2),
+                                "entry_status": rec["entry_status"]}))
             except Exception as e:
-                events.append(("ERR", s, px, str(e)[:60]))
+                # the order may or may not have executed: its intent stays pending and nothing more is bought
+                save(st)
+                events.append(("ERR", s, px, f"{str(e)[:60]} (order state unknown: checked next run)"))
+                break
 
     save(st)
 
