@@ -11,9 +11,12 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+from trading.paper.broker import KlineBroker
+from trading.paper.fills import FillConfig
 from trading.replay import loader, metrics, windows
 from trading.replay.broker import CostModel, PaperAccount, iso
 from trading.replay.engine import replay
@@ -50,6 +53,13 @@ def main(argv: list[str] | None = None) -> dict:
     ap.add_argument("--spread-bps", type=float, default=2.0)
     ap.add_argument("--slippage-bps", type=float, default=2.0)
     ap.add_argument("--stress-slippage-bps", type=float, default=5.0)
+    ap.add_argument("--broker", choices=("cost", "paper"), default="cost",
+                    help="cost = legacy flat spread/slippage assumptions (the pre-registered T3.1 run); "
+                         "paper = the measured fill model (T4.2): per-symbol median spread, p90 as the stress run")
+    ap.add_argument("--fill-cap-usd", default="5",
+                    help="paper broker: per-fill notional cap ('none' = uncapped, labelled depth_unmodelled)")
+    ap.add_argument("--over-cap", choices=("clip", "label"), default="clip",
+                    help="paper broker: clip entries to the cap, or fill them and flag depth_unmodelled")
     ap.add_argument("--out", default="data/local/replay")
     a = ap.parse_args(argv)
 
@@ -60,14 +70,29 @@ def main(argv: list[str] | None = None) -> dict:
     t_warm, t_trade, t_end = windows.ym_ms(a.warmup_start), windows.ym_ms(a.trade_start), windows.ym_ms(end_ym)
     windows.check_window(t_trade, t_end, hold, a.open_holdout)
 
-    costs = {"gross": CostModel(0, 0, 0),
-             "net": CostModel(a.fee, a.spread_bps, a.slippage_bps),
-             "stress": CostModel(a.fee, a.spread_bps, a.stress_slippage_bps)}
     slots = a.slots or len(syms)
-    accts = {k: PaperAccount(a.equity, slots, costs[k], name=k) for k in ("net", "gross", "stress")}
-    bench = {k: (a.benchmark, PaperAccount(a.equity, 1, c, name=f"bh_{k}")) for k, c in costs.items()}
+    if a.broker == "paper":
+        cap = None if a.fill_cap_usd.lower() == "none" else float(a.fill_cap_usd)
+        base = FillConfig(fee_taker=a.fee, fee_maker=a.fee, fill_cap_usd=cap, over_cap=a.over_cap)
+        cfgs = {"gross": replace(base, fee_taker=0.0, fee_maker=0.0, spread_stat="none"),
+                "net": base, "stress": replace(base, spread_stat="p90")}
+        costs = {k: c.header() for k, c in cfgs.items()}
+
+        def make(k, n, name):
+            return KlineBroker(a.equity, n, cfgs[k], name=name, symbols=syms + [a.benchmark])
+    else:
+        cms = {"gross": CostModel(0, 0, 0),
+               "net": CostModel(a.fee, a.spread_bps, a.slippage_bps),
+               "stress": CostModel(a.fee, a.spread_bps, a.stress_slippage_bps)}
+        costs = {k: vars(c) for k, c in cms.items()}
+
+        def make(k, n, name):
+            return PaperAccount(a.equity, n, cms[k], name=name)
+    accts = {k: make(k, slots, k) for k in ("net", "gross", "stress")}
+    bench = {k: (a.benchmark, make(k, 1, f"bh_{k}")) for k in ("gross", "net", "stress")}
     strat = TrendSMA(a.sma, a.btc_sma, btc=a.benchmark)
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + f"-{strat.name}"
+    run_id = (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + f"-{strat.name}"
+              + ("-paper" if a.broker == "paper" else ""))
 
     data_stats: dict = {}
     streams = {s: loader.iter_symbol(root, s, start_ms=t_warm, end_ms=t_end, stats=data_stats) for s in syms}
@@ -97,7 +122,8 @@ def main(argv: list[str] | None = None) -> dict:
     summary = {
         "mode": "REPLAY", "label": LABEL, "run_id": run_id, "strategy": strat.name, "params": strat.params,
         "symbols": syms, "slots": slots, "start_equity": a.equity,
-        "costs": {k: vars(c) for k, c in costs.items()},
+        "broker": a.broker, "costs": costs,
+        "fill_model_labels": ({k: v.labels() for k, v in accts.items()} if a.broker == "paper" else None),
         "window": {"warmup_from": iso(t_warm), "trade_from": iso(t_trade), "to": iso(t_last),
                    "is_oos_split": a.is_oos_split,
                    "holdout_from": hold, "holdout_opened": a.open_holdout, "last_complete_month": last_complete},
@@ -111,7 +137,10 @@ def main(argv: list[str] | None = None) -> dict:
         "replay_seconds": round(secs, 1), "steps": res.steps,
         "caveats": [
             "REPLAY results are research, not evidence of edge.",
-            "Spread and slippage are assumptions (UNKNOWN until T2.3 measures them); the real fee rate is UNKNOWN.",
+            ("Spread = measured per-symbol median (net) / p90 (stress) from a 7.56 h sample (spreads_v1.json); "
+             "no slippage beyond L1 is modelled (bars have no depth); the real fee rate is UNKNOWN."
+             if a.broker == "paper" else
+             "Spread and slippage are assumptions (UNKNOWN until T2.3 measures them); the real fee rate is UNKNOWN."),
             "SMA50 was chosen by the live script's author over 100/150/200 on this same history: not clean OOS.",
             "Universe is today's survivors (survivorship bias).",
             "Per-period numbers are slices of one continuous run, marked to mid at 1m closes.",
@@ -130,9 +159,13 @@ def main(argv: list[str] | None = None) -> dict:
     (out / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
     with open(Path(a.out) / "trials.jsonl", "a", encoding="utf-8") as f:
         f.write(json.dumps({"mode": "REPLAY", "run_id": run_id, "strategy": strat.name, "params": strat.params,
+                            "broker": a.broker,
                             "symbols": syms, "trade_from": iso(t_trade), "to": iso(t_last),
                             "holdout_opened": a.open_holdout}) + "\n")
 
+    if a.broker == "paper":
+        for lab in accts["net"].labels():
+            print(f"[fill model] {lab}")
     print(f"{LABEL}\nrun {run_id}: {res.steps} steps in {secs:.0f}s; window {iso(t_trade)} -> {iso(t_last)}; "
           f"holdout from {hold} {'OPENED' if a.open_holdout else 'untouched'}")
     print("| period | strategy gross | strategy net | net stress | net max DD | BTC B&H gross | BTC B&H net | "

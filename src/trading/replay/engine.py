@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from itertools import groupby
 
 from trading.replay.bars import INTERVAL_MS, Bar
-from trading.replay.broker import PaperAccount
+from trading.replay.broker import Broker
 from trading.replay.context import BarStore, Context, ReplayClock
 from trading.replay.resample import Resampler
 from trading.replay.strategy import Signal
@@ -60,10 +60,10 @@ class LoopCore:
     opening at t, both sorted by symbol. Returns the (strategy, Signal) pairs fired at t while trading.
     """
 
-    def __init__(self, symbols: Iterable[str], strategies: list, accounts: Mapping[str, PaperAccount], *,
+    def __init__(self, symbols: Iterable[str], strategies: list, accounts: Mapping[str, Broker], *,
                  mode: str = "REPLAY", trade_start_ms: int | None = None, end_ms: int | None = None,
                  keep_1m: int = 1440, run_id: str | None = None,
-                 benchmarks: Mapping[str, tuple[str, PaperAccount]] | None = None):
+                 benchmarks: Mapping[str, tuple[str, Broker]] | None = None):
         self.store, self.clock = BarStore(keep_1m=keep_1m), ReplayClock()
         self.ctx = Context(self.store, self.clock, next(iter(accounts.values())))
         self.res = ReplayResult(self.store)
@@ -144,10 +144,10 @@ class LoopCore:
         return fired
 
 
-def replay(streams: Mapping[str, Iterable[Bar]], strategies: list, accounts: Mapping[str, PaperAccount],
+def replay(streams: Mapping[str, Iterable[Bar]], strategies: list, accounts: Mapping[str, Broker],
            trade_start_ms: int | None = None, end_ms: int | None = None, keep_1m: int = 1440,
            run_id: str | None = None,
-           benchmarks: Mapping[str, tuple[str, PaperAccount]] | None = None) -> ReplayResult:
+           benchmarks: Mapping[str, tuple[str, Broker]] | None = None) -> ReplayResult:
     """Replay 1m bar streams (one per symbol). The first account is the one strategies' ctx.position reads.
 
     Every account receives the same signals; cost scenarios (gross/net/stress) run in one pass.
