@@ -8,8 +8,14 @@ per symbol: 21,602 bars of 2017-2018 are phase-shifted off the minute grid (e.g.
 close 1512367280798); 18 bars have a close_time other than open + 59,999 ms, mostly the last bar
 before an exchange halt (close_time = the halt instant). Using the real close keeps "known at end_ms"
 true. One of those 18 (2020-12-21) is a zero-trade placeholder whose close_time precedes its
-open_time; such rows carry no trade and are dropped and counted, never repaired. Any other row whose
-close_time is outside its bar raises.
+open_time; such rows carry no trade and are dropped and counted, never repaired.
+
+Measured across all 15 coins (T3.3c, 1,268 zips): 5 rows close 132-1,539 ms AFTER their minute, each the
+last bar before an exchange halt (e.g. LTCUSDT 2018-02-11, LINK/NEAR/SOL 2021-04-25). They carry real
+trades, so they are kept at their real close and counted as `late_close`. One of them (SOLUSDT
+2021-12-24 04:59) is followed by a bar that opens 475 ms before that close; a bar cannot end after the
+next one started, so iter_symbol drops that row and counts it (`dropped_late_close_overlap`). Any row
+closing more than one extra interval late, or before its open with trades, raises.
 """
 from __future__ import annotations
 
@@ -40,7 +46,12 @@ def iter_klines(path: Path, symbol: str, interval: str = "1m", stats: dict | Non
                     if stats is not None:
                         stats[f"{symbol}:dropped_placeholder"] = stats.get(f"{symbol}:dropped_placeholder", 0) + 1
                     continue
-                if not open_ms < end_ms <= open_ms + step + 1:
+                if open_ms + step + 1 < end_ms <= open_ms + 2 * step:
+                    # last bar before a halt closing just past its minute (5 measured rows, 132-1,539 ms):
+                    # real trades, kept at their real close and counted; never moved onto the grid
+                    if stats is not None:
+                        stats[f"{symbol}:late_close"] = stats.get(f"{symbol}:late_close", 0) + 1
+                elif not open_ms < end_ms <= open_ms + step + 1:
                     raise ValueError(f"{path.name}: close_time {r[6]} is not within a {interval} bar at {r[0]}")
                 yield Bar(symbol, interval, open_ms, end_ms,
                           float(r[1]), float(r[2]), float(r[3]), float(r[4]),
@@ -74,6 +85,8 @@ def iter_symbol(root: Path, symbol: str, start_ms: int | None = None, end_ms: in
     look-ahead risk). Missing months are simply absent: gaps are data, never interpolated.
     """
     last = -1
+    step = INTERVAL_MS[interval]
+    held: Bar | None = None          # a late-closing bar, yielded only once the next bar shows it does not overlap
     for ym, path in month_files(root, symbol, interval):
         m0, m1 = _month_bounds(ym)
         if (end_ms is not None and m0 >= end_ms) or (start_ms is not None and m1 <= start_ms):
@@ -84,6 +97,19 @@ def iter_symbol(root: Path, symbol: str, start_ms: int | None = None, end_ms: in
             last = bar.open_ms
             if start_ms is not None and bar.open_ms < start_ms:
                 continue
+            if held is not None:
+                if bar.open_ms < held.end_ms:
+                    if stats is not None:
+                        k = f"{symbol}:dropped_late_close_overlap"
+                        stats[k] = stats.get(k, 0) + 1
+                else:
+                    yield held
+                held = None
             if end_ms is not None and bar.end_ms > end_ms:
                 return
+            if bar.end_ms > bar.open_ms + step + 1:
+                held = bar
+                continue
             yield bar
+    if held is not None:
+        yield held

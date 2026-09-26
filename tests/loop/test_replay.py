@@ -134,6 +134,42 @@ def test_loader_rejects_a_close_time_outside_the_bar(tmp_path):
         list(loader.iter_klines(z, "BTCUSDT"))
 
 
+def test_loader_keeps_and_counts_a_last_bar_before_a_halt_that_closes_just_past_its_minute(tmp_path):
+    """Measured (T3.3c scan of all 1,268 zips): 5 rows close 132-1,539 ms after their minute, each the last
+    bar before an exchange halt, e.g. LTCUSDT-1m-2018-02 open 1518321540000, close 1518321600999, 28 trades.
+    They are real trades: kept, known at their real close (+1 ms), and counted; never shifted onto the grid."""
+    z = write_zip(tmp_path / "LTCUSDT-1m-2018-02.zip", [
+        "1518321480000,145.24,145.34,145.10,145.13,74.8,1518321539999,10865.5,34,31.7,4608.4,0",
+        "1518321540000,145.13,145.30,144.93,145.30,133.4,1518321600999,19382.9,28,105.1,15265.9,0",
+        "1518323700000,145.33,148.92,145.33,148.28,252.0,1518323759999,36858.0,69,223.2,32649.7,0"])
+    stats = {}
+    got = list(loader.iter_klines(z, "LTCUSDT", stats=stats))
+    assert [b.end_ms for b in got] == [1518321540000, 1518321601000, 1518323760000]
+    assert stats == {"LTCUSDT:late_close": 1}
+
+
+def test_iter_symbol_drops_and_counts_a_late_close_that_overlaps_the_next_bar(tmp_path):
+    """Measured: SOLUSDT-1m-2021-12 open 1640321940000 closes 1640322000475, but the next bar opens on the
+    minute (1640322000000), 475 ms before that close. One bar cannot end after the next one started, and
+    moving its close earlier would be a repair: the row is dropped and counted (1 row in the whole history)."""
+    root = tmp_path / "monthly"
+    write_zip(root / "klines_1m" / "SOLUSDT" / "SOLUSDT-1m-2021-12.zip", [
+        "1640321880000,188.30,188.31,187.81,187.93,658.35,1640321939999,123722.3,148,83.1,15633.0,0",
+        "1640321940000,187.93,187.93,187.80,187.87,445.74,1640322000475,83746.4,216,345.4,64893.9,0",
+        "1640322000000,187.87,187.87,187.67,187.67,413.43,1640322059999,77629.8,83,158.7,29810.3,0"])
+    stats = {}
+    got = list(loader.iter_symbol(root, "SOLUSDT", stats=stats))
+    assert [b.open_ms for b in got] == [1640321880000, 1640322000000]
+    assert stats == {"SOLUSDT:late_close": 1, "SOLUSDT:dropped_late_close_overlap": 1}
+
+
+def test_iter_symbol_keeps_a_late_close_at_the_end_of_the_stream(tmp_path):
+    root = tmp_path / "monthly"
+    write_zip(root / "klines_1m" / "LTCUSDT" / "LTCUSDT-1m-2018-02.zip", [
+        "1518321540000,145.13,145.30,144.93,145.30,133.4,1518321600999,19382.9,28,105.1,15265.9,0"])
+    assert [b.end_ms for b in loader.iter_symbol(root, "LTCUSDT")] == [1518321601000]
+
+
 def test_loader_drops_and_counts_a_zero_trade_placeholder_with_close_before_open(tmp_path):
     """Measured: BTCUSDT-1m-2020-12 has open 1608559740000, close 1608558440521, 0 volume, 0 trades."""
     t = 1608559680000
