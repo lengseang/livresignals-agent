@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from trading.paper.fills import FillConfig, bar_taker_price
+from trading.paper.fills import FillConfig, bar_exit, bar_taker_price
 from trading.replay.broker import CostModel, PaperAccount
 
 
@@ -34,6 +34,15 @@ class KlineBroker(PaperAccount):
 
     def sell_price(self, symbol: str, mid: float) -> float:
         return bar_taker_price(symbol, "sell", mid, self.cfg)
+
+    def bar_exit(self, bar, pos: dict):
+        """Stop / take-profit through the measured fill model's kline rule (fills.bar_exit)."""
+        short = pos.get("side") == "S"
+        stop = pos["stop"] if pos["stop"] is not None else (float("inf") if short else float("-inf"))
+        return bar_exit(bar, "short" if short else "long", stop, pos["take_profit"], self.cfg)
+
+    def exit_fee_rate(self, reason: str) -> float:
+        return self.cfg.fee_maker if reason == "take_profit" else self.cfg.fee_taker    # TP is a resting limit
 
     def size_budget(self, symbol: str, budget: float) -> tuple[float, list]:
         cap = self.cfg.fill_cap_usd

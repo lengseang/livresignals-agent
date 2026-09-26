@@ -98,9 +98,18 @@ def sharpe_moments(returns) -> dict:
     return {"n": n, "sr": (mu / sd) if sd > 0 else None, "skew": skew, "kurtosis": kurt}
 
 
-def round_trip_cost(cost_model: dict) -> float:
-    """c = 2(f + s), s = half spread + slippage per side (docs/research/fees-and-breakeven.md)."""
-    return 2 * (cost_model["fee_rate"] + (cost_model["spread_bps"] / 2 + cost_model["slippage_bps"]) / 1e4)
+def round_trip_cost(cost_model: dict, symbols=None) -> float:
+    """c = 2(f + s), s = half spread + slippage per side (docs/research/fees-and-breakeven.md).
+
+    Legacy flat cost model: fee_rate / spread_bps / slippage_bps. Paper-broker header (T4.2): fee_taker and the
+    measured spread at its spread_stat; the WIDEST symbol of the run is used, so p* is the conservative one.
+    """
+    if "fee_rate" in cost_model:
+        return 2 * (cost_model["fee_rate"] + (cost_model["spread_bps"] / 2 + cost_model["slippage_bps"]) / 1e4)
+    from trading.paper import spreads
+    stat, over = cost_model.get("spread_stat", "median"), cost_model.get("spread_override")
+    spread = 0.0 if stat == "none" else max((spreads.spread_bp(s, stat, over) for s in symbols or ()), default=0.0)
+    return 2 * (cost_model["fee_taker"] + spread / 2 / 1e4)
 
 
 def breakeven_win_rate(tp: float, sl: float, cost: float) -> float:
@@ -110,7 +119,8 @@ def breakeven_win_rate(tp: float, sl: float, cost: float) -> float:
 
 # ----- verdict -----------------------------------------------------------------------------------
 def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, oos_net_return,
-            oos_btc_net_return, regime, cost_model, n_trials, trial_sharpes=None, exits=None) -> dict:
+            oos_btc_net_return, regime, cost_model, n_trials, trial_sharpes=None, exits=None,
+            symbols=None) -> dict:
     fails, short, checks = [], [], {}
     net = [float(r) for r in oos_net_trade_returns]
     gross = [float(r) for r in oos_gross_trade_returns]
@@ -142,7 +152,7 @@ def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, 
     if not checks["regime"]["ok"]:
         short.append("regime of the OOS window is UNKNOWN")
 
-    c = round_trip_cost(cost_model)
+    c = round_trip_cost(cost_model, symbols)
     mean_net = float(np.mean(net)) if net else None
     mean_gross = float(np.mean(gross)) if gross else None
     win = (sum(r > 0 for r in net) / n) if n else None
@@ -269,7 +279,8 @@ def evaluate(run: Path, trials_path: Path | None = None, split_cli: str | None =
                   oos_net_return=acc.get("periods", {}).get("OOS", {}).get("ret"),
                   oos_btc_net_return=bh.get("periods", {}).get("OOS", {}).get("ret"),
                   regime=s.get("regime", {}).get("OOS"), cost_model=s["costs"]["net"],
-                  n_trials=n_trials, trial_sharpes=sharpes, exits=exits)
+                  n_trials=n_trials, trial_sharpes=sharpes, exits=exits,
+                  symbols=s.get("symbols"))
     return {"mode": "REPLAY", "label": LABEL, "run_id": s.get("run_id"), "strategy": s.get("strategy"),
             "params": s.get("params"), "verdict": res["verdict"], "reasons": res["reasons"],
             "oos_window": {"from": split, "to": end, "split_source": split_src,

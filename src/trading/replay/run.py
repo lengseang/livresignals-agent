@@ -1,6 +1,7 @@
 """Run a REPLAY of the trend baseline over history on disk (research only, not evidence of edge).
 
     python -m trading.replay.run --history-root data/local/history/monthly --symbols BTCUSDT,ETHUSDT
+    python -m trading.replay.run ... --strategy regime_ls --params '{"sma_regime": 150}' --tag RL3
 
 Defaults are the pre-registered baseline run in docs/loop/designs/T3.0-T3.1.md. The holdout (last 6
 complete months on disk) is refused unless --open-holdout is passed. Every run is appended to
@@ -20,7 +21,6 @@ from trading.paper.fills import FillConfig
 from trading.replay import loader, metrics, windows
 from trading.replay.broker import CostModel, PaperAccount, iso
 from trading.replay.engine import replay
-from trading.replay.plugins.trend_sma import TrendSMA
 
 LABEL = "REPLAY (simulated; research, not evidence of edge)"
 
@@ -61,6 +61,11 @@ def main(argv: list[str] | None = None) -> dict:
     ap.add_argument("--over-cap", choices=("clip", "label"), default="clip",
                     help="paper broker: clip entries to the cap, or fill them and flag depth_unmodelled")
     ap.add_argument("--out", default="data/local/replay")
+    ap.add_argument("--strategy", default="trend_sma",
+                    help="plugin name from trading.scanner.registry (default: the trend_sma baseline)")
+    ap.add_argument("--params", default=None,
+                    help="JSON object overriding the plugin's registered defaults (trend_sma: --sma/--btc-sma)")
+    ap.add_argument("--tag", default=None, help="appended to the run id (keeps parallel run ids distinct)")
     a = ap.parse_args(argv)
 
     root, syms = Path(a.history_root), a.symbols.split(",")
@@ -90,9 +95,17 @@ def main(argv: list[str] | None = None) -> dict:
             return PaperAccount(a.equity, n, cms[k], name=name)
     accts = {k: make(k, slots, k) for k in ("net", "gross", "stress")}
     bench = {k: (a.benchmark, make(k, 1, f"bh_{k}")) for k in ("gross", "net", "stress")}
-    strat = TrendSMA(a.sma, a.btc_sma, btc=a.benchmark)
+    from trading.scanner.registry import DEFAULT as REGISTRY
+    over = json.loads(a.params) if a.params else {}
+    if a.strategy == "trend_sma":
+        over = {"sma": a.sma, "btc_sma": a.btc_sma, "btc": a.benchmark, **over}
+    strat = REGISTRY.build(a.strategy, **over)
     run_id = (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + f"-{strat.name}"
-              + ("-paper" if a.broker == "paper" else ""))
+              + ("-paper" if a.broker == "paper" else "") + (f"-{a.tag}" if a.tag else ""))
+    trend_caveats = [
+        "SMA50 was chosen by the live script's author over 100/150/200 on this same history: not clean OOS.",
+        "Port differs from scripts/trend_follower.py: no -15% hard stop, daily not 4-hourly checks."]
+    plugin_caveats = trend_caveats if a.strategy == "trend_sma" else list(getattr(strat, "caveats", ()))
 
     data_stats: dict = {}
     streams = {s: loader.iter_symbol(root, s, start_ms=t_warm, end_ms=t_end, stats=data_stats) for s in syms}
@@ -141,10 +154,9 @@ def main(argv: list[str] | None = None) -> dict:
              "no slippage beyond L1 is modelled (bars have no depth); the real fee rate is UNKNOWN."
              if a.broker == "paper" else
              "Spread and slippage are assumptions (UNKNOWN until T2.3 measures them); the real fee rate is UNKNOWN."),
-            "SMA50 was chosen by the live script's author over 100/150/200 on this same history: not clean OOS.",
             "Universe is today's survivors (survivorship bias).",
             "Per-period numbers are slices of one continuous run, marked to mid at 1m closes.",
-            "Port differs from scripts/trend_follower.py: no -15% hard stop, daily not 4-hourly checks.",
+            *plugin_caveats,
         ],
     }
 

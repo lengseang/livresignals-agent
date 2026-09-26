@@ -3,6 +3,11 @@
 Fills happen at the OPEN of the next 1m bar after a signal, adjusted by half the quoted spread
 plus slippage, and pay a fee on each side. Records mirror the live ledger's record types
 (`signal` on entry, `close` on exit; see scripts/signal_ledger.py) and carry mode="REPLAY".
+
+Optional exits (docs/loop/designs/T3.4.md): a signal's sl/tp become stop and take-profit prices around the
+entry bar's open, checked at every 1m close with the T4.1 kline rules; max_hold_ms is a time stop filled at
+the next 1m open. side="S" opens a SHORT, a PAPER-ONLY simulation (spot cannot short; borrow/funding cost
+and liquidation are not modelled).
 """
 from __future__ import annotations
 
@@ -125,59 +130,142 @@ class PaperAccount:
         budget = min(self.cash, self.equity() / self.slots)
         if budget <= 0:
             return self._skip(sig, "no cash")
-        price = self.buy_price(sig.symbol, bar.open)
+        short = sig.side == "S"
+        # a short (PAPER-ONLY) sells at the bid side: same fill model, opposite direction
+        price = self.sell_price(sig.symbol, bar.open) if short else self.buy_price(sig.symbol, bar.open)
         budget, flags = self.size_budget(sig.symbol, budget)
         qty = budget / (price * (1 + self.costs.fee_rate))
         fee = qty * price * self.costs.fee_rate
         self.cash -= budget
         sid = f"{sig.strategy}:{sig.symbol}:{bar.open_ms}"
+        ref, sgn = bar.open, (-1 if short else 1)
+        stop = None if sig.sl is None else ref * (1 - sgn * sig.sl)
+        take = None if sig.tp is None else ref * (1 + sgn * sig.tp)
+        deadline = None if sig.max_hold_ms is None else bar.open_ms + sig.max_hold_ms
         self.positions[sig.symbol] = {"id": sid, "qty": qty, "entry": price, "entry_mid": bar.open,
                                       "opened_ms": bar.open_ms, "signal_ms": sig.ts_ms, "spent": budget,
-                                      "fee": fee}
+                                      "fee": fee, "side": sig.side, "strategy": sig.strategy,
+                                      "stop": stop, "take_profit": take, "deadline_ms": deadline}
         self.last[sig.symbol] = bar.open
         self.fills += 1
         self.events.append({"mode": self.mode, "type": "signal", "ts": iso(bar.open_ms), "ts_ms": bar.open_ms,
                             "payload": {"id": sid, "source": f"replay:{sig.strategy}", "symbol": sig.symbol,
                                         "side": sig.side, "entry": price, "opened": iso(bar.open_ms),
                                         "qty": qty, "fee": fee, "signal_ts": iso(sig.ts_ms),
-                                        "why": sig.reason, "account": self.name, **self.fill_meta(flags)}})
+                                        "why": sig.reason, "account": self.name,
+                                        **({"stop": stop, "take_profit": take, "deadline_ms": deadline}
+                                           if (stop or take or deadline) else {}),
+                                        **({"paper_only_short": True} if short else {}),
+                                        **self.fill_meta(flags)}})
 
     def _close(self, sig: Signal, bar: Bar) -> None:
         pos = self.positions.pop(sig.symbol, None)
         if pos is None:
             return self._skip(sig, "not held")
-        price = self.sell_price(sig.symbol, bar.open)
-        proceeds = pos["qty"] * price
-        fee = proceeds * self.costs.fee_rate
+        short = pos.get("side") == "S"
+        price = self.buy_price(sig.symbol, bar.open) if short else self.sell_price(sig.symbol, bar.open)
+        self._settle(sig.symbol, pos, price, bar.open, bar.open_ms, sig.reason, self.costs.fee_rate)
+
+    def _settle(self, symbol: str, pos: dict, price: float, mid: float, ts_ms: int, why: str,
+                fee_rate: float) -> None:
+        """Book an exit at `price` (fill) whose reference mid is `mid`, known at ts_ms."""
+        short = pos.get("side") == "S"
+        qty = pos["qty"]
+        if short:
+            proceeds = qty * (2 * pos["entry"] - price)     # collateral back plus (entry - exit) per unit
+            gross = 1 - mid / pos["entry_mid"]
+        else:
+            proceeds = qty * price
+            gross = mid / pos["entry_mid"] - 1
+        fee = qty * price * fee_rate
         self.cash += proceeds - fee
-        self.last[sig.symbol] = bar.open
+        self.last[symbol] = mid
         self.fills += 1
-        gross = bar.open / pos["entry_mid"] - 1
         net = (proceeds - fee) / pos["spent"] - 1
-        t = {"id": pos["id"], "symbol": sig.symbol, "signal_ms": pos["signal_ms"], "opened_ms": pos["opened_ms"],
-             "closed_ms": bar.open_ms, "entry": pos["entry"], "exit": price, "qty": pos["qty"],
-             "fee": pos["fee"] + fee, "gross_ret": gross, "net_ret": net, "pnl": proceeds - fee - pos["spent"]}
+        t = {"id": pos["id"], "symbol": symbol, "signal_ms": pos["signal_ms"], "opened_ms": pos["opened_ms"],
+             "closed_ms": ts_ms, "entry": pos["entry"], "exit": price, "qty": qty,
+             "fee": pos["fee"] + fee, "gross_ret": gross, "net_ret": net, "pnl": proceeds - fee - pos["spent"],
+             "why": why, "side": pos.get("side", "L")}
         self.trades.append(t)
-        self.events.append({"mode": self.mode, "type": "close", "ts": iso(bar.open_ms), "ts_ms": bar.open_ms,
-                            "payload": {"id": pos["id"], "symbol": sig.symbol, "exit": price, "ret": net, "gross_ret": gross,
+        self.events.append({"mode": self.mode, "type": "close", "ts": iso(ts_ms), "ts_ms": ts_ms,
+                            "payload": {"id": pos["id"], "symbol": symbol, "exit": price, "ret": net, "gross_ret": gross,
                                         "net_ret": net, "pnl": t["pnl"], "fee": fee, "fee_total": t["fee"],
-                                        "why": sig.reason, "closed_ts": iso(bar.open_ms),
-                                        "held_days": (bar.open_ms - pos["opened_ms"]) / 86_400_000,
+                                        "why": why, "closed_ts": iso(ts_ms), "side": t["side"],
+                                        "held_days": (ts_ms - pos["opened_ms"]) / 86_400_000,
                                         "account": self.name,
-                                        **self.fill_meta(self.exit_flags(sig.symbol, proceeds))}})
+                                        **self.fill_meta(self.exit_flags(symbol, qty * price))}})
+
+    # --- stop-loss / take-profit / time stop (docs/loop/designs/T3.4.md, T4.1 kline rules) --------
+    def bar_exit(self, bar: Bar, pos: dict) -> tuple[str, float] | None:
+        """("stop" | "take_profit", fill price) if this 1m bar exits the position. Stops are taker orders
+        (gap-through fills at the open); take-profits are limits needing a strict trade-through, filled at
+        the limit; a bar touching both books the stop. KlineBroker overrides this with fills.bar_exit."""
+        stop, take = pos["stop"], pos["take_profit"]
+        if pos.get("side") == "S":
+            if stop is not None and bar.high >= stop:
+                return "stop", self.buy_price(bar.symbol, max(stop, bar.open))
+            if take is not None and bar.low < take:
+                return "take_profit", take
+            return None
+        if stop is not None and bar.low <= stop:
+            return "stop", self.sell_price(bar.symbol, min(stop, bar.open))
+        if take is not None and bar.high > take:
+            return "take_profit", take
+        return None
+
+    def exit_fee_rate(self, reason: str) -> float:
+        return self.costs.fee_rate
+
+    def _check_exits(self, bar: Bar, pos: dict) -> None:
+        if bar.open_ms < pos["opened_ms"]:
+            return                                          # never use a bar that opened before the fill
+        if pos["stop"] is not None or pos["take_profit"] is not None:
+            hit = self.bar_exit(bar, pos)
+            if hit is not None:
+                reason, price = hit
+                short = pos.get("side") == "S"
+                if reason == "stop":
+                    mid = max(pos["stop"], bar.open) if short else min(pos["stop"], bar.open)
+                else:
+                    mid = pos["take_profit"]
+                self.positions.pop(bar.symbol)
+                self._settle(bar.symbol, pos, price, mid, bar.end_ms,
+                             "stop_loss" if reason == "stop" else "take_profit", self.exit_fee_rate(reason))
+                return
+        dl = pos["deadline_ms"]
+        if dl is not None and bar.end_ms >= dl and not any(
+                p.symbol == bar.symbol and p.action == "close" for p in self.pending):
+            # a market close at the next 1m open, like any other close
+            self.pending.append(Signal(pos.get("strategy", "broker"), bar.symbol, "close", bar.end_ms,
+                                       "time_stop", bar.close, "1m", side=pos.get("side", "L")))
 
     # --- marking -----------------------------------------------------------------
     def mark(self, bar: Bar) -> None:
-        if bar.symbol in self.positions:
-            self.last[bar.symbol] = bar.close
+        pos = self.positions.get(bar.symbol)
+        if pos is None:
+            return
+        self.last[bar.symbol] = bar.close
+        if pos.get("stop") is not None or pos.get("take_profit") is not None or pos.get("deadline_ms") is not None:
+            self._check_exits(bar, pos)
+
+    @staticmethod
+    def _value(p: dict, last: float) -> float:
+        return p["qty"] * (2 * p["entry"] - last) if p.get("side") == "S" else p["qty"] * last
 
     def equity(self) -> float:
-        return self.cash + sum(p["qty"] * self.last[s] for s, p in self.positions.items())
+        return self.cash + sum(self._value(p, self.last[s]) for s, p in self.positions.items())
 
     def liquidation_value(self) -> float:
-        """Equity if every position were sold at the last mid, paying spread, slippage and fee."""
+        """Equity if every position were closed at the last mid, paying spread, slippage and fee."""
         f = self.costs.fee_rate
-        return self.cash + sum(p["qty"] * self.sell_price(s, self.last[s]) * (1 - f) for s, p in self.positions.items())
+        tot = self.cash
+        for s, p in self.positions.items():
+            if p.get("side") == "S":
+                px = self.buy_price(s, self.last[s])
+                tot += p["qty"] * (2 * p["entry"] - px) - p["qty"] * px * f
+            else:
+                tot += p["qty"] * self.sell_price(s, self.last[s]) * (1 - f)
+        return tot
 
     def record(self) -> None:
         e = self.equity() if self.positions else self.cash
