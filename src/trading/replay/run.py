@@ -99,6 +99,7 @@ def main(argv: list[str] | None = None) -> dict:
         "symbols": syms, "slots": slots, "start_equity": a.equity,
         "costs": {k: vars(c) for k, c in costs.items()},
         "window": {"warmup_from": iso(t_warm), "trade_from": iso(t_trade), "to": iso(t_last),
+                   "is_oos_split": a.is_oos_split,
                    "holdout_from": hold, "holdout_opened": a.open_holdout, "last_complete_month": last_complete},
         "data_first_bar": {s: iso(b.open_ms) for s, b in res.first_open.items()},
         "data_anomalies": data_stats,
