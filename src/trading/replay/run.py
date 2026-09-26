@@ -43,6 +43,20 @@ def _dd(x) -> str:
     return "UNKNOWN" if x is None else f"-{x * 100:.2f}%"
 
 
+def claim_run_dir(root: Path, run_id: str) -> Path:
+    """Atomically create a fresh run directory. Parallel runs started in the same second get distinct
+    directories (-2, -3, ...) instead of overwriting each other (L2a batch 1 lost 3 runs that way)."""
+    root.mkdir(parents=True, exist_ok=True)
+    for i in range(1, 1000):
+        d = root / (run_id if i == 1 else f"{run_id}-{i}")
+        try:
+            d.mkdir()
+            return d
+        except FileExistsError:
+            continue
+    raise RuntimeError(f"could not claim a run directory for {run_id}")
+
+
 def main(argv: list[str] | None = None) -> dict:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--history-root", default="data/local/history/monthly")
@@ -133,6 +147,8 @@ def main(argv: list[str] | None = None) -> dict:
     # keep each family's existing run-id shape: trend_real "<name>-sma50-stop0.15-paper", plugins "<name>-paper-<tag>"
     run_id = (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + f"-{strat.name}"
               + (tag + paper if a.strategy == "trend_real" else paper + tag))
+    out = claim_run_dir(Path(a.out), run_id)
+    run_id = out.name
 
     data_stats: dict = {}
     streams = {s: loader.iter_symbol(root, s, start_ms=t_warm, end_ms=t_end, stats=data_stats) for s in syms}
@@ -188,8 +204,6 @@ def main(argv: list[str] | None = None) -> dict:
         ],
     }
 
-    out = Path(a.out) / run_id
-    out.mkdir(parents=True, exist_ok=True)
     with open(out / "events.jsonl", "w", encoding="utf-8") as f:
         for e in res.signal_events:
             f.write(json.dumps(e) + "\n")

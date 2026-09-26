@@ -534,3 +534,14 @@ def test_kline_cache_survives_parallel_processes_building_it_at_once(tmp_path):
     assert all(p.returncode == 0 for p in procs), [e[-300:] for _, e in outs]
     assert len({o for o, _ in outs}) == 1 and outs[0][0].startswith("20000 ")
     assert not list(tmp_path.glob("*.tmp.npz"))          # no temp files left behind
+
+
+def test_parallel_runs_started_in_the_same_second_never_share_a_run_dir(tmp_path, monkeypatch):
+    """L2a batch 1: three trend_sma re-runs started in one second got one run_id and overwrote each other.
+    A run must never write into a directory another run already claimed."""
+    from trading.replay import run as run_mod
+    first = run_mod.claim_run_dir(tmp_path, "20260926T173617Z-trend_sma")
+    second = run_mod.claim_run_dir(tmp_path, "20260926T173617Z-trend_sma")
+    third = run_mod.claim_run_dir(tmp_path, "20260926T173617Z-trend_sma")
+    assert len({first, second, third}) == 3 and all(p.is_dir() for p in (first, second, third))
+    assert first.name == "20260926T173617Z-trend_sma" and second.name.startswith("20260926T173617Z-trend_sma-")
