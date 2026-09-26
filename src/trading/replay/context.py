@@ -94,6 +94,8 @@ class Context:
         return None
 
     def position(self, symbol: str):
-        """(qty, entry_price) of the open paper position, or None. Read-only."""
+        """(qty, entry_price) of the open paper position, or None. Read-only. qty < 0 for a (paper-only) short."""
         p = self._account.positions.get(symbol)
-        return None if p is None else (p["qty"], p["entry"])
+        if p is None:
+            return None
+        return (-p["qty"] if p.get("side") == "S" else p["qty"]), p["entry"]

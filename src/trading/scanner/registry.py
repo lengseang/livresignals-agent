@@ -10,6 +10,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from trading.replay.plugins.intraday import IntradayMomentum, IntradayReversal
+from trading.replay.plugins.range_breakout import RangeBreakout
+from trading.replay.plugins.regime_ls import RegimeLS
 from trading.replay.plugins.trend_sma import TrendSMA
 
 GATE_STATES = ("PASSED", "FAILED", "PENDING", "INSUFFICIENT")      # docs/loop/designs/T6.1.md §4.3
@@ -69,3 +72,29 @@ DEFAULT.register(PluginInfo(
     gate_status="PENDING",
     description="Daily close > SMA(n) and BTC > SMA(m): long; exit on close < SMA(n). Port of the live "
                 "trend_follower rule (no hard stop, daily not 4-hourly). Baseline, not evidence of edge."))
+
+_T34 = "docs/loop/designs/T3.4.md"
+DEFAULT.register(PluginInfo(
+    name="intraday_momentum", family="intraday", factory=IntradayMomentum,
+    params={"lookback_h": 4, "z": 2.0, "vol_h": 168, "sl": 0.01, "tp": 0.02, "max_hold_h": 24},
+    evidence=f"{_T34}#1-intraday_momentum-and-intraday_reversal-audit-2-wen-et-al-2022-hourly-horizon",
+    description="1h close: L-hour return z-score (vs a week of hourly vol) >= +z -> long; SL/TP 2R/time stop. "
+                "Audit #2 hypothesis, not evidence of edge."))
+DEFAULT.register(PluginInfo(
+    name="intraday_reversal", family="intraday", factory=IntradayReversal,
+    params={"lookback_h": 4, "z": 2.0, "vol_h": 168, "sl": 0.01, "tp": 0.02, "max_hold_h": 24},
+    evidence=f"{_T34}#1-intraday_momentum-and-intraday_reversal-audit-2-wen-et-al-2022-hourly-horizon",
+    description="1h close: L-hour return z-score <= -z -> long (buy the fall); SL/TP 2R/time stop. "
+                "Audit #2 hypothesis, not evidence of edge."))
+DEFAULT.register(PluginInfo(
+    name="range_breakout", family="breakout", factory=RangeBreakout,
+    params={"interval": "1h", "n": 24, "vol_mult": 2.0, "sl": 0.01, "tp": 0.02, "max_hold_h": 24},
+    evidence=f"{_T34}#2-range_breakout-audit-8",
+    description="Close above the prior N-bar high with volume > k x average -> long; SL/TP 2R/time stop. "
+                "Audit #8 hypothesis, not evidence of edge."))
+DEFAULT.register(PluginInfo(
+    name="regime_ls", family="regime", factory=RegimeLS,
+    params={"sma_regime": 200, "sma_trend": 50, "mom_days": 30, "topn": 3, "max_hold_days": 21},
+    evidence=f"{_T34}#3-regime_ls-audit-9-a-port-of-the-rule-documented-in-scriptsregime_traderpy-read-only-not-imported",
+    description="BTC > SMA_R: long the strongest coins above SMA50; else SHORT (PAPER-ONLY) the weakest below "
+                "SMA50; exits on SMA50 cross / 21-day hold. Audit #9, not evidence of edge."))
