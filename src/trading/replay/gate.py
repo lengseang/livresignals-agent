@@ -107,9 +107,23 @@ def sharpe_moments(returns) -> dict:
     return {"n": n, "sr": (mu / sd) if sd > 0 else None, "skew": skew, "kurtosis": kurt}
 
 
-def round_trip_cost(cost_model: dict) -> float:
-    """c = 2(f + s), s = half spread + slippage per side (docs/research/fees-and-breakeven.md)."""
-    return 2 * (cost_model["fee_rate"] + (cost_model["spread_bps"] / 2 + cost_model["slippage_bps"]) / 1e4)
+def round_trip_cost(cost_model: dict, symbols=None) -> float:
+    """c = 2(f + s), s = half spread + slippage per side (docs/research/fees-and-breakeven.md).
+
+    A legacy flat model (`fee_rate`, `spread_bps`, `slippage_bps`) has one c. A paper-broker fill header
+    (`fee_taker`, `spread_stat`) has a measured spread per symbol; c is then the WORST (widest) of the run's
+    symbols, a conservative bound. An unmeasured symbol raises (UnknownSpreadError), never guessed.
+    """
+    if "fee_rate" in cost_model:
+        return 2 * (cost_model["fee_rate"] + (cost_model["spread_bps"] / 2 + cost_model["slippage_bps"]) / 1e4)
+    from trading.paper import spreads
+    stat = cost_model.get("spread_stat", "median")
+    if stat == "none":
+        return 2 * cost_model["fee_taker"]
+    if not symbols:
+        raise ValueError("a paper fill header needs the run's symbols to price the spread")
+    worst = max(spreads.spread_bp(s, stat, cost_model.get("spread_override")) for s in symbols)
+    return 2 * (cost_model["fee_taker"] + worst / 2 / 1e4)
 
 
 def breakeven_win_rate(tp: float, sl: float, cost: float) -> float:
@@ -119,7 +133,8 @@ def breakeven_win_rate(tp: float, sl: float, cost: float) -> float:
 
 # ----- verdict -----------------------------------------------------------------------------------
 def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, oos_net_return,
-            oos_btc_net_return, regime, cost_model, n_trials, trial_sharpes=None, exits=None) -> dict:
+            oos_btc_net_return, regime, cost_model, n_trials, trial_sharpes=None, exits=None,
+            symbols=None) -> dict:
     fails, short, checks = [], [], {}
     net = [float(r) for r in oos_net_trade_returns]
     gross = [float(r) for r in oos_gross_trade_returns]
@@ -151,11 +166,14 @@ def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, 
     if not checks["regime"]["ok"]:
         short.append("regime of the OOS window is UNKNOWN")
 
-    c = round_trip_cost(cost_model)
+    c = round_trip_cost(cost_model, symbols)
+    basis = ("flat cost model" if "fee_rate" in cost_model else
+             f"paper fill model: taker fee + the worst {cost_model.get('spread_stat', 'median')} measured spread "
+             f"among the run's symbols (conservative)")
     mean_net = float(np.mean(net)) if net else None
     mean_gross = float(np.mean(gross)) if gross else None
     win = (sum(r > 0 for r in net) / n) if n else None
-    econ = {"round_trip_cost": c, "mean_net_return_per_trade": mean_net, "mean_gross_return_per_trade": mean_gross,
+    econ = {"round_trip_cost": c, "cost_basis": basis, "mean_net_return_per_trade": mean_net, "mean_gross_return_per_trade": mean_gross,
             "win_rate_net": win}
     if exits:
         p_star = breakeven_win_rate(exits["tp"], exits["sl"], c)
@@ -316,7 +334,7 @@ def evaluate(run: Path, trials_path: Path | None = None, split_cli: str | None =
                   full_net_return=acc.get("return_liquidated"),
                   oos_net_return=acc.get("periods", {}).get("OOS", {}).get("ret"),
                   oos_btc_net_return=bh.get("periods", {}).get("OOS", {}).get("ret"),
-                  regime=s.get("regime", {}).get("OOS"), cost_model=s["costs"]["net"],
+                  regime=s.get("regime", {}).get("OOS"), cost_model=s["costs"]["net"], symbols=s.get("symbols"),
                   n_trials=n_trials, trial_sharpes=sharpes, exits=exits)
     res["checks"]["dsr"].update(
         n_logged_runs=len(trials), trials=groups,

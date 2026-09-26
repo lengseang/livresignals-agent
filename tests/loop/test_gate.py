@@ -323,3 +323,31 @@ def test_group_sharpe_uses_latest_run_when_gated_run_is_elsewhere(tmp_path):
     d = gate.main(["--run", str(r3)])["checks"]["dsr"]
     assert d["n_trials"] == 2
     assert d["trials"][0]["sharpe_from"] == "r1-paper"      # latest logged run of that parameter set
+
+
+# ----- T3.3c: the gate reads a paper-broker (measured fill model) run --------------------------------
+def test_round_trip_cost_of_a_paper_fill_header_is_the_worst_measured_symbol():
+    hdr = {"fee_taker": 0.001, "fee_maker": 0.001, "spread_stat": "median", "spread_override": None}
+    c = gate.round_trip_cost(hdr, ["BTCUSDT", "DOTUSDT"])
+    assert c == pytest.approx(2 * (0.001 + 8.3717 / 2 / 1e4))          # DOTUSDT median 8.3717 bp (spreads_v1)
+
+
+def test_round_trip_cost_of_a_paper_header_refuses_an_unmeasured_symbol():
+    from trading.paper.spreads import UnknownSpreadError
+    hdr = {"fee_taker": 0.001, "spread_stat": "median", "spread_override": None}
+    with pytest.raises(UnknownSpreadError):
+        gate.round_trip_cost(hdr, ["FOOUSDT"])
+
+
+def test_cli_gates_a_paper_broker_run(tmp_path):
+    run = _write_named_run(tmp_path, "rp", 40, 0.02, {"n": 1})
+    s = json.loads((run / "summary.json").read_text(encoding="utf-8"))
+    s["symbols"] = ["BTCUSDT", "ETHUSDT"]
+    s["costs"]["net"] = {"fee_taker": 0.001, "fee_maker": 0.001, "spread_stat": "median", "spread_override": None}
+    (run / "summary.json").write_text(json.dumps(s), encoding="utf-8")
+    (tmp_path / "trials.jsonl").write_text(json.dumps(dict(_COMMON, run_id="rp", params={"n": 1})) + "\n",
+                                           encoding="utf-8")
+    rep = gate.main(["--run", str(run)])
+    e = rep["checks"]["trade_economics"]
+    assert e["round_trip_cost"] == pytest.approx(2 * (0.001 + 0.0372 / 2 / 1e4))    # ETHUSDT is the wider one
+    assert "worst" in e["cost_basis"]
