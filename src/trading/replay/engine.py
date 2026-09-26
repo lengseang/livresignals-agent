@@ -99,7 +99,8 @@ class LoopCore:
                 emitted.extend(r.add(b))
             res.last_close[b.symbol] = b
             for a in self._marked:
-                a.mark(b)
+                if a.positions:              # mark() only touches held symbols; skipping idle accounts is exact
+                    a.mark(b)
         # 2. emit
         if closed:
             for r in self._all_rs:
@@ -140,10 +141,12 @@ class LoopCore:
                             a.submit(Signal("buy_and_hold", sym, "open", t, "benchmark", b.open, "1m"))
             # every sale at this instant fills before any purchase, across symbols: a real account sells
             # first to free the slot and the cash (trend_follower.py exits in its loop, buys after it)
-            for action in ("close", "open"):
-                for b in opens:
-                    for a in self._marked:
-                        a.on_open(b, action)
+            waiting = [a for a in self._marked if a.pending]    # on_open() returns at once with nothing pending
+            if waiting:
+                for action in ("close", "open"):
+                    for b in opens:
+                        for a in waiting:
+                            a.on_open(b, action)
         res.steps += 1
         return fired
 

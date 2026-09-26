@@ -493,3 +493,22 @@ def test_replay_package_never_imports_an_exchange_client():
     env = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[2] / "src"))
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True)
     assert out.stdout.strip() == ""
+
+
+def test_kline_cache_returns_exactly_what_the_csv_parser_returned(tmp_path):
+    """L1b: the .npz cache must be invisible: same rows, same Python types, rebuilt when the zip changes."""
+    import zipfile
+    from trading.replay.loader import _rows
+    z = tmp_path / "BTCUSDT-1m-2026-01.zip"
+    csv_text = ("1767225600000000,93000.10,93010.5,92990.01,93005.55,12.345678,1767225659999999,1148212.9,1010,6.1,567000.0,0\n"
+                "1767225660000000,93005.55,93020.0,93000.00,93011.00,0.1,1767225719999999,9301.1,3,0.05,4650.0,0\n")
+    with zipfile.ZipFile(z, "w") as f:
+        f.writestr("BTCUSDT-1m-2026-01.csv", csv_text)
+    first = _rows(z)                         # parses the CSV and writes the cache
+    assert z.with_suffix(".npz").exists()
+    second = _rows(z)                        # served from the cache
+    assert first == second
+    assert [type(v) for v in second[0]] == [type(v) for v in first[0]]
+    with zipfile.ZipFile(z, "w") as f:       # the zip changes: the cache must not be trusted
+        f.writestr("BTCUSDT-1m-2026-01.csv", csv_text.splitlines()[0] + "\n")
+    assert len(_rows(z)) == 1
