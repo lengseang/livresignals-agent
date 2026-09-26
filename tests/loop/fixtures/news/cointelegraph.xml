@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:media="http://search.yahoo.com/mrss/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:wfw="http://wellformedweb.org/CommentAPI/" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:sy="http://purl.org/rss/1.0/modules/syndication/" xmlns:slash="http://purl.org/rss/1.0/modules/slash/">
+  <channel>
+    <title>Cointelegraph.com News</title>
+    <link>https://cointelegraph.com</link>
+    <atom:link href="https://cointelegraph.com/rss" rel="self" type="application/rss+xml"/>
+    <description>Cointelegraph covers fintech, blockchain and Bitcoin bringing you the latest crypto news and analyses on the future of money.</description>
+    <generator>cointelegraph.com</generator>
+    <lastBuildDate>Sat, 26 Sep 2026 01:20:31 +0000</lastBuildDate>
+    <language>en</language>
+    <sy:updatePeriod>hourly</sy:updatePeriod>
+    <sy:updateFrequency>1</sy:updateFrequency>
+    <image>
+      <title>Cointelegraph.com News</title>
+      <link>https://cointelegraph.com</link>
+      <url>https://s3.cointelegraph.com/storage/uploads/view/b9ea15d46738b4df64e6e100ab59b373.png</url>
+      <description>Cointelegraph covers fintech, blockchain and Bitcoin bringing you the latest crypto news and analyses on the future of money.</description>
+    </image>
+    <item>
+      <title>OG.com seeks CFTC approval for single-stock perpetual futures</title>
+      <pubDate>Fri, 25 Sep 2026 20:37:21 +0000</pubDate>
+      <atom:updated>Fri, 25 Sep 2026 20:40:59 +0000</atom:updated>
+      <guid isPermaLink="true">https://cointelegraph.com/news/og-com-seeks-cftc-approval-single-stock-perpetual-futures</guid>
+      <link><![CDATA[https://cointelegraph.com/news/og-com-seeks-cftc-approval-single-stock-perpetual-futures?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound]]></link>
+      <description><![CDATA[<p style="float:right; margin:0 0 10px 15px; width:240px;"><img src="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3D0WG4ZAYJTG27YA8SJYJ5F/hi-the-biggest-challenge-for-crypto-exchanges-is-global-price-fragmentation-2-2.png" alt="OG.com seeks CFTC approval for single-stock perpetual futures" class="type:primaryImage"></p><p>OG.com, recently spun out of Crypto.com, joins Coinbase, Kalshi and Kraken parent Payward in seeking approval to bring perpetual futures to individual US stocks.</p>]]></description>
+      <dc:creator>Cointelegraph by Nate Kostar</dc:creator>
+      <media:content url="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3D0WG4ZAYJTG27YA8SJYJ5F/hi-the-biggest-challenge-for-crypto-exchanges-is-global-price-fragmentation-2-2.png" fileSize="1676763" type="image/png" medium="image" height="848" width="1264">
+        <credit>Cointelegraph</credit>
+        <media:credit role="publishing company">Cointelegraph</media:credit>
+      </media:content>
+      <enclosure url="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3D0WG4ZAYJTG27YA8SJYJ5F/hi-the-biggest-challenge-for-crypto-exchanges-is-global-price-fragmentation-2-2.png" length="1676763" type="image/png"/>
+      <category>Latest News</category>
+    </item>
+<item>
+      <title>IBIT options price trading more calmly after Bitcoin rebound</title>
+      <pubDate>Fri, 25 Sep 2026 11:11:33 +0000</pubDate>
+      <atom:updated>Fri, 25 Sep 2026 11:14:34 +0000</atom:updated>
+      <guid isPermaLink="true">https://cointelegraph.com/markets/ibit-options-trading-bitcoins-rebound</guid>
+      <link><![CDATA[https://cointelegraph.com/markets/ibit-options-trading-bitcoins-rebound?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound]]></link>
+      <description><![CDATA[<p style="float:right; margin:0 0 10px 15px; width:240px;"><img src="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3C3R15QFYWE2PDN137SVSFY/hi-protecting-your-bitcoin-investment-blackrock.jpg" alt="IBIT options price trading more calmly after Bitcoin rebound" class="type:primaryImage"></p><p>IBIT’s expected volatility sits near the bottom of its 12-month range, according to Saxo Bank’s analysis of options data from Sept. 23.</p>]]></description>
+      <dc:creator>Cointelegraph by Yohan Yun</dc:creator>
+      <media:content url="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3C3R15QFYWE2PDN137SVSFY/hi-protecting-your-bitcoin-investment-blackrock.jpg" fileSize="628177" type="image/jpeg" medium="image" height="966" width="1450">
+        <credit>Cointelegraph</credit>
+        <media:credit role="publishing company">Cointelegraph</media:credit>
+      </media:content>
+      <enclosure url="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3C3R15QFYWE2PDN137SVSFY/hi-protecting-your-bitcoin-investment-blackrock.jpg" length="628177" type="image/jpeg"/>
+      <category>Markets</category>
+    </item>
+<item>
+      <title>Bitcoin ETF inflows slow to $191M as six-day streak reaches $2.8B</title>
+      <pubDate>Fri, 25 Sep 2026 07:41:36 +0000</pubDate>
+      <atom:updated>Fri, 25 Sep 2026 07:44:49 +0000</atom:updated>
+      <guid isPermaLink="true">https://cointelegraph.com/markets/bitcoin-etf-six-day-streak-2-8-billion</guid>
+      <link><![CDATA[https://cointelegraph.com/markets/bitcoin-etf-six-day-streak-2-8-billion?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound]]></link>
+      <description><![CDATA[<p style="float:right; margin:0 0 10px 15px; width:240px;"><img src="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3BNHNN1HMXCX6AA83T10V84/bitcoin-etf-5.jpg" alt="Bitcoin ETF inflows slow to $191M as six-day streak reaches $2.8B" class="type:primaryImage"></p><p>US spot Bitcoin ETFs drew $191 million Thursday as daily inflows slowed for a third day, lifting year-to-date net flows to $787 million.</p>]]></description>
+      <dc:creator>Cointelegraph by Helen Partz</dc:creator>
+      <media:content url="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3BNHNN1HMXCX6AA83T10V84/bitcoin-etf-5.jpg" fileSize="497609" type="image/jpeg" medium="image" height="966" width="1450">
+        <credit>Cointelegraph</credit>
+        <media:credit role="publishing company">Cointelegraph</media:credit>
+      </media:content>
+      <enclosure url="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3BNHNN1HMXCX6AA83T10V84/bitcoin-etf-5.jpg" length="497609" type="image/jpeg"/>
+      <category>Markets</category>
+    </item>
+<item>
+      <title>Sequans exits Bitcoin treasury strategy after selling remaining 314 BTC</title>
+      <pubDate>Thu, 24 Sep 2026 17:13:38 +0000</pubDate>
+      <atom:updated>Thu, 24 Sep 2026 17:17:02 +0000</atom:updated>
+      <guid isPermaLink="true">https://cointelegraph.com/news/sequans-exits-bitcoin-treasury-strategy-after-selling-remaining-314-btc</guid>
+      <link><![CDATA[https://cointelegraph.com/news/sequans-exits-bitcoin-treasury-strategy-after-selling-remaining-314-btc?utm_source=rss_feed&utm_medium=rss&utm_campaign=rss_partner_inbound]]></link>
+      <description><![CDATA[<p style="float:right; margin:0 0 10px 15px; width:240px;"><img src="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3A44DGGE4E3FZMH613C6EH3/hi-limit-order-protocols-offer-more-flexibility-and-efficiency-to-traders.jpg" alt="Sequans exits Bitcoin treasury strategy after selling remaining 314 BTC" class="type:primaryImage"></p><p>The France-based semiconductor company has fully unwound a Bitcoin treasury that once held more than 3,200 BTC as more firms scale back crypto holdings. </p>]]></description>
+      <dc:creator>Cointelegraph by Nate Kostar</dc:creator>
+      <media:content url="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3A44DGGE4E3FZMH613C6EH3/hi-limit-order-protocols-offer-more-flexibility-and-efficiency-to-traders.jpg" fileSize="389416" type="image/jpeg" medium="image" height="966" width="1450">
+        <credit>Cointelegraph</credit>
+        <media:credit role="publishing company">Cointelegraph</media:credit>
+      </media:content>
+      <enclosure url="https://s3-images.ctmedia.io/media/article-covers/2026/09/01M3A44DGGE4E3FZMH613C6EH3/hi-limit-order-protocols-offer-more-flexibility-and-efficiency-to-traders.jpg" length="389416" type="image/jpeg"/>
+      <category>Latest News</category>
+    </item>
+</channel>
+</rss>
