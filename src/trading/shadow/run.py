@@ -86,6 +86,7 @@ async def live(fleet: ShadowFleet, minutes: float | None, root: Path) -> dict:
     url = build_url([s.lower() for s in fleet.symbols], ["kline_1s"])
     stop_at = None if not minutes else time.monotonic() + minutes * 60
     reconnects, backoff, last_t, last_score = 0, 1.0, None, time.monotonic()
+    ticks, last_beat = 0, time.monotonic()
     while stop_at is None or time.monotonic() < stop_at:
         try:
             async for raw, ts in messages(url, stall_s=30.0):
@@ -94,6 +95,13 @@ async def live(fleet: ShadowFleet, minutes: float | None, root: Path) -> dict:
                 if t is not None:
                     fleet.on_tick(t)
                     last_t = t.ts_exchange_ms or last_t
+                    ticks += 1
+                if time.monotonic() - last_beat >= 600:          # a log line every 10 min proves the task is alive
+                    live_books = [b for b in fleet.books if not b.stopped]
+                    print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M}] alive: ticks={ticks} books={len(live_books)}/"
+                          f"{len(fleet.books)} signals={sum(b.signals for b in fleet.books)} reconnects={reconnects}",
+                          flush=True)
+                    last_beat = time.monotonic()
                 if time.monotonic() - last_score >= 3600:
                     score(root)
                     last_score = time.monotonic()
@@ -108,7 +116,7 @@ async def live(fleet: ShadowFleet, minutes: float | None, root: Path) -> dict:
         fleet.gap(last_t or now, now, "stream reconnect")
         await asyncio.sleep(backoff)
         backoff = min(backoff * 2, 60.0)
-    return {"reconnects": reconnects}
+    return {"reconnects": reconnects, "ticks": ticks}
 
 
 def main(argv=None) -> dict:
