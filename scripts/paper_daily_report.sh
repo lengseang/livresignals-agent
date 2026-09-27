@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 # P-A daily paper report — runs accumulation paper mode, sends summary to Telegram.
-# Intended as a cron job. Uses hermes send (no agent loop, no LLM).
+# Intended as a cron job. Routes to the REPORTS topic via tg-send.sh.
 set -uo pipefail
-cd /z/Hermes/home/trading-agent || exit 1
 
-REPORT=$(PYTHONPATH=src python -m trading.allocation.paper 2>/dev/null | python -c "
+# Resolve the repo root portably. This used to be `cd /z/Hermes/home/trading-agent
+# || exit 1` — a Windows-era path that does not exist on the Linux VPS, so the
+# script aborted on line 5 every single run and NEVER produced a report.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT" || exit 1
+
+# Use the project venv; a bare `python` is not guaranteed under cron's PATH.
+PY="$ROOT/venv/bin/python"
+[ -x "$PY" ] || PY="$(command -v python3)"
+
+REPORT=$(PYTHONPATH=src "$PY" -m trading.allocation.paper 2>/dev/null | "$PY" -c "
 import json, sys
 d = json.load(sys.stdin)
 r = d['result']
@@ -21,11 +30,11 @@ print(f'Scaling: dip {cfg[\"dip_x\"]}x / ext {cfg[\"ext_x\"]}x, dd-thr {cfg[\"dd
 # meant a failure here silently produced a report full of STALE numbers that
 # looked completely normal — the worst kind of wrong. We now surface the error
 # in the report body instead of hiding it.
-ADVANCE_OUT=$(PYTHONPATH=src python -m trading.allocation.forward advance 2>&1) || \
+ADVANCE_OUT=$(PYTHONPATH=src "$PY" -m trading.allocation.forward advance 2>&1) || \
   ADVANCE_ERR="⚠️ forward advance FAILED — figures below may be stale
 $(echo "$ADVANCE_OUT" | tail -3)"
 
-FORWARD=$(PYTHONPATH=src python -m trading.allocation.forward status 2>/dev/null | python -c "
+FORWARD=$(PYTHONPATH=src "$PY" -m trading.allocation.forward status 2>/dev/null | "$PY" -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -35,7 +44,7 @@ except Exception:
 " || echo "forward tracker: n/a")
 
 # Live testnet PnL snapshot (append-only history + JSON report)
-PNL=$(PYTHONPATH=src python -m trading.allocation.pnl 2>/dev/null | python -c "
+PNL=$(PYTHONPATH=src "$PY" -m trading.allocation.pnl 2>/dev/null | "$PY" -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -45,7 +54,7 @@ except Exception:
     print('pnl tracker: n/a')
 " || echo "pnl tracker: n/a")
 
-STATUS=$(cd /z/Hermes/home/trading-agent && PYTHONPATH=src python -m trading.data.health 2>/dev/null | python -c "import json,sys; d=json.load(sys.stdin); print('DATA_HEALTH_OK' if d.get('ok') else 'DATA_HEALTH_ISSUES: ' + '; '.join(d.get('problems',[])[:3]))" || echo "health check failed")
+STATUS=$(cd "$ROOT" && PYTHONPATH=src "$PY" -m trading.data.health 2>/dev/null | "$PY" -c "import json,sys; d=json.load(sys.stdin); print('DATA_HEALTH_OK' if d.get('ok') else 'DATA_HEALTH_ISSUES: ' + '; '.join(d.get('problems',[])[:3]))" || echo "health check failed")
 
 MSG="📈 P-A Paper Report
 ${ADVANCE_ERR:+$ADVANCE_ERR

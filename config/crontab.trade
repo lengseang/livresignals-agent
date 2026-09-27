@@ -9,8 +9,8 @@
 #    diff <(grep -vE '^[[:space:]]*#|^[[:space:]]*$' config/crontab.trade) \
 #         <(crontab -l | grep -vE '^[[:space:]]*#|^[[:space:]]*$')
 #
-#  Regenerated: 2026-09-27T07:14:07Z from 'crontab -l'
-#  Jobs: 34
+#  Regenerated: 2026-09-27T08:30:01Z from 'crontab -l'
+#  Jobs: 35
 # ============================================================
 
 # PHASE 4: All jobs COMMENTED OUT until cutover approval
@@ -54,3 +54,4 @@
 0 7 * * * cd /opt/trading-agent && /opt/trading-agent/venv/bin/python scripts/check-books.py >> /opt/trading-agent/logs/book-health.log 2>&1
 35 4 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python scripts/agent_backup.py >> /tmp/agent_backup.log 2>&1
 20 3 * * * cd /opt/trading-agent && PYTHONPATH=/opt/trading-agent/src /opt/trading-agent/venv/bin/python /opt/trading-agent/scripts/night_research.py --passes 3 >> /opt/trading-agent/logs/night-research.log 2>&1
+30 9 * * * cd /opt/trading-agent && bash /opt/trading-agent/scripts/paper_daily_report.sh >> /opt/trading-agent/logs/paper-daily.log 2>&1
