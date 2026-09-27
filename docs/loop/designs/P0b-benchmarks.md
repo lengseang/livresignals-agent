@@ -21,3 +21,9 @@ are still reported.
 
 ## Smoke check (real data, 2023-10 .. 2024-06, BTC/ETH/SOL, OOS from 2024-01)
 trend_sma OOS Sharpe 1.01/yr vs BTC hold 2.07, basket 1.78 → FAIL. Basket return +315.6% (SOL ran).
+
+## P0d amendment (owner approved 2026-09-27, before the next batch)
+Target-weight runs (a strategy_signal with action "target" or a rebalance event) are judged on **OOS weeks with at
+least one fill >= 30** instead of 30 closed OOS trades, and their per-trade economics are reported as
+not applicable (positions are trimmed, not round-tripped). Everything else (OOS net return, daily DSR,
+benchmarks) is unchanged. On P1 this changes no verdict: A1 now fails only on DSR (217 active weeks).

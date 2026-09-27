@@ -81,3 +81,53 @@ def test_a_coin_listed_late_still_gets_its_one_nth_share():
            benchmarks={"ew_net": (("BTCUSDT", "ETHUSDT", "SOLUSDT", "DOTUSDT"), basket)})
     assert {s: round(p["spent"], 6) for s, p in basket.positions.items()} == {
         "BTCUSDT": 300.0, "ETHUSDT": 300.0, "SOLUSDT": 300.0, "DOTUSDT": 300.0}
+
+
+def _verdict(**kw):
+    base = dict(oos_net_trade_returns=[], oos_gross_trade_returns=[], full_net_return=0.5, oos_net_return=0.2,
+                oos_btc_net_return=0.1, regime={"label": "bull"}, cost_model={"fee_rate": 0, "spread_bps": 0,
+                "slippage_bps": 0}, n_trials=1)
+    return gate.verdict(**{**base, **kw})
+
+
+def test_p0d_a_target_weight_run_is_judged_on_active_weeks_not_closed_trades():
+    res = _verdict(target_weeks=217, dsr_daily={"value": 0.5, "n_trials": 31, "t": 1519})
+    assert res["checks"]["oos_trades"]["ok"] and res["checks"]["trade_economics"]["mode"] == "not_applicable"
+    assert not any("OOS trades" in r or "per-trade" in r for r in res["reasons"])
+
+
+def test_p0d_too_few_active_weeks_is_insufficient():
+    res = _verdict(target_weeks=12)
+    assert res["verdict"] == gate.INSUFFICIENT and any("12 OOS weeks" in r for r in res["reasons"])
+
+
+def test_p0d_open_close_runs_keep_the_closed_trade_rule():
+    res = _verdict()
+    assert any("only 0 OOS trades" in r for r in res["reasons"])
+
+
+def test_p0d_target_weeks_detects_target_runs_from_their_events(tmp_path):
+    run = tmp_path / "r"
+    run.mkdir()
+    W = 7 * DAY
+    ev = [{"type": "strategy_signal", "ts_ms": 10 * W, "payload": {"action": "target"}},
+          {"type": "rebalance", "ts_ms": 10 * W + 5, "payload": {"account": "net"}},
+          {"type": "rebalance", "ts_ms": 10 * W + 9, "payload": {"account": "net"}},       # same week
+          {"type": "rebalance", "ts_ms": 12 * W, "payload": {"account": "gross"}},         # other account
+          {"type": "close", "ts_ms": 13 * W, "payload": {"account": "net"}}]
+    (run / "events.jsonl").write_text("\n".join(json.dumps(e) for e in ev), encoding="utf-8")
+    assert gate.target_weeks(run, 0, 100 * W) == 2
+    (run / "events.jsonl").write_text(json.dumps({"type": "close", "ts_ms": 1, "payload": {"account": "net"}}),
+                                      encoding="utf-8")
+    assert gate.target_weeks(run, 0, 100 * W) is None                                    # an open/close run
+
+
+def test_p0d_a_target_run_without_a_dsr_never_passes():
+    res = _verdict(target_weeks=217)                                  # no daily DSR, no closed trades
+    assert res["verdict"] == gate.INSUFFICIENT and any("needs the daily DSR" in r for r in res["reasons"])
+
+
+def test_p0d_a_target_run_that_clears_everything_passes_with_a_readable_reason():
+    res = _verdict(target_weeks=217, dsr_daily={"value": 0.97, "n_trials": 31, "t": 1519},
+                   benchmarks={"ok": True, "strategy_sr_ann": 0.9, "benchmarks_sr_ann": {"btc_hold": 0.4}})
+    assert res["verdict"] == gate.PASS and "217 OOS weeks" in res["reasons"][0]

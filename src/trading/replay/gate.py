@@ -134,15 +134,23 @@ def breakeven_win_rate(tp: float, sl: float, cost: float) -> float:
 # ----- verdict -----------------------------------------------------------------------------------
 def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, oos_net_return,
             oos_btc_net_return, regime, cost_model, n_trials, trial_sharpes=None, exits=None,
-            symbols=None, dsr_daily=None, benchmarks=None) -> dict:
+            symbols=None, dsr_daily=None, benchmarks=None, target_weeks=None) -> dict:
     fails, short, checks = [], [], {}
     net = [float(r) for r in oos_net_trade_returns]
     gross = [float(r) for r in oos_gross_trade_returns]
     n = len(net)
+    target = target_weeks is not None      # P0d: a target-weight run (positions held for years and trimmed)
 
-    checks["oos_trades"] = {"value": n, "min": MIN_OOS_TRADES, "ok": n >= MIN_OOS_TRADES}
-    if n < MIN_OOS_TRADES:
-        short.append(f"only {n} OOS trades (< {MIN_OOS_TRADES}): too few to judge; never a PASS")
+    if target:
+        checks["oos_trades"] = {"basis": "OOS weeks with at least one fill (target-weight run, P0d)",
+                                "value": target_weeks, "min": MIN_OOS_TRADES, "ok": target_weeks >= MIN_OOS_TRADES,
+                                "closed_trades_in_oos": n}
+        if target_weeks < MIN_OOS_TRADES:
+            short.append(f"only {target_weeks} OOS weeks with a fill (< {MIN_OOS_TRADES}): too little activity to judge")
+    else:
+        checks["oos_trades"] = {"value": n, "min": MIN_OOS_TRADES, "ok": n >= MIN_OOS_TRADES}
+        if n < MIN_OOS_TRADES:
+            short.append(f"only {n} OOS trades (< {MIN_OOS_TRADES}): too few to judge; never a PASS")
 
     checks["shared_account_net"] = {"value": full_net_return, "ok": full_net_return is not None and full_net_return > 0}
     if full_net_return is None:
@@ -186,7 +194,11 @@ def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, 
                     gross_mean_over_cost=(mean_gross / c) if (mean_gross is not None and c > 0) else None,
                     note="exits are not fixed TP/SL, so p* does not apply; mean net return per trade is compared "
                          "with zero and the mean gross move with the round-trip cost")
-    if mean_net is None:
+    if target:
+        econ.update(mode="not_applicable", ok=None,
+                    note="P0d: target-weight positions are trimmed, not round-tripped, so per-trade economics do not "
+                         "describe them; the verdict rests on OOS net return, the daily DSR and the benchmarks")
+    elif mean_net is None:
         short.append("no OOS trades, per-trade economics UNKNOWN")
     elif not exits and mean_net <= 0:
         fails.append(f"mean net return per trade {mean_net:+.3%} is not positive "
@@ -249,9 +261,16 @@ def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, 
                     f"{k} {v:.2f}/yr" for k, v in benchmarks["benchmarks_sr_ann"].items()
                     if v is not None and benchmarks["strategy_sr_ann"] <= v)))
 
+    # fail closed: nothing PASSes without a computed DSR (a target-weight run has no per-trade DSR, so it needs the
+    # daily one; before P0d the trade-count rule happened to block this, P0d removed that for target runs)
+    if checks["dsr"].get("value") is None and not any("DSR" in x for x in short):
+        short.append("DSR not computed: " + ("a target-weight run needs the daily DSR (equity_daily.json)" if target
+                                             else checks["dsr"].get("why_not_computed", "UNKNOWN")))
+
     v = FAIL if fails else INSUFFICIENT if short else PASS
     reasons = fails + short if v != PASS else [
-        f"{n} OOS trades >= {MIN_OOS_TRADES}; shared-account and OOS net positive; mean net per trade positive; "
+        (f"{target_weeks} OOS weeks with a fill >= {MIN_OOS_TRADES}; shared-account and OOS net positive; " if target else
+         f"{n} OOS trades >= {MIN_OOS_TRADES}; shared-account and OOS net positive; mean net per trade positive; ") +
         f"{'daily ' if dsr_daily is not None else ''}DSR {d['value']:.4f} >= {DSR_THRESHOLD} with N = {d.get('n_trials', n_trials)}"]
     return {"verdict": v, "reasons": reasons, "checks": checks}
 
@@ -302,6 +321,25 @@ def _strategy_of(run: Path) -> str | None:
 
 
 BENCHMARK_CURVES = {"btc_hold": "bh_net", "equal_weight_hold": "bh_ew_net"}
+
+
+def target_weeks(run: Path, t0: int, t1: int, account: str = "net") -> int | None:
+    """P0d: None unless the run traded by target weight; else distinct OOS weeks with a fill in `account`."""
+    p = run / "events.jsonl"
+    if not p.exists():
+        return None
+    is_target, weeks = False, set()
+    with open(p, encoding="utf-8") as f:
+        for line in f:
+            if '"rebalance"' not in line and '"target"' not in line and '"signal"' not in line and '"close"' not in line:
+                continue
+            e = json.loads(line)
+            pl = e.get("payload") or {}
+            if e.get("type") == "rebalance" or (e.get("type") == "strategy_signal" and pl.get("action") == "target"):
+                is_target = True
+            if e.get("type") in ("signal", "close", "rebalance") and pl.get("account") == account                     and t0 <= e.get("ts_ms", -1) < t1:
+                weeks.add(e["ts_ms"] // (7 * 86_400_000))
+    return len(weeks) if is_target else None
 
 
 def benchmark_check(run: Path, t0: int, t1: int) -> dict:
@@ -471,7 +509,8 @@ def evaluate(run: Path, trials_path: Path | None = None, split_cli: str | None =
                   oos_btc_net_return=bh.get("periods", {}).get("OOS", {}).get("ret"),
                   regime=s.get("regime", {}).get("OOS"), cost_model=s["costs"]["net"], symbols=s.get("symbols"),
                   n_trials=n_trials, trial_sharpes=sharpes, exits=exits, dsr_daily=dsr_daily,
-                  benchmarks=benchmark_check(run, _ms(split), _ms(end)))
+                  benchmarks=benchmark_check(run, _ms(split), _ms(end)),
+                  target_weeks=target_weeks(run, _ms(split), _ms(end)))
     res["checks"]["dsr_basis"] = ("OOS daily net returns (L2a)" if dsr_daily is not None
                                   else "OOS per-trade net returns (legacy run without a daily curve; re-run for L2a)")
     res["checks"]["dsr"].update(
