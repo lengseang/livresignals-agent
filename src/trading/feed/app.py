@@ -37,8 +37,9 @@ def _utc_day(t: float) -> str:
 
 def create_app(data_root: Path | str, *, heartbeat_s: float = 1.0, quotes_s: float = 1.0, poll_s: float = 0.25,
                buffer_size: int = 50_000, clock=time.time, bind: str = "127.0.0.1",
-               max_idle_s: float | None = None) -> FastAPI:
-    """max_idle_s: close a stream after that long without sending anything (tests only; None in serve)."""
+               max_idle_s: float | None = None, candidates: Path | str | None = None) -> FastAPI:
+    """max_idle_s: close a stream after that long without sending anything (tests only; None in serve).
+    candidates: research/candidates/candidates.json (ROADMAP v3 cards), served read-only by /v1/candidates."""
     data = DataRoot(data_root)
     hub = Hub(data, buffer_size, quotes_s, clock)
     started = clock()
@@ -135,6 +136,26 @@ def create_app(data_root: Path | str, *, heartbeat_s: float = 1.0, quotes_s: flo
                           "to_ms": adapter.iso_ms(day) + 86_400_000, "holdout_excluded": None,
                           "gate_status": "PENDING", "unknown": ["strategy", "params", "symbols", "holdout_excluded"]})
         return {"v": 1, "simulated": True, "items": items}
+
+    @app.get("/v1/candidates")
+    def candidates_():
+        # P3: the strategy-factory league. REPLAY research, not evidence of edge; a missing file is UNKNOWN.
+        doc = read_json(Path(candidates)) if candidates else None
+        if not doc:
+            return {"v": 1, "simulated": True, "items": [], "rejected_on_evidence": [], "unknown": ["candidates"]}
+        items = []
+        for c in doc.get("candidates", []):
+            rules = c.get("rules") or {}
+            items.append({"id": c.get("id"), "strategy": c.get("strategy"), "family": c.get("family"),
+                          "stage": c.get("stage"), "claim": c.get("claim"), "prior": c.get("prior"),
+                          "our_use": c.get("our_use"), "trial_budget": c.get("trial_budget"),
+                          "rules_status": rules.get("status", "UNKNOWN"),
+                          "deviations": list(rules.get("our_deviations") or []),
+                          "sources": [{"cite": x.get("cite"), "url": x.get("url"),
+                                       "peer_reviewed": x.get("peer_reviewed")} for x in c.get("sources") or []],
+                          "result": c.get("result")})
+        return {"v": 1, "simulated": True, "items": items,
+                "rejected_on_evidence": list(doc.get("rejected_on_evidence") or []), "unknown": []}
 
     @app.get("/v1/runs/{run_id}/summary")
     def run_summary(run_id: str):

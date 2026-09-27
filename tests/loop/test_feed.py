@@ -364,3 +364,27 @@ def test_stream_forbids_proxy_transforms(client):
     with client.stream("GET", "/v1/stream", params={"mode": "REPLAY", "run_id": RUN_A, "max_events": 1}) as r:
         assert r.headers["content-type"].startswith("text/event-stream")
         assert "no-transform" in r.headers["cache-control"]
+
+
+def test_candidates_are_served_read_only_and_validate(data_root, tmp_path):
+    cards = {"candidates": [{"id": "A1-x", "strategy": "donchian_ensemble", "family": "trend", "stage": "rejected",
+                             "claim": "c", "prior": "p", "our_use": "u", "trial_budget": 1,
+                             "rules": {"status": "KNOWN", "our_deviations": ["d1"]},
+                             "sources": [{"cite": "s", "url": "https://x", "peer_reviewed": False}],
+                             "result": {"verdict": "FAIL", "metrics": {"oos_sharpe_ann": 0.77}}}],
+             "rejected_on_evidence": [{"id": "X1", "why": "w"}]}
+    path = tmp_path / "candidates.json"
+    path.write_text(json.dumps(cards), encoding="utf-8")
+    c = TestClient(create_app(data_root, heartbeat_s=3600, quotes_s=0.0, max_idle_s=1.0, candidates=path))
+    body = c.get("/v1/candidates").json()
+    validate_rest("candidates", body)
+    assert body["items"][0]["result"]["metrics"]["oos_sharpe_ann"] == 0.77
+    assert body["items"][0]["deviations"] == ["d1"] and body["unknown"] == []
+
+
+def test_missing_candidates_file_is_unknown_not_empty_success(data_root, tmp_path):
+    c = TestClient(create_app(data_root, heartbeat_s=3600, quotes_s=0.0, max_idle_s=1.0,
+                              candidates=tmp_path / "nope.json"))
+    body = c.get("/v1/candidates").json()
+    validate_rest("candidates", body)
+    assert body["items"] == [] and body["unknown"] == ["candidates"]
