@@ -51,7 +51,9 @@ def _env_path() -> Path:
 
 def _token() -> str:
     env = _env_path().read_text(encoding="utf-8")
-    m = re.search("TELEGRAM_BOT" + "_TOKEN" + "=(\S+)", env)
+    # Raw string: a bare "\S" is an invalid escape sequence and Python emits a
+    # SyntaxWarning on every import.
+    m = re.search(r"TELEGRAM_BOT_TOKEN=(\S+)", env)
     if not m:
         raise RuntimeError("TELEGRAM_BOT_TOKEN not found in env")
     return m.group(1)
