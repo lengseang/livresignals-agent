@@ -13,12 +13,24 @@ HERMES_BIN="$(command -v hermes 2>/dev/null || true)"
 [ -z "$HERMES_BIN" ] && [ -x /usr/local/bin/hermes ] && HERMES_BIN=/usr/local/bin/hermes
 [ -z "$HERMES_BIN" ] && [ -x /home/ubuntu/hermes-venv/bin/hermes ] && HERMES_BIN=/home/ubuntu/hermes-venv/bin/hermes
 
-if [ -n "$HERMES_BIN" ]; then
-  HERMES_HOME="${HERMES_HOME:-/home/ubuntu/hermes-home}" \
-  "$HERMES_BIN" send --to telegram --subject "🫀 VPS Heartbeat" \
-    "Alive on $(hostname) | IP $(hostname -I | awk '{print $1}') | Data health: $STATUS" >/dev/null 2>&1 \
-    || echo "heartbeat: hermes send FAILED (data health: $STATUS)"
+# Route through tg-send.sh, which resolves the heartbeat TOPIC from
+# config/topic-routing.json (group -1004498352646 : thread 9).
+#
+# FIXED: this used to send to bare `--to telegram`, which resolves to the
+# DM/home channel and ignored the topic map entirely, so the heartbeat
+# never appeared in the heartbeat topic.
+#
+# Also fixed: the old version redirected to /dev/null and only signalled
+# failure on a non-zero exit, so an accepted-but-undelivered send looked
+# identical to success. Output is now captured and echoed for audit.
+TG_SEND="/opt/trading-agent/scripts/tg-send.sh"
+
+if [ -x "$TG_SEND" ]; then
+  SEND_OUT=$(HERMES_HOME="${HERMES_HOME:-/home/ubuntu/hermes-home}" \
+    "$TG_SEND" heartbeat "🫀 VPS Heartbeat" \
+    "Alive on $(hostname) | IP $(hostname -I | awk '{print $1}') | Data health: $STATUS" 2>&1)
+  echo "heartbeat: tg-send rc=$? :: $SEND_OUT"
 else
-  echo "heartbeat: hermes binary not found, ping skipped (data health: $STATUS)"
+  echo "heartbeat: tg-send.sh missing at $TG_SEND, ping skipped (data health: $STATUS)"
 fi
 echo "heartbeat done: $STATUS"
