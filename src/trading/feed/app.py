@@ -50,7 +50,12 @@ def create_app(data_root: Path | str, *, heartbeat_s: float = 1.0, quotes_s: flo
         if request.method not in ALLOWED_METHODS:
             return JSONResponse({"detail": "read-only feed: only GET is served"}, status_code=405,
                                 headers={"Allow": "GET, HEAD"})
-        return await call_next(request)
+        response = await call_next(request)
+        if response.headers.get("content-type", "").startswith("text/event-stream"):
+            # no-transform: a proxy that gzips (the Next.js /feed rewrite does) buffers the stream,
+            # so the browser saw no event at all and the terminal sat on AWAITING.
+            response.headers["Cache-Control"] = "no-cache, no-transform"
+        return response
 
     # added after read_only => outermost; preflight for the local terminal only, GET only
     app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000"], allow_methods=["GET"],

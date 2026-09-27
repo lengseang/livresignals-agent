@@ -357,3 +357,10 @@ def test_feed_package_never_imports_exchange_or_real_money_modules():
     env = dict(os.environ, PYTHONPATH=str(REPO / "src"))
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True)
     assert out.stdout.strip() == ""
+
+
+def test_stream_forbids_proxy_transforms(client):
+    # a gzipping proxy (the Next.js /feed rewrite) buffers an SSE stream unless it says no-transform
+    with client.stream("GET", "/v1/stream", params={"mode": "REPLAY", "run_id": RUN_A, "max_events": 1}) as r:
+        assert r.headers["content-type"].startswith("text/event-stream")
+        assert "no-transform" in r.headers["cache-control"]
