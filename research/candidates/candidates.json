@@ -102,7 +102,28 @@
         "verdict": "FAIL",
         "summary": "OOS SR 0.77/yr beats BTC 0.42 and basket 0.20, max DD -9%; daily DSR 0.817 < 0.95 (N=31)",
         "report": "docs/loop/results/P1-2026-09-27.md",
-        "run": "20260927T071811Z-donchian_ensemble-paper"
+        "run": "20260927T071811Z-donchian_ensemble-paper",
+        "metrics": {
+          "oos_sharpe_ann": 0.77,
+          "oos_sharpe_gross_ann": 0.84,
+          "oos_return": 0.27,
+          "oos_max_dd": -0.09,
+          "daily_dsr": 0.817,
+          "n_trials": 31,
+          "oos_window": "2022-01..2026-03",
+          "benchmarks": {
+            "btc_hold": {
+              "oos_sharpe_ann": 0.42,
+              "oos_return": 0.4,
+              "oos_max_dd": -0.67
+            },
+            "equal_weight_hold": {
+              "oos_sharpe_ann": 0.2,
+              "oos_return": -0.24,
+              "oos_max_dd": -0.71
+            }
+          }
+        }
       }
     },
     {
@@ -151,7 +172,28 @@
         "verdict": "FAIL",
         "summary": "OOS SR -0.02/yr, return -65%, max DD -81%; DSR 0.000 (N=31)",
         "report": "docs/loop/results/P1-2026-09-27.md",
-        "run": "20260927T071811Z-ctrend_lite-paper"
+        "run": "20260927T071811Z-ctrend_lite-paper",
+        "metrics": {
+          "oos_sharpe_ann": -0.02,
+          "oos_sharpe_gross_ann": 0.06,
+          "oos_return": -0.65,
+          "oos_max_dd": -0.81,
+          "daily_dsr": 0.0,
+          "n_trials": 31,
+          "oos_window": "2022-01..2026-03",
+          "benchmarks": {
+            "btc_hold": {
+              "oos_sharpe_ann": 0.42,
+              "oos_return": 0.4,
+              "oos_max_dd": -0.67
+            },
+            "equal_weight_hold": {
+              "oos_sharpe_ann": 0.2,
+              "oos_return": -0.24,
+              "oos_max_dd": -0.71
+            }
+          }
+        }
       }
     },
     {
@@ -203,7 +245,28 @@
         "verdict": "FAIL",
         "summary": "OOS SR 0.29/yr net (0.47 gross) < BTC 0.42; max DD -47%; DSR 0.473 (N=31)",
         "report": "docs/loop/results/P1-2026-09-27.md",
-        "run": "20260927T071811Z-tsmom_risk_managed-paper"
+        "run": "20260927T071811Z-tsmom_risk_managed-paper",
+        "metrics": {
+          "oos_sharpe_ann": 0.29,
+          "oos_sharpe_gross_ann": 0.47,
+          "oos_return": 0.19,
+          "oos_max_dd": -0.47,
+          "daily_dsr": 0.473,
+          "n_trials": 31,
+          "oos_window": "2022-01..2026-03",
+          "benchmarks": {
+            "btc_hold": {
+              "oos_sharpe_ann": 0.42,
+              "oos_return": 0.4,
+              "oos_max_dd": -0.67
+            },
+            "equal_weight_hold": {
+              "oos_sharpe_ann": 0.2,
+              "oos_return": -0.24,
+              "oos_max_dd": -0.71
+            }
+          }
+        }
       }
     },
     {
