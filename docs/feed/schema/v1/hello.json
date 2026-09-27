@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/hello.json",
+  "title": "hello",
+  "description": "First event of every connection (control event).",
+  "type": "object",
+  "required": [
+    "badge",
+    "fee_model",
+    "labels",
+    "mode",
+    "replay",
+    "resume",
+    "run_id",
+    "schema",
+    "server_version",
+    "thresholds",
+    "universe"
+  ],
+  "properties": {
+    "server_version": {
+      "type": "string"
+    },
+    "schema": {
+      "const": 1
+    },
+    "mode": {
+      "enum": [
+        "LIVE_PAPER",
+        "REPLAY"
+      ]
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "badge": {
+      "const": "SIMULATED"
+    },
+    "universe": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "fee_model": {
+      "type": "object",
+      "required": [
+        "maker_pct",
+        "slippage_bp",
+        "source",
+        "spread_source",
+        "taker_pct"
+      ],
+      "properties": {
+        "source": {
+          "enum": [
+            "measured",
+            "VIP0_scenario",
+            "repo_assumption",
+            "unknown"
+          ]
+        },
+        "taker_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "maker_pct": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "slippage_bp": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "spread_source": {
+          "enum": [
+            "measured",
+            "unknown"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "thresholds": {
+      "type": "object",
+      "required": [
+        "dsr_min",
+        "min_trades"
+      ],
+      "properties": {
+        "min_trades": {
+          "type": "integer"
+        },
+        "dsr_min": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false
+    },
+    "replay": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "from_ms",
+            "speed",
+            "to_ms"
+          ],
+          "properties": {
+            "from_ms": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "to_ms": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "speed": {
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "resume": {
+      "type": "object",
+      "required": [
+        "from_seq",
+        "last_event_id"
+      ],
+      "properties": {
+        "last_event_id": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "from_seq": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

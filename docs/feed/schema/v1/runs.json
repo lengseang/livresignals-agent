@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/runs.json",
+  "title": "GET /v1/runs",
+  "description": "REPLAY runs (replay/ and signals/once-replay/) and LIVE_PAPER days, each labelled with its mode.",
+  "type": "object",
+  "required": [
+    "items",
+    "simulated",
+    "v"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "simulated": {
+      "const": true
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/run"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "run": {
+      "type": "object",
+      "required": [
+        "from_ms",
+        "gate_status",
+        "holdout_excluded",
+        "kind",
+        "mode",
+        "params",
+        "run_id",
+        "simulated",
+        "strategy",
+        "symbols",
+        "to_ms",
+        "unknown"
+      ],
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "LIVE_PAPER",
+            "REPLAY"
+          ]
+        },
+        "simulated": {
+          "const": true
+        },
+        "kind": {
+          "enum": [
+            "replay_run",
+            "scanner_once_replay",
+            "live_day"
+          ]
+        },
+        "strategy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "params": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "symbols": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "from_ms": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "to_ms": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "holdout_excluded": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "gate_status": {
+          "enum": [
+            "PASSED",
+            "FAILED",
+            "PENDING",
+            "INSUFFICIENT"
+          ]
+        },
+        "unknown": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "names of fields that are null because the source cannot know them (status UNKNOWN)"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

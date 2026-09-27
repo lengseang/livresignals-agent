@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/candidates.json",
+  "title": "GET /v1/candidates",
+  "description": "ROADMAP v3 strategy candidates: stage, sources, declared deviations and the replay verdict. REPLAY research, not evidence of edge.",
+  "type": "object",
+  "required": [
+    "v",
+    "simulated",
+    "items",
+    "rejected_on_evidence",
+    "unknown"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "simulated": {
+      "const": true
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/candidate"
+      }
+    },
+    "rejected_on_evidence": {
+      "type": "array"
+    },
+    "unknown": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "required": [
+        "id",
+        "strategy",
+        "family",
+        "stage",
+        "rules_status",
+        "sources",
+        "result"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "strategy": {
+          "type": "string"
+        },
+        "family": {
+          "type": "string"
+        },
+        "stage": {
+          "type": "string"
+        },
+        "rules_status": {
+          "type": "string"
+        },
+        "sources": {
+          "type": "array"
+        },
+        "result": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}
