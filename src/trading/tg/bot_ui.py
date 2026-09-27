@@ -25,15 +25,35 @@ ENV_REL = Path("home/hermes-home/.env")  # HERMES_HOME/.env ; resolved below
 
 
 def _env_path() -> Path:
-    hh = Path.home() / "hermes-home" / ".env"
-    if hh.exists():
-        return hh
-    return Path("/home/ubuntu/hermes-home/.env")
+    """Locate HERMES_HOME/.env.
+
+    Order matters: HERMES_HOME plugin/cron callers may run as root, where
+    Path.home() is /root and there is no /root/hermes-home/. The explicit
+    HERMES_HOME env var is the authoritative source; only then fall back.
+    """
+    import os
+
+    hh = os.environ.get("HERMES_HOME")
+    if hh:
+        cand = Path(hh) / ".env"
+        if cand.exists():
+            return cand
+    for cand in (
+        Path.home() / "hermes-home" / ".env",
+        Path("/home/ubuntu/hermes-home/.env"),
+    ):
+        if cand.exists():
+            return cand
+    raise RuntimeError(
+        "HERMES_HOME/.env not found (set HERMES_HOME or create /home/ubuntu/hermes-home/.env)"
+    )
 
 
 def _token() -> str:
     env = _env_path().read_text(encoding="utf-8")
-    m = re.search("TELEGRAM_BOT" + "_TOKEN" + "=(\S+)", env)
+    # Raw string: a bare "\S" is an invalid escape sequence and Python emits a
+    # SyntaxWarning on every import.
+    m = re.search(r"TELEGRAM_BOT_TOKEN=(\S+)", env)
     if not m:
         raise RuntimeError("TELEGRAM_BOT_TOKEN not found in env")
     return m.group(1)

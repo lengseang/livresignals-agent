@@ -36,10 +36,37 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path("/opt/trading-agent")
+REMOTE = "git@github.com:lengseang/livresignals-agent.git"
+
+# Auth: prefer GITHUB_TOKEN (gho_ OAuth, `repo` scope, verified push=True on
+# all three repos) over a per-repo SSH deploy key.
+#
+# HISTORY (2026-09-27): this used id_ed25519_agent_backup. That key was NOT
+# copied during the HKG migration, so every nightly code backup failed with
+# "Repository not found" while cron reported success. One durable token removes
+# the whole class of "per-repo key went missing" failure.
+ENV_FILE = Path(os.environ.get("HERMES_HOME", "/home/ubuntu/hermes-home")) / ".env"
+
+
+def _read_token() -> str:
+    """Read GITHUB_TOKEN from HERMES_HOME/.env. Never logged."""
+    if not ENV_FILE.exists():
+        return ""
+    for line in ENV_FILE.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if line.startswith("GITHUB_TOKEN="):
+            return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return ""
+
+
+_GITHUB_TOKEN = _read_token()
 KEY = Path("/home/ubuntu/.ssh/id_ed25519_agent_backup")
 SSH = (f"ssh -i {KEY} -o IdentitiesOnly=yes "
        f"-o StrictHostKeyChecking=accept-new")
-REMOTE = "git@github.com:lengseang/livresignals-agent.git"
+# Token URL when available, else fall back to the legacy ssh remote name.
+_REMOTE_URL = (
+    "https://x-access-token:" + _GITHUB_TOKEN + "@github.com/"
+    "lengseang/livresignals-agent.git"
+) if _GITHUB_TOKEN else REMOTE
 
 # Files/dirs that must NEVER be committed. Checked before every push, because a
 # single `git add -A` with a broken .gitignore would publish live API keys
@@ -47,16 +74,29 @@ REMOTE = "git@github.com:lengseang/livresignals-agent.git"
 FORBIDDEN = (".env", ".env.local", ".env.production")
 
 
-def sh(cmd: str, timeout: int = 180) -> tuple[int, str]:
+def sh(cmd: str, timeout: int = 180, use_ssh: bool = True) -> tuple[int, str]:
+    """Run a git command in the repo.
+
+    use_ssh=False when the command already carries a token URL; injecting
+    GIT_SSH_COMMAND then is pointless and the ssh key may not exist.
+    """
+    env = {**os.environ}
+    if use_ssh and not _GITHUB_TOKEN:
+        env["GIT_SSH_COMMAND"] = SSH
     p = subprocess.run(
         cmd, shell=True, cwd=str(REPO), capture_output=True, text=True,
-        timeout=timeout, env={**os.environ, "GIT_SSH_COMMAND": SSH})
+        timeout=timeout, env=env)
     return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+
+def _remote_ref() -> str:
+    """Where git should look: token URL if available, else the ssh remote."""
+    return _REMOTE_URL if _GITHUB_TOKEN else "origin"
 
 
 def _remote_reachable() -> tuple[bool, str]:
     """True only if we get real ref output. Exit code is not trustworthy."""
-    code, out = sh(f"git ls-remote --heads {REMOTE}")
+    code, out = sh(f"git ls-remote --heads {_remote_ref()}", use_ssh=False)
     reachable = (code == 0 and bool(out.strip())
                  and "ERROR" not in out.upper() and "fatal" not in out.lower())
     return reachable, out.strip()
@@ -81,14 +121,17 @@ def status() -> int:
     print("AGENT CODE BACKUP — status")
     print("=" * 70)
     ok, out = _remote_reachable()
-    print(f"  remote      : {REMOTE}")
-    print(f"  deploy key  : {KEY}  ({'present' if KEY.exists() else 'MISSING'})")
+    print(f"  remote      : {'https://github.com/...' if _GITHUB_TOKEN else REMOTE}")
+    if _GITHUB_TOKEN:
+        print("  auth        : GITHUB_TOKEN from HERMES_HOME/.env")
+    else:
+        print(f"  deploy key  : {KEY}  ({'present' if KEY.exists() else 'MISSING'})")
     print(f"  reachable   : {'✅ yes' if ok else '🔴 NO'}")
     if not ok:
         print(f"  output      : {out[:200]}")
     code, local = sh("git rev-parse HEAD")
     lh = local.strip().splitlines()[0] if local.strip() else ""
-    _, rem = sh(f"git ls-remote {REMOTE} main")
+    _, rem = sh(f"git ls-remote {_remote_ref()} main", use_ssh=False)
     rh = rem.split()[0] if rem.split() else ""
     print(f"  local HEAD  : {lh[:12]}")
     print(f"  remote HEAD : {rh[:12]}")
@@ -137,13 +180,13 @@ def push() -> int:
 
     if not dirty and ahead > 0:
         print(f"  found {ahead} committed but UNPUSHED commit(s) — pushing")
-        code, out = sh("git push -q origin main")
+        code, out = sh(f"git push -q {_remote_ref()} main", use_ssh=False)
         if code != 0:
             print(f"  ⛔ push failed: {out[:250]}")
             return 3
         code, local = sh("git rev-parse HEAD")
         lh = local.strip().splitlines()[0] if local.strip() else ""
-        _, rem = sh(f"git ls-remote {REMOTE} main")
+        _, rem = sh(f"git ls-remote {_remote_ref()} main", use_ssh=False)
         rh = rem.split()[0] if rem.split() else ""
         if not lh or lh != rh:
             print(f"  ⛔ push claimed success but remote differs")
@@ -163,7 +206,7 @@ def push() -> int:
 
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     sh(f'git commit -q -m "auto-backup: {ts}"')
-    code, out = sh("git push -q origin main")
+    code, out = sh(f"git push -q {_remote_ref()} main", use_ssh=False)
     if code != 0:
         print(f"  ⛔ push failed: {out[:250]}")
         return 3
@@ -171,7 +214,7 @@ def push() -> int:
     # verify the remote actually moved, rather than trusting the push
     code, local = sh("git rev-parse HEAD")
     lh = local.strip().splitlines()[0] if local.strip() else ""
-    _, rem = sh(f"git ls-remote {REMOTE} main")
+    _, rem = sh(f"git ls-remote {_remote_ref()} main", use_ssh=False)
     rh = rem.split()[0] if rem.split() else ""
     if not lh or lh != rh:
         print(f"  ⛔ push claimed success but remote differs")

@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 # P-A daily paper report — runs accumulation paper mode, sends summary to Telegram.
-# Intended as a cron job. Uses hermes send (no agent loop, no LLM).
+# Intended as a cron job. Routes to the REPORTS topic via tg-send.sh.
 set -uo pipefail
-cd /z/Hermes/home/trading-agent || exit 1
 
-REPORT=$(PYTHONPATH=src python -m trading.allocation.paper 2>/dev/null | python -c "
+# Resolve the repo root portably. This used to be `cd /z/Hermes/home/trading-agent
+# || exit 1` — a Windows-era path that does not exist on the Linux VPS, so the
+# script aborted on line 5 every single run and NEVER produced a report.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT" || exit 1
+
+# Use the project venv; a bare `python` is not guaranteed under cron's PATH.
+PY="$ROOT/venv/bin/python"
+[ -x "$PY" ] || PY="$(command -v python3)"
+
+REPORT=$(PYTHONPATH=src "$PY" -m trading.allocation.paper 2>/dev/null | "$PY" -c "
 import json, sys
 d = json.load(sys.stdin)
 r = d['result']
@@ -16,10 +25,16 @@ print(f'Entries: {r[\"entries\"]} (monthly, {cfg[\"interval_d\"]}d)')
 print(f'Scaling: dip {cfg[\"dip_x\"]}x / ext {cfg[\"ext_x\"]}x, dd-thr {cfg[\"dd_thr\"]:.0%}')
 ")
 
-# Advance the live-forward wallet with any NEW candles, then report status
-PYTHONPATH=src python -m trading.allocation.forward advance >/dev/null 2>&1 || true
+# Advance the live-forward wallet with any NEW candles, then report status.
+# NOTE: this is a STATE MUTATION. It used to be `>/dev/null 2>&1 || true`, which
+# meant a failure here silently produced a report full of STALE numbers that
+# looked completely normal — the worst kind of wrong. We now surface the error
+# in the report body instead of hiding it.
+ADVANCE_OUT=$(PYTHONPATH=src "$PY" -m trading.allocation.forward advance 2>&1) || \
+  ADVANCE_ERR="⚠️ forward advance FAILED — figures below may be stale
+$(echo "$ADVANCE_OUT" | tail -3)"
 
-FORWARD=$(PYTHONPATH=src python -m trading.allocation.forward status 2>/dev/null | python -c "
+FORWARD=$(PYTHONPATH=src "$PY" -m trading.allocation.forward status 2>/dev/null | "$PY" -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -29,7 +44,7 @@ except Exception:
 " || echo "forward tracker: n/a")
 
 # Live testnet PnL snapshot (append-only history + JSON report)
-PNL=$(PYTHONPATH=src python -m trading.allocation.pnl 2>/dev/null | python -c "
+PNL=$(PYTHONPATH=src "$PY" -m trading.allocation.pnl 2>/dev/null | "$PY" -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -39,10 +54,12 @@ except Exception:
     print('pnl tracker: n/a')
 " || echo "pnl tracker: n/a")
 
-STATUS=$(cd /z/Hermes/home/trading-agent && PYTHONPATH=src python -m trading.data.health 2>/dev/null | python -c "import json,sys; d=json.load(sys.stdin); print('DATA_HEALTH_OK' if d.get('ok') else 'DATA_HEALTH_ISSUES: ' + '; '.join(d.get('problems',[])[:3]))" || echo "health check failed")
+STATUS=$(cd "$ROOT" && PYTHONPATH=src "$PY" -m trading.data.health 2>/dev/null | "$PY" -c "import json,sys; d=json.load(sys.stdin); print('DATA_HEALTH_OK' if d.get('ok') else 'DATA_HEALTH_ISSUES: ' + '; '.join(d.get('problems',[])[:3]))" || echo "health check failed")
 
 MSG="📈 P-A Paper Report
-$REPORT
+${ADVANCE_ERR:+$ADVANCE_ERR
+
+}$REPORT
 
 📊 $FORWARD
 
@@ -51,4 +68,7 @@ $REPORT
 🩺 $STATUS
 — Hermes overnight build"
 
-hermes send --to telegram --subject "📈 P-A Paper Report" "$MSG" 2>&1 | tail -1
+# Route to the REPORTS topic via tg-send.sh (config/topic-routing.json).
+# FIXED: bare `--to telegram` resolves to the DM/home channel and ignored the
+# topic map, so the daily paper report never reached the reports topic.
+/opt/trading-agent/scripts/tg-send.sh reports "📈 P-A Paper Report" "$MSG"

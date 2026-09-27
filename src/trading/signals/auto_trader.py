@@ -96,6 +96,16 @@ def auto_trade_on_signal(sig: dict, quote_amount: float = 100.0) -> dict:
         return {"action": "info", "signal": stype, "symbol": symbol,
                 "reason": "informational signal — no auto-execution"}
 
+    # HARD GUARDS FIRST. The universe/portfolio guards are cheap, absolute
+    # safety limits; the quality gate below is a soft, scored judgement. The
+    # original order ran the scorer first, so an out-of-universe symbol was
+    # scored, priced and timed before anything checked whether it was even
+    # tradeable — wasted work, and the wrong precedence for a safety check.
+    ok, why = _guards_ok(symbol)
+    if not ok:
+        _log_decision("skip", sig, why)
+        return {"action": "skip", "signal": stype, "symbol": symbol, "reason": why}
+
     # Quality gate: score the signal, trade only if expected value is strong.
     try:
         from trading.signals.scorer import score_signal
@@ -125,7 +135,8 @@ def auto_trade_on_signal(sig: dict, quote_amount: float = 100.0) -> dict:
         return {"action": "skip", "signal": stype, "symbol": symbol,
                 "reason": "scorer unavailable — fail closed"}
 
-    # Hard guards.
+    # Hard guards (universe, portfolio) already ran above — this is the
+    # backstop in case control flow ever reaches here another way.
     ok, why = _guards_ok(symbol)
     if not ok:
         _log_decision("skip", sig, why)

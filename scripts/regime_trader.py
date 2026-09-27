@@ -58,6 +58,77 @@ STOP_ATR = 2.5           # stop distance = 2.5 x ATR
 # mom5 exits faster and cuts the segment-to-segment swing by ~57%.
 EXIT_MODE = "sma50"
 
+# =====================================================================
+# PARTIAL SCALE-OUT AT TP  —  DEFAULT OFF, UNMEASURED
+# =====================================================================
+# Requested 2026-09-25 to stop "giving back" winners that keep trending: take
+# some profit at the TP level, let the rest run on the existing trend rules.
+#
+# ⚠️ THIS IS NOT VALIDATED. Read before enabling.
+#
+# The walk-forward study above (3 folds, 2026-09-14) tested FULL exits at fixed
+# R multiples and found taking profit early LOSES money:
+#     no TP  +0.23%/trade   TP 1R  -0.79%/trade   TP 2R  +1.21%/trade
+# It did NOT test a PARTIAL exit, so the partial case is genuinely unknown --
+# it is neither blessed nor condemned by that evidence. What the study does
+# establish is that the mechanism it penalises is "cutting winners", and a
+# partial exit cuts half a winner instead of all of one. So the expected
+# outcome is somewhere between TP 2R (+1.21%) and no-TP (+0.23%), not
+# obviously better than either. It must be measured on research/06-walkforward.py
+# before it is enabled on the real book.
+#
+# THE DEFAULT IS OFF and `_champion_override` cannot turn it on, so deploying
+# this file is a NO-OP on live behaviour until someone deliberately sets
+# SCALE_OUT_FRAC > 0 here.
+#
+# HOW IT WORKS
+#   SCALE_OUT_FRAC = 0.0   -> disabled; position exits exactly as before.
+#   SCALE_OUT_FRAC = 0.5   -> at SCALE_AT_R, sell half; move the stop to
+#                             breakeven; the remainder exits only via the
+#                             normal trend rules (sma50 break / mom5 decay /
+#                             hard stop / max hold).
+# A position is scaled at most ONCE (`scaled` flag), so re-entry into the TP
+# zone cannot ratchet the position away to nothing.
+SCALE_OUT_FRAC = 0.0        # 0.0 = OFF. fraction of qty to sell at the trigger
+SCALE_AT_R = 1.0            # fire the scale-out at this R multiple
+SCALE_MOVE_STOP_TO_BE = True  # after scaling, raise the stop to the entry price
+
+
+def scale_out_enabled() -> bool:
+    """Only fires on a fraction strictly between 0 and 1.
+
+    Guards the two mistakes that would be expensive: 0.0 (disabled) must not
+    spawn a zero-size order, and 1.0 must not silently become a full exit at a
+    level the study rejected.
+    """
+    try:
+        return 0.0 < float(SCALE_OUT_FRAC) < 1.0
+    except (TypeError, ValueError):
+        return False
+
+
+def qty_to_scale_out(qty: float, step: float, frac: float) -> float:
+    """Remainder-friendly partial size.
+
+    Sells `frac` of qty, floored to the exchange lot step. Returns 0.0 when the
+    rounded part would be zero or would leave nothing behind -- in that case the
+    caller must NOT send an order, because a zero-qty reduceOnly order is a
+    rejected request at best and a full close at worst.
+    """
+    try:
+        qty, step, frac = float(qty), float(step), float(frac)
+    except (TypeError, ValueError):
+        return 0.0
+    if qty <= 0 or frac <= 0 or step <= 0:
+        return 0.0
+    part = math.floor((qty * frac) / step) * step
+    # never scale out the whole position, and never leave less than one step
+    if part <= 0 or (qty - part) < step:
+        return 0.0
+    # decimal places from the step, so we do not send 12.300000000000001
+    dp = max(0, -int(round(math.log10(step)))) if step < 1 else 0
+    return round(part, dp + 2)
+
 
 # ---- CHAMPION CONFIG OVERRIDE -------------------------------------------
 # scripts/champion.py evaluates challengers against the deployed config and
@@ -113,6 +184,11 @@ def _champion_override():
 
 
 _CH = _champion_override()
+# NOT overridable by champion.json, deliberately: any key the champion file can
+# write is a key an automated optimizer can flip on the live book. Partial
+# scale-out is unmeasured (see the note at SCALE_OUT_FRAC), so it must not be
+# reachable from a config file. Changing SCALE_OUT_FRAC means editing this
+# source and committing it.
 # ---- A-GRADE ENTRY GATE ----  ⚠️ NOT VALIDATED. Read this before trusting it.
 # Original evidence (164 setups, 3 folds): gate -> WR 56.7% vs 44.5% baseline.
 # CORRECTION 2026-09-15: rebuilt the dataset at 7,960 labelled setups (48x
@@ -349,6 +425,51 @@ def main():
         move = (px / rp["entry"] - 1) * side
         risk_pct = rp.get("risk_pct") or STOP
         why = None
+        scale_qty = 0.0
+
+        # ---- PARTIAL SCALE-OUT (default OFF) -------------------------
+        # Fires at most once per position. Evaluated BEFORE the full-exit
+        # chain so that a scaled position is not also closed outright: if
+        # the scale-out fails or is a no-op, we fall through to the normal
+        # exit rules, which is the pre-existing behaviour.
+        if (scale_out_enabled()
+                and not rp.get("scaled")
+                and move >= SCALE_AT_R * risk_pct
+                and move < TP_R * risk_pct):
+            scale_qty = qty_to_scale_out(rp.get("qty", 0),
+                                         qty_step(s),
+                                         SCALE_OUT_FRAC)
+            if scale_qty > 0:
+                sbody = {"category": "linear", "symbol": s,
+                         "side": "Sell" if side == 1 else "Buy",
+                         "orderType": "Market", "qty": str(scale_qty),
+                         "reduceOnly": True}
+                sr = private("/v5/order/create", method="POST", body=sbody)
+                if sr.get("retCode") == 0:
+                    # Only mutate state once the exchange accepted it.
+                    remaining = round(float(rp["qty"]) - scale_qty, 8)
+                    rp["qty"] = str(remaining)
+                    rp["scaled"] = True
+                    rp["scaled_at"] = px
+                    rp["scaled_qty"] = str(scale_qty)
+                    rp["scaled_ts"] = datetime.now(timezone.utc).isoformat()
+                    if SCALE_MOVE_STOP_TO_BE:
+                        # stop already sits at entry risk-wise, so record it
+                        rp["stop_at_be"] = True
+                    spnl = (px - rp["entry"]) * scale_qty * side
+                    st["book"] = st.get("book", BOOK) + spnl
+                    events.append(f"✂️ SCALED {s} {scale_qty} of "
+                                  f"{scale_qty + remaining} @ {px} "
+                                  f"({move*100:+.1f}%, ${spnl:+.2f}) "
+                                  f"runner={remaining}")
+                    print(f"  SCALE-OUT {s} sold {scale_qty}, "
+                          f"runner {remaining} @ {px} ${spnl:+.2f}")
+                else:
+                    # Do not touch state — the position is unchanged and the
+                    # normal exit rules remain in charge next tick.
+                    print(f"  SCALE-OUT FAILED {s}: {sr.get('retCode')} "
+                          f"{sr.get('retMsg','')[:60]}")
+
         if move >= TP_R * risk_pct:
             why = f"TP {TP_R:g}R"
         elif move <= -risk_pct:
@@ -530,6 +651,7 @@ def main():
                 real.append({"symbol": s, "qty": str(qty), "entry": px,
                              "side": side, "risk_pct": risk_pct,
                              "feats": ft, "ledger_id": ledger_id,
+                             "scaled": False,
                              "ts": datetime.now(timezone.utc).isoformat()})
                 pos[s] = {"open": True, "entry": px, "side": side}
                 tag = "🥇 GOLD" if s == GOLD_SYM else ""

@@ -1,0 +1,30 @@
+config/LIVE_ENABLED — THE CENTRAL LIVE-TRADING SWITCH
+=====================================================
+
+PRESENT  -> scripts may open NEW real positions
+ABSENT   -> new real entries refused (open positions STILL exit/manage normally)
+
+Consulted by ALL THREE scripts that can spend real money:
+    scripts/live_executor.py     (Binance spot)
+    scripts/trend_follower.py    (Binance spot, REAL_SYMS)
+    scripts/futures_executor.py  (Binance USDT-M futures, 3x)
+
+REAL BALANCES AS OF 2026-09-27 (verified against the exchange, not state files):
+    spot    : ARB 34.8 + NEAR 2.3 + DOGE 23.0  ~= $12.43,  $0.03 USDT free
+              (3 positions, all opened 2026-09-12; DOGE partly sold 09-13)
+    futures : $3.51 USDT, 0 open positions, 15 closed
+    no trades on the account since 2026-09-13
+
+Why this file exists (2026-09-27): live_executor honoured the flag but
+trend_follower and futures_executor did NOT, so "live trading is disabled" was
+true for one of three scripts and false overall — while the box held real
+positions. One flag, one meaning, no ambiguity.
+
+TO STOP ALL NEW LIVE TRADING:
+    rm config/LIVE_ENABLED
+
+TO RESUME:
+    touch config/LIVE_ENABLED
+
+This file being absent does NOT close existing positions — that is deliberate,
+so killing the switch can never strand live exposure without exit management.

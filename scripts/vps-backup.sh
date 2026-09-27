@@ -22,7 +22,12 @@ mkdir -p "$BK"
 tar -czf "$BK/trading-$TS.tar.gz" \
   data/trading.db data/pa-testnet-ledger.json data/pa-pnl-history.csv \
   data/pa-replay-pnl.csv data/pa-paper-state.json \
-  reports 2>/dev/null || true
+  reports 2>/tmp/vps-backup-err.log || {
+    # Do NOT swallow this. A backup that fails silently is worse than no
+    # backup, because it is trusted. Report it and mark the run failed.
+    echo "🔴 DATA BACKUP FAILED: $(tail -2 /tmp/vps-backup-err.log | tr '\n' ' ')"
+    BACKUP_FAILED=1
+  }
 echo "data backup : $BK/trading-$TS.tar.gz ($(du -h "$BK/trading-$TS.tar.gz" 2>/dev/null | cut -f1))"
 
 # ---- 2. the CODE — a git bundle carries full history in ONE file ----------
@@ -54,3 +59,10 @@ if [ "${1:-}" = "--offbox" ] && [ -n "${2:-}" ]; then
 fi
 
 echo "backup done: $(ls -1 "$BK" | wc -l) artefacts in $BK"
+
+# Propagate failure so cron/logging can see it. Previously every failure path
+# ended in `|| true`, so this script reported success unconditionally.
+if [ -n "${BACKUP_FAILED:-}" ]; then
+  echo "🔴 backup completed WITH ERRORS — do not trust this run"
+  exit 1
+fi

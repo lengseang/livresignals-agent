@@ -28,6 +28,27 @@ from pathlib import Path
 import ccxt
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+
+# ---- CENTRAL LIVE SWITCH -------------------------------------------------
+# ONE flag governs whether this script may open a real position:
+#
+#   config/LIVE_ENABLED  -> entry scan permitted
+#   absent               -> entry scan skipped
+#
+# manage() still runs unconditionally, so an already-open position keeps its
+# TP/SL/BE/stall protection even with the switch off — flipping the flag can
+# never strand live exposure.
+#
+# Rationale (2026-09-27): this script placed real futures orders but never
+# consulted LIVE_ENABLED, so the "live trading is disabled" belief was false.
+_LIVE_FLAG = BASE_DIR / "config" / "LIVE_ENABLED"
+
+
+def live_enabled() -> bool:
+    """True only if the central live switch is present."""
+    return _LIVE_FLAG.exists()
+
+
 STATE_PATH = BASE_DIR / "data" / "futures-trades.json"
 ENV_FILE = BASE_DIR / "config" / "live.env"
 
@@ -425,15 +446,21 @@ if __name__ == "__main__":
         r = futures_manage()
         for ev in r.get("events", []):
             print(f"[{stamp}] {ev}")
-        # 2) independent entry scan (sharp dip on SOL/XRP), 10-min cadence
-        try:
-            sc = futures_scan()
-            if sc.get("opened"):
-                print(f"[{stamp}] FUTURES OPENED: {sc.get('reason')}")
-            elif sc.get("reason") != "no sharp signal":
-                print(f"[{stamp}] scan: {sc.get('reason')}")
-        except Exception as se:
-            print(f"[{stamp}] scan error: {str(se)[:100]}")
+        # 2) independent entry scan (sharp dip on SOL/XRP), 10-min cadence.
+        #    Gated by the central live switch: manage() above always runs, so an
+        #    open position is still protected by TP/SL even when entries are off.
+        if not live_enabled():
+            print(f"[{stamp}] 🔒 live switch OFF — entry scan skipped, "
+                  f"open={r['open']} closed={r['closed']}")
+        else:
+            try:
+                sc = futures_scan()
+                if sc.get("opened"):
+                    print(f"[{stamp}] FUTURES OPENED: {sc.get('reason')}")
+                elif sc.get("reason") != "no sharp signal":
+                    print(f"[{stamp}] scan: {sc.get('reason')}")
+            except Exception as se:
+                print(f"[{stamp}] scan error: {str(se)[:100]}")
         # heartbeat proves the cron is alive (silence was ambiguous before —
         # could be 'no positions' or 'cron dead')
         if not r.get("events"):
