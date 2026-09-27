@@ -54,4 +54,4 @@ $REPORT
 # Route to the REPORTS topic via tg-send.sh (config/topic-routing.json).
 # FIXED: bare `--to telegram` resolves to the DM/home channel and ignored the
 # topic map, so the daily paper report never reached the reports topic.
-/opt/trading-agent/scripts/tg-send.sh reports "📈 P-A Paper Report" "$MSG" 2>&1 | tail -1
+/opt/trading-agent/scripts/tg-send.sh reports "📈 P-A Paper Report" "$MSG"
