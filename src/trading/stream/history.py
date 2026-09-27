@@ -23,7 +23,10 @@ BASE = "https://data.binance.vision/data/spot/daily"
 KINDS = {
     "aggTrades": "aggTrades/{sym}/{sym}-aggTrades-{d}.zip",
     "klines_1s": "klines/{sym}/1s/{sym}-1s-{d}.zip",
+    # P2b: daily 1m klines bridge the last monthly file and the live recorder when priming the shadow scanner
+    "klines_1m": "klines/{sym}/1m/{sym}-1m-{d}.zip",
 }
+DEFAULT_KINDS = ("aggTrades", "klines_1s")       # unchanged default for existing daily runs
 
 
 MONTHLY_BASE = "https://data.binance.vision/data/spot/monthly"
@@ -143,7 +146,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--days", type=int, default=30)
     ap.add_argument("--symbols", default=",".join(s.upper() for s in REAL_SYMS))
-    ap.add_argument("--kinds", default=",".join(KINDS))
+    ap.add_argument("--kinds", default=",".join(DEFAULT_KINDS), help=f"daily kinds, any of {sorted(KINDS)}")
     ap.add_argument("--out", default="data/local/history")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--monthly", default=None, help="monthly kinds, e.g. klines_1m,klines_1s (replaces daily mode)")
