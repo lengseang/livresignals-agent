@@ -57,3 +57,32 @@ def test_daily_dsr_single_trial_is_psr_against_zero(tmp_path):
     run = _run(tmp_path, "solo", _walk(7, drift=0.004))
     out = gate.daily_dsr(run, [run], t0=DAY * 150, t1=DAY * 600)
     assert out["sr0"] == 0.0 and out["value"] > 0.95
+
+
+def _fam_run(tmp: Path, rid: str, strategy: str, daily: list) -> Path:
+    d = _run(tmp, rid, daily)
+    (d / "summary.json").write_text(json.dumps({"strategy": strategy}), encoding="utf-8")
+    return d
+
+
+def test_p0a_a_bankrupt_unrelated_family_does_not_set_the_bar(tmp_path):
+    trend = [_fam_run(tmp_path, f"t{i}", "trend_sma", _walk(i, drift=0.002)) for i in range(4)]
+    dead = [_fam_run(tmp_path, f"d{i}", "intraday_momentum", _walk(50 + i, drift=-0.01)) for i in range(4)]
+    out = gate.daily_dsr(trend[0], trend + dead, t0=DAY * 150, t1=DAY * 600)
+    assert out["n_trials"] == 8                                   # every try still counts
+    assert out["var_basis"] == "family trend (4 trials)"
+    trend_sr = out["trial_sharpes"][:4]
+    assert out["var_trial_sr"] == pytest.approx(float(np.var(trend_sr, ddof=1)))
+
+
+def test_p0a_a_family_of_one_falls_back_to_all_trials(tmp_path):
+    solo = _fam_run(tmp_path, "s", "regime_ls", _walk(3))
+    others = [_fam_run(tmp_path, f"t{i}", "trend_sma", _walk(i)) for i in range(3)]
+    out = gate.daily_dsr(solo, [solo] + others, t0=DAY * 150, t1=DAY * 600)
+    assert out["var_basis"].startswith("all trials") and out["var_trial_sr"] == pytest.approx(
+        float(np.var(out["trial_sharpes"], ddof=1)))
+
+
+def test_p0a_unknown_strategies_are_their_own_family():
+    assert gate.family_of("something_new") == "own:something_new"
+    assert gate.family_of("trend_real") == "trend" and gate.family_of("range_breakout") == "breakout"

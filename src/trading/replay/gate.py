@@ -261,9 +261,41 @@ def _daily_curve(run: Path, account: str = "net") -> list | None:
     return json.loads(p.read_text(encoding="utf-8")).get(account) if p.exists() else None
 
 
+# P0a (docs/loop/designs/P0a-dsr-family.md), pre-registered 2026-09-27 before any P1 result existed.
+# Families are fixed by strategy TYPE, never by results. N stays every distinct trial; only the spread of trial
+# Sharpes comes from the tested strategy's own family, so an unrelated family that lost everything can't set
+# the bar. A strategy not listed here is a family of its own.
+FAMILIES = {
+    "trend": {"trend_sma", "trend_real", "donchian_ensemble", "tsmom_risk_managed"},
+    "cross_section": {"ctrend_lite", "xs_momentum", "high_52w"},
+    "intraday": {"intraday_momentum", "intraday_reversal", "btc_lead_lag"},
+    "breakout": {"range_breakout"},
+    "regime": {"regime_ls"},
+    "benchmark": {"buy_hold_btc", "buy_hold_ew"},
+}
+
+
+def family_of(strategy: str | None) -> str:
+    for fam, members in FAMILIES.items():
+        if strategy in members:
+            return fam
+    return f"own:{strategy}"
+
+
+def _strategy_of(run: Path) -> str | None:
+    p = run / "summary.json"
+    try:
+        return json.loads(p.read_text(encoding="utf-8")).get("strategy") if p.exists() else None
+    except ValueError:
+        return None
+
+
 def daily_dsr(run: Path, trial_runs: list[Path], t0: int, t1: int) -> dict:
     """Deflated Sharpe of `run`'s OOS daily net returns against every distinct trial's OOS daily Sharpe.
-    Never mixes bases: a trial without a daily curve makes it not computable."""
+    Never mixes bases: a trial without a daily curve makes it not computable.
+
+    N = every distinct trial. The variance of trial Sharpes comes from the trials in `run`'s family (P0a);
+    with fewer than 2 family members it falls back to all trials, which is the stricter choice."""
     out = {"basis": "OOS daily net returns", "n_trials": len(trial_runs), "value": None, "sr0": None}
     missing = [r.name for r in trial_runs if _daily_curve(r) is None]
     if missing or _daily_curve(run) is None:
@@ -275,8 +307,13 @@ def daily_dsr(run: Path, trial_runs: list[Path], t0: int, t1: int) -> dict:
     if mom["sr"] is None or mom["skew"] is None or any(x is None for x in trial_sr):
         out["why_not_computed"] = "a daily return series has zero variance or too few days"
         return out
-    var = float(np.var(trial_sr, ddof=1)) if len(trial_sr) >= 2 else None
+    fam = family_of(_strategy_of(run))
+    fam_sr = [s for r, s in zip(trial_runs, trial_sr) if family_of(_strategy_of(r)) == fam]
+    pool, basis = (fam_sr, f"family {fam} ({len(fam_sr)} trials)") if len(fam_sr) >= 2 \
+        else (trial_sr, f"all trials (family {fam} has {len(fam_sr)})")
+    var = float(np.var(pool, ddof=1)) if len(pool) >= 2 else None
     out["var_trial_sr"] = var
+    out["var_basis"] = basis
     out["sr0"] = expected_max_sharpe(var, len(trial_runs))
     out["value"] = psr(mom["sr"], mom["n"], mom["skew"], mom["kurtosis"], out["sr0"])
     return out
