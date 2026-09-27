@@ -73,6 +73,9 @@ class PaperAccount:
         self.fills = 0
         self.curve = array("d")
         self._peak = self._mdd = 0.0
+        # P0b basket: a fixed amount per purchase (start equity / N), so a coin listed late still gets its
+        # 1/N share; None (every other account) keeps min(cash, equity/slots)
+        self.fixed_budget: float | None = None
 
     # --- pricing hooks: a fill model overrides these (trading.paper.broker.KlineBroker) -----
     def buy_price(self, symbol: str, mid: float) -> float:
@@ -194,7 +197,7 @@ class PaperAccount:
         if len(self.positions) >= self.slots:
             return self._skip(sig, "no free slot")
         self.last.setdefault(sig.symbol, bar.open)
-        budget = min(self.cash, self.equity() / self.slots)
+        budget = min(self.cash, self.equity() / self.slots if self.fixed_budget is None else self.fixed_budget)
         if budget <= 0:
             return self._skip(sig, "no cash")
         short = sig.side == "S"

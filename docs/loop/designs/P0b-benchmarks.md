@@ -7,7 +7,12 @@ A PASS additionally requires the strategy's **OOS daily net Sharpe** to be **str
 the same OOS days and with the same cost model:
 1. **BTC buy-and-hold** (`bh_net`, existing): BTC bought at its first tradable open.
 2. **Equal-weight basket** (`bh_ew_net`, new): every coin in the run's universe bought once at its first
-   tradable open with min(cash, equity/N), never rebalanced.
+   tradable open with **1/N of the starting equity**, never rebalanced; a coin not yet listed keeps its
+   share in cash.
+
+**Amendment 2026-09-27, before any P1 result:** the first cut used min(cash, equity/N). Early coins rose,
+so later purchases took bigger slices and cash ran out: on the full 2017-2026 history the basket never bought
+DOT, AVAX, NEAR, ARB or SUI (found by the P1c identity re-run). Fixed-share buying repairs it.
 
 Missing curve (runs made before P0b) → "not computable" → INSUFFICIENT, never a guessed pass.
 Sharpe is compared, not return: trend strategies trade return for smaller drawdowns, and the independent
