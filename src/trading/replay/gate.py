@@ -134,7 +134,7 @@ def breakeven_win_rate(tp: float, sl: float, cost: float) -> float:
 # ----- verdict -----------------------------------------------------------------------------------
 def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, oos_net_return,
             oos_btc_net_return, regime, cost_model, n_trials, trial_sharpes=None, exits=None,
-            symbols=None, dsr_daily=None) -> dict:
+            symbols=None, dsr_daily=None, benchmarks=None) -> dict:
     fails, short, checks = [], [], {}
     net = [float(r) for r in oos_net_trade_returns]
     gross = [float(r) for r in oos_gross_trade_returns]
@@ -238,6 +238,17 @@ def verdict(*, oos_net_trade_returns, oos_gross_trade_returns, full_net_return, 
                              f"T = {d['t']} OOS days)")
         checks["dsr"] = d
 
+    if benchmarks is not None:
+        # P0b (pre-registered): the OOS daily net Sharpe must beat BTC buy-and-hold AND the equal-weight basket
+        checks["benchmarks"] = benchmarks
+        if benchmarks.get("ok") is None:
+            short.append(f"benchmark check not computable: {benchmarks.get('why_not_computed', 'UNKNOWN')}")
+        elif not benchmarks["ok"]:
+            fails.append("OOS daily Sharpe {:.2f}/yr does not beat {}".format(
+                benchmarks["strategy_sr_ann"], " and ".join(
+                    f"{k} {v:.2f}/yr" for k, v in benchmarks["benchmarks_sr_ann"].items()
+                    if v is not None and benchmarks["strategy_sr_ann"] <= v)))
+
     v = FAIL if fails else INSUFFICIENT if short else PASS
     reasons = fails + short if v != PASS else [
         f"{n} OOS trades >= {MIN_OOS_TRADES}; shared-account and OOS net positive; mean net per trade positive; "
@@ -288,6 +299,32 @@ def _strategy_of(run: Path) -> str | None:
         return json.loads(p.read_text(encoding="utf-8")).get("strategy") if p.exists() else None
     except ValueError:
         return None
+
+
+BENCHMARK_CURVES = {"btc_hold": "bh_net", "equal_weight_hold": "bh_ew_net"}
+
+
+def benchmark_check(run: Path, t0: int, t1: int) -> dict:
+    """P0b: OOS daily net Sharpe of the run vs each benchmark's over the same days. Missing curve -> not computable."""
+    p = run / "equity_daily.json"
+    curves = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    out = {"basis": "OOS daily net Sharpe, annualised x sqrt(365)", "ok": None,
+           "strategy_sr_ann": None, "benchmarks_sr_ann": {}}
+    missing = [k for k in ["net", *BENCHMARK_CURVES.values()] if not curves.get(k)]
+    if missing:
+        out["why_not_computed"] = f"no daily curve {', '.join(missing)} (run made before P0b; re-run it)"
+        return out
+    ann = math.sqrt(365)
+    sr = lambda k: sharpe_moments(oos_daily_returns(curves[k], t0, t1))["sr"]
+    s0 = sr("net")
+    bench = {name: sr(key) for name, key in BENCHMARK_CURVES.items()}
+    if s0 is None or any(v is None for v in bench.values()):
+        out["why_not_computed"] = "a daily series has zero variance or too few days"
+        return out
+    out["strategy_sr_ann"] = s0 * ann
+    out["benchmarks_sr_ann"] = {k: v * ann for k, v in bench.items()}
+    out["ok"] = all(s0 > v for v in bench.values())
+    return out
 
 
 def daily_dsr(run: Path, trial_runs: list[Path], t0: int, t1: int) -> dict:
@@ -433,7 +470,8 @@ def evaluate(run: Path, trials_path: Path | None = None, split_cli: str | None =
                   oos_net_return=acc.get("periods", {}).get("OOS", {}).get("ret"),
                   oos_btc_net_return=bh.get("periods", {}).get("OOS", {}).get("ret"),
                   regime=s.get("regime", {}).get("OOS"), cost_model=s["costs"]["net"], symbols=s.get("symbols"),
-                  n_trials=n_trials, trial_sharpes=sharpes, exits=exits, dsr_daily=dsr_daily)
+                  n_trials=n_trials, trial_sharpes=sharpes, exits=exits, dsr_daily=dsr_daily,
+                  benchmarks=benchmark_check(run, _ms(split), _ms(end)))
     res["checks"]["dsr_basis"] = ("OOS daily net returns (L2a)" if dsr_daily is not None
                                   else "OOS per-trade net returns (legacy run without a daily curve; re-run for L2a)")
     res["checks"]["dsr"].update(

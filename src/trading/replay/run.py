@@ -125,6 +125,9 @@ def main(argv: list[str] | None = None) -> dict:
             return PaperAccount(a.equity, n, cms[k], name=name)
     accts = {k: make(k, slots, k) for k in ("net", "gross", "stress")}
     bench = {k: (a.benchmark, make(k, 1, f"bh_{k}")) for k in ("gross", "net", "stress")}
+    # P0b: equal-weight basket of the run's universe: each coin bought once at its first tradable open with
+    # min(cash, equity/N), never rebalanced, same costs as the account it is compared with
+    bench.update({f"ew_{k}": (tuple(syms), make(k, len(syms), f"bh_ew_{k}")) for k in ("gross", "net", "stress")})
     if a.strategy == "trend_real":
         stop = None if a.hard_stop.lower() == "none" else float(a.hard_stop)
         strat = TrendReal(sma=a.sma, hard_stop=stop, max_pos=a.max_pos, btc=a.benchmark, universe=tuple(syms),

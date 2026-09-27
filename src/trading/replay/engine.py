@@ -137,8 +137,9 @@ class LoopCore:
                 if b.symbol not in res.first_open:
                     res.first_open[b.symbol] = b
                     for sym, a in self._bench:
-                        if sym == b.symbol:
-                            a.submit(Signal("buy_and_hold", sym, "open", t, "benchmark", b.open, "1m"))
+                        # a benchmark holds one symbol, or a tuple of them (P0b equal-weight basket)
+                        if sym == b.symbol or (isinstance(sym, tuple) and b.symbol in sym):
+                            a.submit(Signal("buy_and_hold", b.symbol, "open", t, "benchmark", b.open, "1m"))
             # every sale at this instant fills before any purchase, across symbols: a real account sells
             # first to free the slot and the cash (trend_follower.py exits in its loop, buys after it)
             waiting = [a for a in self._marked if a.pending]    # on_open() returns at once with nothing pending
