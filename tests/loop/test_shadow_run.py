@@ -79,3 +79,25 @@ def test_build_primes_every_book_from_history_files(tmp_path):
     # its first decision needs 31 closes, so it lands on the last history close: the order waits for the first
     # live open, as it would live (never filled at a price from before the forward start)
     assert "BTCUSDT" in {sig.symbol for sig in tsmom.account.pending} and not tsmom.account.positions
+
+
+def test_a_restart_resumes_the_chain_and_records_the_downtime_as_a_gap(tmp_path):
+    d0 = ms("2021-03-01T00:00:00")
+    for s in ("BTCUSDT", "ETHUSDT"):
+        _month_zip(tmp_path / "hist", s, "2021-03", daily_minutes(s, d0, [100.0 + i for i in range(31)], per_day=2))
+    cards = tmp_path / "c.json"
+    cards.write_text(json.dumps({"candidates": []}), encoding="utf-8")
+    (tmp_path / "ticks").mkdir()
+    a = argparse.Namespace(root=str(tmp_path / "shadow"), history=str(tmp_path / "hist"), ticks=str(tmp_path / "ticks"),
+                           cards=str(cards), symbols="BTCUSDT,ETHUSDT", prime_days=40)
+    first = ms("2021-04-01T00:00:00")
+    fleet, _ = R.build(a, first)
+    fleet.gap(first, first + 1, "test marker")                          # something on the chain before the crash
+    later = first + 3 * 3_600_000
+    R.build(a, later)                                                   # the scheduled task restarted the process
+    from trading.shadow.chain import verify
+    d = tmp_path / "shadow" / "benchmark" / "buy_hold_btc"
+    recs = [json.loads(x) for f in sorted(d.glob("*.jsonl")) for x in f.read_text(encoding="utf-8").splitlines()]
+    assert verify(d)["ok"]
+    assert recs[-1]["type"] == "gap" and recs[-1]["data"]["reason"] == "process restart"
+    assert recs[-1]["data"]["to_ms"] == later and recs[-1]["forward_start_ms"] == first

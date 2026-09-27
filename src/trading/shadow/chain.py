@@ -39,6 +39,7 @@ class ShadowChain:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.lane, self.strategy, self.forward_start_ms = lane, strategy, forward_start_ms
         self.seq, self.head = 0, genesis(strategy, forward_start_ms)
+        self.resumed_from_ms: int | None = None        # set when an existing chain is continued after a restart
         days = sorted(self.dir.glob("*.jsonl"))
         if days:
             last = None
@@ -50,6 +51,7 @@ class ShadowChain:
                 r = json.loads(last)
                 self.seq, self.head = r["seq"], r["hash"]
                 self.forward_start_ms = r.get("forward_start_ms", forward_start_ms)
+                self.resumed_from_ms = r.get("ts_event_ms") or r.get("ts_emit_ms")
 
     def write(self, rec: dict) -> dict:
         """Chain and append `rec` (the Scanner's sink interface). `ts_event_ms` picks the day file."""

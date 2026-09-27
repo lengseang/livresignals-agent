@@ -70,6 +70,10 @@ def build(a, now_ms: int) -> tuple[ShadowFleet, dict]:
     rep = prime.prime_history(fleet, lambda s: prime.history_bars(a.history, s, start, day0))
     rep["prime_seconds"] = round(time.time() - t0, 1)
     rep["caught_up_ticks"] = prime.catch_up(fleet, recorder_ticks(Path(a.ticks), rep["primed_through_ms"] or start))
+    for b in fleet.books:                     # a restarted process: the downtime is a gap, never back-filled
+        if b.chain.resumed_from_ms is not None and b.chain.resumed_from_ms < now_ms:
+            b.chain.write({"v": 1, "type": "gap", "ts_event_ms": now_ms, "mode": "LIVE_PAPER", "simulated": True,
+                           "data": {"from_ms": b.chain.resumed_from_ms, "to_ms": now_ms, "reason": "process restart"}})
     rep["books"] = [{"lane": b.lane, "strategy": b.name, "stopped": b.stopped,
                      "equity_at_forward_start": round(b.account.equity(), 2),
                      "positions": sorted(b.account.positions)} for b in fleet.books]
