@@ -11,7 +11,7 @@ from trading.replay.bars import Bar
 class Signal:
     strategy: str
     symbol: str
-    action: str          # "open" | "close"
+    action: str          # "open" | "close" | "target" (P1c: hold `weight` of equity)
     ts_ms: int           # the clock time the signal was emitted (a bar's end_ms)
     reason: str
     ref_price: float     # the price the strategy saw (not a fill price)
@@ -22,6 +22,9 @@ class Signal:
     sl: float | None = None
     tp: float | None = None
     max_hold_ms: int | None = None
+    # P1c (target weights): fraction of account equity to hold in `symbol` after the fill, 0..1. Only for
+    # action "target"; the broker trades the difference. None for every open/close signal.
+    weight: float | None = None
 
     def record(self, mode: str, run_id: str | None = None, params: dict | None = None) -> dict:
         from trading.replay.broker import iso
@@ -30,7 +33,8 @@ class Signal:
                             "params": params or {}, "symbol": self.symbol, "side": self.side,
                             "action": self.action, "reason": self.reason, "ref_price": self.ref_price,
                             "interval": self.interval, "run_id": run_id,
-                            "sl": self.sl, "tp": self.tp, "max_hold_ms": self.max_hold_ms}}
+                            "sl": self.sl, "tp": self.tp, "max_hold_ms": self.max_hold_ms,
+                            **({"weight": self.weight} if self.weight is not None else {})}}
 
 
 class Strategy(Protocol):

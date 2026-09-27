@@ -110,13 +110,78 @@ class PaperAccount:
             return
         keep = []
         for sig in self.pending:
-            if sig.symbol != bar.symbol or (action is not None and sig.action != action):
+            if sig.symbol != bar.symbol or (action is not None and sig.action not in (action, "target")):
                 keep.append(sig)
                 continue
             if bar.open_ms < sig.ts_ms:
                 raise LookAheadError(f"fill at {bar.open_ms} precedes its signal at {sig.ts_ms}")
+            if sig.action == "target":
+                # P1c: reductions fill in the "close" pass, additions in the "open" pass, so every sale at an
+                # instant frees cash before any purchase (same rule as open/close)
+                if action == "close" and self._target_delta(sig, bar) >= 0:
+                    keep.append(sig)
+                    continue
+                self._target(sig, bar)
+                continue
             (self._open if sig.action == "open" else self._close)(sig, bar)
         self.pending = keep
+
+    # --- target weights (P1c, docs/loop/designs/P1c-target-weights.md) -----------------------------------------
+    def _target_delta(self, sig: Signal, bar: Bar) -> float:
+        """Target value minus current value of sig.symbol at this open, in account currency."""
+        self.last[sig.symbol] = bar.open
+        pos = self.positions.get(sig.symbol)
+        held = pos["qty"] * bar.open if pos else 0.0
+        return max(0.0, min(1.0, float(sig.weight or 0.0))) * self.equity() - held
+
+    def _target(self, sig: Signal, bar: Bar) -> None:
+        """Trade sig.symbol toward weight x equity at bar.open. Spot only: purchases are capped by cash."""
+        delta = self._target_delta(sig, bar)
+        pos = self.positions.get(sig.symbol)
+        eps = 1e-9 * max(self.equity(), 1.0)
+        if abs(delta) <= eps:
+            return
+        if delta > 0:
+            budget = min(self.cash, delta)
+            if budget <= eps:
+                return self._skip(sig, "no cash")
+            price = self.buy_price(sig.symbol, bar.open)
+            budget, flags = self.size_budget(sig.symbol, budget)
+            qty = budget / (price * (1 + self.costs.fee_rate))
+            fee = qty * price * self.costs.fee_rate
+            self.cash -= budget
+            self.fills += 1
+            if pos is None:
+                sid = f"{sig.strategy}:{sig.symbol}:{bar.open_ms}"
+                self.positions[sig.symbol] = {"id": sid, "qty": qty, "entry": price, "entry_mid": bar.open,
+                                              "opened_ms": bar.open_ms, "signal_ms": sig.ts_ms, "spent": budget,
+                                              "fee": fee, "side": "L", "strategy": sig.strategy,
+                                              "stop": None, "take_profit": None, "deadline_ms": None}
+            else:
+                q0 = pos["qty"]
+                pos["entry"] = (pos["entry"] * q0 + price * qty) / (q0 + qty)
+                pos["entry_mid"] = (pos["entry_mid"] * q0 + bar.open * qty) / (q0 + qty)
+                pos["qty"], pos["spent"], pos["fee"] = q0 + qty, pos["spent"] + budget, pos["fee"] + fee
+                sid = pos["id"]
+            self.events.append({"mode": self.mode, "type": "rebalance", "ts": iso(bar.open_ms),
+                                "ts_ms": bar.open_ms,
+                                "payload": {"id": sid, "symbol": sig.symbol, "side": "buy", "qty": qty,
+                                            "price": price, "notional": budget, "fee": fee,
+                                            "target_weight": sig.weight, "why": sig.reason, "account": self.name,
+                                            **self.fill_meta(flags)}})
+            return
+        if pos is None:
+            return
+        if sig.weight is not None and sig.weight <= 0:
+            return self._close(sig, bar)                  # full exit: an ordinary closed trade
+        frac = min(1.0, -delta / (pos["qty"] * bar.open))
+        part = {**pos, "qty": pos["qty"] * frac, "spent": pos["spent"] * frac, "fee": pos["fee"] * frac}
+        pos["qty"], pos["spent"], pos["fee"] = (pos["qty"] * (1 - frac), pos["spent"] * (1 - frac),
+                                                pos["fee"] * (1 - frac))
+        price = self.sell_price(sig.symbol, bar.open)
+        self._settle(sig.symbol, part, price, bar.open, bar.open_ms, f"rebalance: {sig.reason}", self.costs.fee_rate)
+        if pos["qty"] <= 0:
+            self.positions.pop(sig.symbol, None)
 
     def _skip(self, sig: Signal, why: str) -> None:
         self.events.append({"mode": self.mode, "type": "skip", "ts": iso(sig.ts_ms), "ts_ms": sig.ts_ms,
