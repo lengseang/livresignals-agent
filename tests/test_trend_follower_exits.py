@@ -126,13 +126,13 @@ def test_an_invalid_order_blocks_the_exit_and_alerts_once(tmp_path, monkeypatch)
     assert len([a for a in tf.alerts if a[0].startswith("⛔ Real exit blocked")]) == 1
 
 
-def test_no_sellable_balance_keeps_the_record_instead_of_deleting_it(tmp_path, monkeypatch):
-    ex = ExitExchange(curves={"ETH/USDT": FALLING})
+def test_no_sellable_balance_records_the_close_instead_of_deleting_it(tmp_path, monkeypatch):
+    ex = ExitExchange(curves={"ETH/USDT": FALLING})             # no fetch_my_trades: resolves to UNKNOWN (F3)
     tf = setup(tmp_path, monkeypatch, ex)
     ex.wallet["ETH"] = {"free": 0.0, "total": 0.0}
     tf.main()
     st = state(tmp_path)
-    assert st["real"]["open"][0]["exit_blocked"] and sells(ex) == []
+    assert sells(ex) == [] and st["real"]["closed"][0]["reason"] == "NO_SELLABLE_BALANCE"
 
 
 def test_a_sell_without_an_average_price_is_recorded_as_unknown(tmp_path, monkeypatch):

@@ -261,21 +261,76 @@ def _real_exit_reason(rp, closes, pos):
     return None, basis
 
 
+def _fees(items):
+    """(fee_usd, status, raw) from ccxt fee dicts. Only a USDT fee has a USD value we didn't invent."""
+    raw = [{"cost": f.get("cost"), "currency": f.get("currency")} for f in items
+           if f and f.get("cost") is not None]
+    if raw and all(f["currency"] == "USDT" for f in raw):
+        return round(sum(float(f["cost"]) for f in raw), 8), "FILL", raw
+    return None, "UNKNOWN", raw                    # e.g. paid in BNB: converting it would need a price we don't have
+
+
+def _close_real(real, rp, rec, events):
+    """Finish a real.closed record (PnL only from known values), move it out of real.open, emit the event."""
+    entry, ex_px, qty = rp.get("entry"), rec.get("exit"), rec.get("qty")
+    rec.update({"book": "real", "symbol": rp["symbol"], "entry": entry,
+                "entry_status": rp.get("entry_status", "BOOKED"),   # pre-F1 entries were the candle px, not a fill
+                "open_ts": rp.get("ts"), "close_ts": datetime.now(timezone.utc).isoformat()})
+    gross = round((ex_px - entry) * qty, 8) if entry and ex_px and qty else None
+    rec["pnl_gross_usd"] = gross
+    rec["pnl_usd"] = round(gross - rec["fee_usd"], 8) if gross is not None and rec.get("fee_usd") is not None else None
+    real.setdefault("closed", []).append(rec)
+    real["open"].remove(rp)
+    ret = (ex_px / entry - 1) if ex_px and entry else None
+    events.append(("EXIT", rp["symbol"], ex_px, {"ret": ret, "why": rec["reason"], "real": True}))
+
+
 def _book_real_exit(real, rp, od, events):
     """Move a sold position to real.closed from the SELL fill. Unknown values stay null + UNKNOWN."""
     ep = rp["exit_pending"]
     filled, avg = od.get("filled"), od.get("average")
-    entry = rp.get("entry")
-    rec = {"book": "real", "symbol": rp["symbol"], "cid": ep["cid"], "order_id": str(od.get("id", "")),
+    fee_usd, fee_status, fee_raw = _fees(od.get("fees") or ([od["fee"]] if od.get("fee") else []))
+    rec = {"cid": ep["cid"], "order_id": str(od.get("id", "")),
            "qty": float(filled) if filled else None, "qty_status": "FILL" if filled else "UNKNOWN",
-           "entry": entry, "entry_status": rp.get("entry_status", "BOOKED"),   # pre-F1 entries were the candle px
            "exit": float(avg) if avg else None, "exit_status": "FILL" if avg else "UNKNOWN",
-           "reason": ep["why"], "stop_basis": ep.get("stop_basis"), "attempts": ep["attempts"],
-           "open_ts": rp.get("ts"), "close_ts": datetime.now(timezone.utc).isoformat()}
-    real.setdefault("closed", []).append(rec)
-    real["open"].remove(rp)
-    ret = (rec["exit"] / entry - 1) if rec["exit"] and entry else None
-    events.append(("EXIT", rp["symbol"], rec["exit"], {"ret": ret, "why": ep["why"], "real": True}))
+           "fee_usd": fee_usd, "fee_status": fee_status, "fee_raw": fee_raw,
+           "reason": ep["why"], "stop_basis": ep.get("stop_basis"), "attempts": ep["attempts"]}
+    _close_real(real, rp, rec, events)
+
+
+def _close_without_sell(ex, real, rp, free, events):
+    """The coins are already gone (sold outside this record). Close it from OUR trade history, or as UNKNOWN.
+
+    Never priced from the current candle: that fallback is the F4 defect in live_executor.
+    """
+    s, booked = rp["symbol"], float(rp["qty"])
+    ep = rp.get("exit_pending") or {}
+    rec = {"reason": "NO_SELLABLE_BALANCE", "trigger": ep.get("why"), "free": free, "booked": booked,
+           "qty": None, "qty_status": "UNKNOWN", "exit": None, "exit_status": "UNKNOWN",
+           "fee_usd": None, "fee_status": "UNKNOWN", "fee_raw": [], "trade_ids": []}
+    try:
+        since = int(datetime.fromisoformat(rp["ts"]).timestamp() * 1000)
+        trades = [t for t in ex.fetch_my_trades(s, since=since)
+                  if t.get("side") == "sell" and (t.get("timestamp") or 0) >= since]
+        step = float((ex.market(s).get("precision") or {}).get("amount") or 0)
+        missing = booked - free
+        sold = sum(float(t.get("amount") or 0) for t in trades)
+        if trades and abs(sold - missing) <= step + 1e-12:
+            vwap = sum(float(t["amount"]) * float(t["price"]) for t in trades) / sold
+            fee_usd, fee_status, fee_raw = _fees([t.get("fee") for t in trades])
+            rec.update(qty=sold, qty_status="TRADE_HISTORY", exit=round(vwap, 10), exit_status="TRADE_HISTORY",
+                       fee_usd=fee_usd, fee_status=fee_status, fee_raw=fee_raw,
+                       trade_ids=[str(t.get("id")) for t in trades])
+        else:
+            rec["exit_resolve_error"] = (f"sells since open total {sold:g}, missing {missing:g} "
+                                         f"(step {step:g}): not reconciled")
+    except Exception as e:  # noqa: BLE001 - recorded as UNKNOWN; a human decides whether to dig further
+        rec["exit_resolve_error"] = f"{type(e).__name__}: {str(e)[:80]}"
+    _close_real(real, rp, rec, events)
+    if rec["exit_status"] == "UNKNOWN":
+        notify(f"⚠️ Real exit UNKNOWN: {s}",
+               f"The wallet no longer holds it (free={free:g}, booked={booked:g}) and the exit could not be "
+               f"reconstructed from trade history: {rec['exit_resolve_error']}\nRecorded as UNKNOWN, not guessed.")
 
 
 def _block_exit(rp, reason, events):
@@ -338,8 +393,7 @@ def _real_exits(ex, st, closes_by, events):
             events.append(("ERR", s, None, f"can't size the sell ({type(e).__name__}): retry next run"))
             continue
         if qty <= 0 or qty < mmin:
-            # How this exit is recorded is F3 (T0.5). Until then: keep the record, never delete it.
-            _block_exit(rp, f"no sellable balance (free={free:g}, booked={float(rp['qty']):g})", events)
+            _close_without_sell(ex, real, rp, free, events)   # F3 (T0.5): recorded, never silently deleted
             save(st)
             continue
         ep["cid"] = _new_cid(s)
