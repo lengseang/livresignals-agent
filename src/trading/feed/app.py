@@ -37,7 +37,8 @@ def _utc_day(t: float) -> str:
 
 def create_app(data_root: Path | str, *, heartbeat_s: float = 1.0, quotes_s: float = 1.0, poll_s: float = 0.25,
                buffer_size: int = 50_000, clock=time.time, bind: str = "127.0.0.1",
-               max_idle_s: float | None = None, candidates: Path | str | None = None) -> FastAPI:
+               max_idle_s: float | None = None, candidates: Path | str | None = None,
+               shadow: Path | str | None = None) -> FastAPI:
     """max_idle_s: close a stream after that long without sending anything (tests only; None in serve).
     candidates: research/candidates/candidates.json (ROADMAP v3 cards), served read-only by /v1/candidates."""
     data = DataRoot(data_root)
@@ -156,6 +157,17 @@ def create_app(data_root: Path | str, *, heartbeat_s: float = 1.0, quotes_s: flo
                           "result": c.get("result")})
         return {"v": 1, "simulated": True, "items": items,
                 "rejected_on_evidence": list(doc.get("rejected_on_evidence") or []), "unknown": []}
+
+    @app.get("/v1/shadow")
+    def shadow_():
+        # P3b: the shadow scanner's forward scorecards (trading.shadow.score). A missing file is UNKNOWN.
+        doc = read_json(Path(shadow) / "scorecards.json") if shadow else None
+        if not doc:
+            return {"v": 1, "simulated": True, "books": [], "unknown": ["scorecards"]}
+        keep = ("lane", "strategy", "status", "forward_days_clean", "signals", "fills", "return", "max_drawdown",
+                "sharpe_daily_ann", "gap_days", "errors", "need")
+        books = [{k: b.get(k) for k in keep} | {"chain_ok": (b.get("chain") or {}).get("ok")} for b in doc.get("books", [])]
+        return {"v": 1, "simulated": True, "label": doc.get("label"), "books": books, "unknown": []}
 
     @app.get("/v1/runs/{run_id}/summary")
     def run_summary(run_id: str):

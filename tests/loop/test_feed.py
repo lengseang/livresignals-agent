@@ -388,3 +388,20 @@ def test_missing_candidates_file_is_unknown_not_empty_success(data_root, tmp_pat
     body = c.get("/v1/candidates").json()
     validate_rest("candidates", body)
     assert body["items"] == [] and body["unknown"] == ["candidates"]
+
+
+def test_shadow_scorecards_are_served_and_validate(data_root, tmp_path):
+    (tmp_path / "scorecards.json").write_text(json.dumps({"label": "SHADOW", "books": [
+        {"lane": "rejected", "strategy": "donchian_ensemble", "status": "ACCUMULATING", "forward_days_clean": 3,
+         "signals": 2, "chain": {"ok": True}}]}), encoding="utf-8")
+    c = TestClient(create_app(data_root, heartbeat_s=3600, quotes_s=0.0, max_idle_s=1.0, shadow=tmp_path))
+    body = c.get("/v1/shadow").json()
+    validate_rest("shadow", body)
+    assert body["books"][0]["status"] == "ACCUMULATING" and body["books"][0]["chain_ok"] is True
+
+
+def test_missing_scorecards_are_unknown(data_root, tmp_path):
+    c = TestClient(create_app(data_root, heartbeat_s=3600, quotes_s=0.0, max_idle_s=1.0, shadow=tmp_path / "none"))
+    body = c.get("/v1/shadow").json()
+    validate_rest("shadow", body)
+    assert body["books"] == [] and body["unknown"] == ["scorecards"]

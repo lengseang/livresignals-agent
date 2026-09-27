@@ -22,6 +22,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--buffer-size", type=int, default=50_000)
     ap.add_argument("--candidates", default="research/candidates/candidates.json",
                     help="ROADMAP v3 candidate cards served by /v1/candidates (read-only)")
+    ap.add_argument("--shadow", default="data/local/shadow", help="shadow scanner root served by /v1/shadow")
     a = ap.parse_args(argv)
     if a.host not in LOOPBACK:
         ap.error(f"--host {a.host!r} refused: the feed binds loopback only {LOOPBACK}")
@@ -36,7 +37,7 @@ def main(argv: list[str] | None = None) -> None:
 
     from trading.feed.app import create_app
     app = create_app(a.data_root, heartbeat_s=a.heartbeat_s, quotes_s=a.quotes_s, buffer_size=a.buffer_size,
-                     bind=f"{a.host}:{a.port}", candidates=a.candidates)
+                     bind=f"{a.host}:{a.port}", candidates=a.candidates, shadow=a.shadow)
     print(f"paper feed (SIMULATED, read-only) on http://{a.host}:{a.port} data_root={a.data_root}", flush=True)
     uvicorn.run(app, host=a.host, port=a.port, log_level="info", access_log=False)
 
