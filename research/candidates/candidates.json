@@ -2,116 +2,420 @@
   "_about": "ROADMAP v3 candidate cards (P0c). A card moves stage card -> rules_read -> pre_registered -> validated/rejected -> shadow -> promoted. rules.status UNKNOWN means the paper's rule section has not been read yet: no params may be invented, and the card cannot be pre-registered until it is filled from the source. family must match gate.FAMILIES (P0a). trial_budget = the most param sets we will ever run for it; each one is a trial in N.",
   "candidates": [
     {
-      "id": "A0-btc-hold", "strategy": "buy_hold_btc", "family": "benchmark", "stage": "pre_registered",
-      "sources": [], "claim": "benchmark", "rules": {"status": "KNOWN", "text": "BTC bought at first tradable open, held (bh_net)."},
-      "our_use": "bar every candidate must beat (P0b)", "data": {"have": true, "needs": []},
-      "cost_sensitivity": "one buy", "license": "n/a", "prior": "n/a", "trial_budget": 0
+      "id": "A0-btc-hold",
+      "strategy": "buy_hold_btc",
+      "family": "benchmark",
+      "stage": "pre_registered",
+      "sources": [],
+      "claim": "benchmark",
+      "rules": {
+        "status": "KNOWN",
+        "text": "BTC bought at first tradable open, held (bh_net)."
+      },
+      "our_use": "bar every candidate must beat (P0b)",
+      "data": {
+        "have": true,
+        "needs": []
+      },
+      "cost_sensitivity": "one buy",
+      "license": "n/a",
+      "prior": "n/a",
+      "trial_budget": 0
     },
     {
-      "id": "A0-ew-hold", "strategy": "buy_hold_ew", "family": "benchmark", "stage": "pre_registered",
-      "sources": [], "claim": "benchmark", "rules": {"status": "KNOWN", "text": "Each universe coin bought once at first open, 1/N, never rebalanced (bh_ew_net)."},
-      "our_use": "bar every candidate must beat (P0b)", "data": {"have": true, "needs": []},
-      "cost_sensitivity": "one buy per coin", "license": "n/a", "prior": "n/a", "trial_budget": 0
+      "id": "A0-ew-hold",
+      "strategy": "buy_hold_ew",
+      "family": "benchmark",
+      "stage": "pre_registered",
+      "sources": [],
+      "claim": "benchmark",
+      "rules": {
+        "status": "KNOWN",
+        "text": "Each universe coin bought once at first open, 1/N, never rebalanced (bh_ew_net)."
+      },
+      "our_use": "bar every candidate must beat (P0b)",
+      "data": {
+        "have": true,
+        "needs": []
+      },
+      "cost_sensitivity": "one buy per coin",
+      "license": "n/a",
+      "prior": "n/a",
+      "trial_budget": 0
     },
     {
-      "id": "A1-donchian-ensemble", "strategy": "donchian_ensemble", "family": "trend", "stage": "card",
-      "sources": [{"cite": "Zarattini, Pagani, Barbon (2025), Catching Crypto Trends, SSRN 5209907", "url": "https://papers.ssrn.com/sol3/Delivery.cfm/5209907.pdf?abstractid=5209907&mirid=1", "peer_reviewed": false}],
+      "id": "A1-donchian-ensemble",
+      "strategy": "donchian_ensemble",
+      "family": "trend",
+      "stage": "rules_read",
+      "sources": [
+        {
+          "cite": "Zarattini, Pagani, Barbon (2025), Catching Crypto Trends, SSRN 5209907",
+          "url": "https://papers.ssrn.com/sol3/Delivery.cfm/5209907.pdf?abstractid=5209907&mirid=1",
+          "peer_reviewed": false
+        }
+      ],
       "claim": "Sharpe > 1.5, alpha 10.8%/yr vs BTC, net of fees (authors' backtest, top-20 liquid rotation)",
-      "rules": {"status": "UNKNOWN", "text": "Ensemble of Donchian channel models over several lookbacks + volatility-based sizing. Exact lookbacks, vol target and rebalance rule not read yet."},
+      "rules": {
+        "status": "KNOWN",
+        "read_from": "secondary: CXO Advisory summary of the paper, quoted in github.com/zebadee2kk/DeFi-TraderStack-Agent/issues/137; lookbacks and 25% target confirmed by the Concretum/QuantifiedStrategies summaries. Primary PDF blocked (SSRN 403): owner may download to confirm.",
+        "published": {
+          "lookbacks_days": [
+            5,
+            10,
+            20,
+            30,
+            60,
+            90,
+            150,
+            250,
+            360
+          ],
+          "entry": "daily close above the max close over the lookback opens that lookback's position",
+          "exit": "trailing stop = max(prior stop, channel midpoint); close when the close falls below it",
+          "aggregation": "equal-weight the open positions across the 9 lookbacks",
+          "sizing": "25% annualised volatility target using 90-day realised volatility",
+          "universe": "top 20 most liquid; listed >= 1 year; median 30-day daily volume >= $2M",
+          "rebalance": "daily",
+          "fees": "0.10%-0.50% per trade in the paper's net results",
+          "reported": "rotational top-20, Jan 2015 - Mar 2025: CAGR 30%, Sharpe 1.58, alpha +14%/yr vs BTC; BTC alone: Sharpe 1.56, max DD 19%"
+        },
+        "our_deviations": [
+          "universe: our REAL_SYMS-style list available in history (15, later 38), filtered by the paper's >= 1 year and $2M median-volume rules; not a full top-20 of all coins (no full-market data)",
+          "spot only, leverage capped at 1.0 (vol target can only scale DOWN)",
+          "costs: our measured spread model, not the paper's flat fee",
+          "channel midpoint = (max close + min close)/2 over the same lookback (the summary does not say highs/lows)"
+        ]
+      },
       "our_use": "direct upgrade of trend_follower (ensemble instead of one tuned SMA; vol sizing instead of flat $5.5)",
-      "data": {"have": true, "needs": ["daily klines (have)"]}, "cost_sensitivity": "low (daily)",
-      "license": "idea from a paper; own implementation", "prior": "medium-low (not peer-reviewed; decay ~58% post-publication)", "trial_budget": 1
+      "data": {
+        "have": true,
+        "needs": [
+          "daily klines (have)"
+        ]
+      },
+      "cost_sensitivity": "low (daily)",
+      "license": "idea from a paper; own implementation",
+      "prior": "medium-low (not peer-reviewed; decay ~58% post-publication)",
+      "trial_budget": 1
     },
     {
-      "id": "A2-ctrend-lite", "strategy": "ctrend_lite", "family": "cross_section", "stage": "card",
-      "sources": [{"cite": "Fieberg, Liedtke, Poddig, Walker, Zaremba (2025), A Trend Factor for the Cross Section of Cryptocurrency Returns, JFQA 60", "url": "https://www.cambridge.org/core/journals/journal-of-financial-and-quantitative-analysis/article/trend-factor-for-the-cross-section-of-cryptocurrency-returns/4C1509ACBA33D5DCAF0AC24379148178", "peer_reviewed": true}],
+      "id": "A2-ctrend-lite",
+      "strategy": "ctrend_lite",
+      "family": "cross_section",
+      "stage": "rules_read",
+      "sources": [
+        {
+          "cite": "Fieberg, Liedtke, Poddig, Walker, Zaremba (2025), A Trend Factor for the Cross Section of Cryptocurrency Returns, JFQA 60",
+          "url": "https://www.cambridge.org/core/journals/journal-of-financial-and-quantitative-analysis/article/trend-factor-for-the-cross-section-of-cryptocurrency-returns/4C1509ACBA33D5DCAF0AC24379148178",
+          "peer_reviewed": true
+        }
+      ],
       "claim": "CTREND predicts returns, survives transaction costs, persists in big and liquid coins",
-      "rules": {"status": "UNKNOWN", "text": "Aggregates price and volume technical indicators across horizons with a machine-learning combination. Indicator list, horizons, combiner and rebalance frequency not read yet."},
+      "rules": {
+        "status": "KNOWN",
+        "read_from": "primary: Fieberg et al. (2025) JFQA, open access CC-BY, sections III.A-C and V.B (read 2026-09-27)",
+        "published": {
+          "indicators_28": "rsi(14), stochK(14), stochD(3 of stochK), stochRSI(14), cci; SMA 3/5/10/20/50/100/200 of close scaled by close; macd (EMA12-EMA26 as % of fast EMA) and macd - EMA9(macd); SMA 3/5/10/20/50/100/200 of dollar volume scaled by current volume; volmacd and volmacd - signal; chaikin money flow; Bollinger low/mid/high (20d, 2 sd) scaled by close; Bollinger width",
+          "preprocess": "each indicator -> cross-sectional rank mapped to [-0.5, 0.5]; returns truncated at 0.5/99.5 pct",
+          "model": "univariate Fama-MacBeth regressions per indicator, coefficients averaged over a rolling 52-week window; forecasts combined by elastic net (L1/L2 mix 0.5, strength by corrected AIC) with weights constrained > 0; CTREND = mean of the selected univariate forecasts; regressions value-weighted",
+          "portfolio": "weekly; quintiles on CTREND; value-weighted; long top minus short bottom",
+          "universe": "Coinmarketcap, market cap >= $1M, Apr 2015 - May 2022, 3,245 coins",
+          "costs": "30 bp long leg, 40 bp short leg per trade; survives, also in big and liquid coins"
+        },
+        "our_deviations": [
+          "universe 15-38 Binance coins, not ~3,000: a cross-section this small is a much weaker test",
+          "long-only top quintile (no shorting on spot)",
+          "equal weights instead of value weights: we have no market-cap history (Binance klines have none); declared, not hidden",
+          "Binance data instead of Coinmarketcap; costs from our measured spread model"
+        ]
+      },
       "our_use": "long-only top-k by trend score on our universe, weekly (weaker than the paper's long-short)",
-      "data": {"have": true, "needs": ["daily klines with volume (have)"]}, "cost_sensitivity": "medium (weekly turnover)",
-      "license": "idea from a paper; own implementation", "prior": "medium (peer-reviewed)", "trial_budget": 2
+      "data": {
+        "have": true,
+        "needs": [
+          "daily klines with volume (have)"
+        ]
+      },
+      "cost_sensitivity": "medium (weekly turnover)",
+      "license": "idea from a paper; own implementation",
+      "prior": "medium (peer-reviewed)",
+      "trial_budget": 2
     },
     {
-      "id": "A3-tsmom-risk-managed", "strategy": "tsmom_risk_managed", "family": "trend", "stage": "card",
-      "sources": [{"cite": "Howden & Andreev, Risk-Managed Time-Series Momentum in Crypto Majors, SSRN 7115459", "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=7115459", "peer_reviewed": false}],
+      "id": "A3-tsmom-risk-managed",
+      "strategy": "tsmom_risk_managed",
+      "family": "trend",
+      "stage": "rules_read",
+      "sources": [
+        {
+          "cite": "Howden & Andreev, Risk-Managed Time-Series Momentum in Crypto Majors, SSRN 7115459",
+          "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=7115459",
+          "peer_reviewed": false
+        }
+      ],
       "claim": "walk-forward OOS Sharpe 1.41 net of 25 bp vs 0.70 buy-and-hold; max drawdown about halved",
-      "rules": {"status": "UNKNOWN", "text": "Time-series momentum with crash-state de-risking. Lookbacks, crash-state definition and scaling not read yet."},
+      "rules": {
+        "status": "KNOWN",
+        "read_from": "SSRN abstract (Howden & Andreev, 14 Jul 2026) via search snippet; full PDF blocked (SSRN 403)",
+        "published": {
+          "assets": [
+            "BTC",
+            "ETH",
+            "BNB",
+            "XRP",
+            "ADA",
+            "SOL",
+            "DOGE"
+          ],
+          "signal": "hold each asset only while its trailing 30-day return is positive, else cash (long/cash)",
+          "de_risk": "scale gross exposure down 50% when the aggregate crypto market is more than 15% below its peak",
+          "reported": "OOS walk-forward Sharpe 1.41 vs 0.70 buy-and-hold, net of 25 bp; max DD -44.6% vs -84.4%"
+        },
+        "our_deviations": [
+          "not stated in the abstract, fixed by us BEFORE any result: equal weight across held assets, daily rebalance at the next open",
+          "aggregate market = equal-weight index of the same 7 assets, peak = running max of that index",
+          "costs: our measured spread model"
+        ]
+      },
       "our_use": "risk overlay for A1/A2, or standalone on majors",
-      "data": {"have": true, "needs": []}, "cost_sensitivity": "low-medium",
-      "license": "idea from a paper; own implementation", "prior": "medium-low (not peer-reviewed)", "trial_budget": 1
+      "data": {
+        "have": true,
+        "needs": []
+      },
+      "cost_sensitivity": "low-medium",
+      "license": "idea from a paper; own implementation",
+      "prior": "medium-low (not peer-reviewed)",
+      "trial_budget": 1
     },
     {
-      "id": "A4-high-52w", "strategy": "high_52w", "family": "cross_section", "stage": "card",
-      "sources": [{"cite": "Psychological anchoring effect and cross section of cryptocurrency returns, J. Banking & Finance (2025)", "url": "https://www.sciencedirect.com/science/article/abs/pii/S0378426625002122", "peer_reviewed": true}],
+      "id": "A4-high-52w",
+      "strategy": "high_52w",
+      "family": "cross_section",
+      "stage": "card",
+      "sources": [
+        {
+          "cite": "Psychological anchoring effect and cross section of cryptocurrency returns, J. Banking & Finance (2025)",
+          "url": "https://www.sciencedirect.com/science/article/abs/pii/S0378426625002122",
+          "peer_reviewed": true
+        }
+      ],
       "claim": "value-weighted long-short on nearness to the 52-week high earns ~130 bp/week",
-      "rules": {"status": "UNKNOWN", "text": "Sort on price / 52-week high. Universe filters, weighting and holding period not read yet."},
+      "rules": {
+        "status": "UNKNOWN",
+        "text": "Sort on price / 52-week high. Universe filters, weighting and holding period not read yet."
+      },
       "our_use": "long-only top bucket, weekly",
-      "data": {"have": true, "needs": []}, "cost_sensitivity": "medium (weekly)",
-      "license": "idea from a paper; own implementation", "prior": "low-medium (long-short result, we can only go long)", "trial_budget": 1
+      "data": {
+        "have": true,
+        "needs": []
+      },
+      "cost_sensitivity": "medium (weekly)",
+      "license": "idea from a paper; own implementation",
+      "prior": "low-medium (long-short result, we can only go long)",
+      "trial_budget": 1
     },
     {
-      "id": "A5-max-filter", "strategy": "max_filter", "family": "own:max_filter", "stage": "card",
-      "sources": [{"cite": "Lottery-like preferences and the MAX effect in the cryptocurrency market, Financial Innovation (2021)", "url": "https://jfin-swufe.springeropen.com/articles/10.1186/s40854-021-00291-9", "peer_reviewed": true}],
+      "id": "A5-max-filter",
+      "strategy": "max_filter",
+      "family": "own:max_filter",
+      "stage": "card",
+      "sources": [
+        {
+          "cite": "Lottery-like preferences and the MAX effect in the cryptocurrency market, Financial Innovation (2021)",
+          "url": "https://jfin-swufe.springeropen.com/articles/10.1186/s40854-021-00291-9",
+          "peer_reviewed": true
+        }
+      ],
       "claim": "coins with the highest max daily return over the past month underperform the next month",
-      "rules": {"status": "UNKNOWN", "text": "MAX = highest daily return in the prior month; exact cut-off for 'high MAX' not read yet."},
+      "rules": {
+        "status": "UNKNOWN",
+        "text": "MAX = highest daily return in the prior month; exact cut-off for 'high MAX' not read yet."
+      },
       "our_use": "FILTER on a core strategy: skip high-MAX coins on entry (not standalone)",
-      "data": {"have": true, "needs": []}, "cost_sensitivity": "none (filter only)",
-      "license": "idea from a paper; own implementation", "prior": "medium", "trial_budget": 1
+      "data": {
+        "have": true,
+        "needs": []
+      },
+      "cost_sensitivity": "none (filter only)",
+      "license": "idea from a paper; own implementation",
+      "prior": "medium",
+      "trial_budget": 1
     },
     {
-      "id": "A6-xs-momentum", "strategy": "xs_momentum", "family": "cross_section", "stage": "card",
-      "sources": [{"cite": "Liu, Tsyvinski, Wu (2022), Common Risk Factors in Cryptocurrency, Journal of Finance 77(2)", "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3379131", "peer_reviewed": true}],
+      "id": "A6-xs-momentum",
+      "strategy": "xs_momentum",
+      "family": "cross_section",
+      "stage": "card",
+      "sources": [
+        {
+          "cite": "Liu, Tsyvinski, Wu (2022), Common Risk Factors in Cryptocurrency, Journal of Finance 77(2)",
+          "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3379131",
+          "peer_reviewed": true
+        }
+      ],
       "claim": "market, size and momentum factors price the cross-section; momentum loadings are transient",
-      "rules": {"status": "UNKNOWN", "text": "Weekly momentum portfolio construction; formation window and breakpoints not read yet."},
+      "rules": {
+        "status": "UNKNOWN",
+        "text": "Weekly momentum portfolio construction; formation window and breakpoints not read yet."
+      },
       "our_use": "control for A2 (does CTREND add anything over plain momentum?)",
-      "data": {"have": true, "needs": []}, "cost_sensitivity": "medium (weekly)",
-      "license": "idea from a paper; own implementation", "prior": "low (heavily published)", "trial_budget": 1
+      "data": {
+        "have": true,
+        "needs": []
+      },
+      "cost_sensitivity": "medium (weekly)",
+      "license": "idea from a paper; own implementation",
+      "prior": "low (heavily published)",
+      "trial_budget": 1
     },
     {
-      "id": "A7-btc-lead-lag", "strategy": "btc_lead_lag", "family": "intraday", "stage": "card",
+      "id": "A7-btc-lead-lag",
+      "strategy": "btc_lead_lag",
+      "family": "intraday",
+      "stage": "card",
       "sources": [
-        {"cite": "Cross-cryptocurrency return predictability, J. Economic Dynamics & Control (2024)", "url": "https://www.sciencedirect.com/science/article/abs/pii/S0165188924000551", "peer_reviewed": true},
-        {"cite": "Price Transmission from Bitcoin to Altcoins: High-Frequency Evidence, Asia-Pacific Financial Markets (2026)", "url": "https://link.springer.com/article/10.1007/s10690-026-09589-z", "peer_reviewed": true}],
+        {
+          "cite": "Cross-cryptocurrency return predictability, J. Economic Dynamics & Control (2024)",
+          "url": "https://www.sciencedirect.com/science/article/abs/pii/S0165188924000551",
+          "peer_reviewed": true
+        },
+        {
+          "cite": "Price Transmission from Bitcoin to Altcoins: High-Frequency Evidence, Asia-Pacific Financial Markets (2026)",
+          "url": "https://link.springer.com/article/10.1007/s10690-026-09589-z",
+          "peer_reviewed": true
+        }
+      ],
       "claim": "small alts react late to BTC moves (1-minute Granger causality); lag strategies profitable net of costs in the papers",
-      "rules": {"status": "UNKNOWN", "text": "Lag length, trigger size and holding time not read yet."},
+      "rules": {
+        "status": "UNKNOWN",
+        "text": "Lag length, trigger size and holding time not read yet."
+      },
       "our_use": "uses our per-second recorder, the one data edge we have",
-      "data": {"have": true, "needs": ["per-second ticks (recording since 2026-09)"]}, "cost_sensitivity": "HIGH: our ~0.28% round trip killed every intraday strategy so far",
-      "license": "idea from a paper; own implementation", "prior": "low (cost-sensitive)", "trial_budget": 2
+      "data": {
+        "have": true,
+        "needs": [
+          "per-second ticks (recording since 2026-09)"
+        ]
+      },
+      "cost_sensitivity": "HIGH: our ~0.28% round trip killed every intraday strategy so far",
+      "license": "idea from a paper; own implementation",
+      "prior": "low (cost-sensitive)",
+      "trial_budget": 2
     },
     {
-      "id": "B1-unlock-filter", "strategy": "unlock_filter", "family": "own:unlock_filter", "stage": "card",
+      "id": "B1-unlock-filter",
+      "strategy": "unlock_filter",
+      "family": "own:unlock_filter",
+      "stage": "card",
       "sources": [
-        {"cite": "Kim, The 72-Hour Shock? 52 Token Unlock Events on Binance, SSRN 6632838", "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6632838", "peer_reviewed": false},
-        {"cite": "Keyrock, From Locked to Liquidity: 16,000+ token unlocks", "url": "https://keyrock.com/from-locked-to-liquidity-what-16000-token-unlocks-teach-us/", "peer_reviewed": false},
-        {"cite": "unlocks.app, Do Token Unlocks Crash Prices? 236 events", "url": "https://insights.unlocks.app/do-token-unlocks-crash-prices/", "peer_reviewed": false}],
+        {
+          "cite": "Kim, The 72-Hour Shock? 52 Token Unlock Events on Binance, SSRN 6632838",
+          "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=6632838",
+          "peer_reviewed": false
+        },
+        {
+          "cite": "Keyrock, From Locked to Liquidity: 16,000+ token unlocks",
+          "url": "https://keyrock.com/from-locked-to-liquidity-what-16000-token-unlocks-teach-us/",
+          "peer_reviewed": false
+        },
+        {
+          "cite": "unlocks.app, Do Token Unlocks Crash Prices? 236 events",
+          "url": "https://insights.unlocks.app/do-token-unlocks-crash-prices/",
+          "peer_reviewed": false
+        }
+      ],
       "claim": "~-14.7% one-month pre-event drift; 1% unlock ~ -0.3% the week before and after",
-      "rules": {"status": "UNKNOWN", "text": "Unlock size threshold and exclusion window not chosen; must come from the sources."},
+      "rules": {
+        "status": "UNKNOWN",
+        "text": "Unlock size threshold and exclusion window not chosen; must come from the sources."
+      },
       "our_use": "FILTER/EXIT: don't hold a coin into a large unlock",
-      "data": {"have": false, "needs": ["unlock schedules (tokenomist / unlocks.app): license and cost unknown"]}, "cost_sensitivity": "none (filter only)",
-      "license": "data license UNKNOWN", "prior": "medium (large practitioner samples)", "trial_budget": 1
+      "data": {
+        "have": false,
+        "needs": [
+          "unlock schedules (tokenomist / unlocks.app): license and cost unknown"
+        ]
+      },
+      "cost_sensitivity": "none (filter only)",
+      "license": "data license UNKNOWN",
+      "prior": "medium (large practitioner samples)",
+      "trial_budget": 1
     },
     {
-      "id": "B2-funding-extremes", "strategy": "funding_filter", "family": "own:funding_filter", "stage": "card",
-      "sources": [{"cite": "Kraken Learn, Funding rates as a trading signal (practitioner)", "url": "https://www.kraken.com/learn/futures-trading-funding-rate-strategy", "peer_reviewed": false}],
+      "id": "B2-funding-extremes",
+      "strategy": "funding_filter",
+      "family": "own:funding_filter",
+      "stage": "card",
+      "sources": [
+        {
+          "cite": "Kraken Learn, Funding rates as a trading signal (practitioner)",
+          "url": "https://www.kraken.com/learn/futures-trading-funding-rate-strategy",
+          "peer_reviewed": false
+        }
+      ],
       "claim": "extreme funding marks crowded leverage and tends to precede reversals",
-      "rules": {"status": "UNKNOWN", "text": "No academic rule found; thresholds would be ours, which costs trials."},
+      "rules": {
+        "status": "UNKNOWN",
+        "text": "No academic rule found; thresholds would be ours, which costs trials."
+      },
       "our_use": "regime filter only",
-      "data": {"have": false, "needs": ["Binance futures funding history (public market data, read-only)"]}, "cost_sensitivity": "none (filter only)",
-      "license": "public market data", "prior": "low (practitioner evidence only)", "trial_budget": 1
+      "data": {
+        "have": false,
+        "needs": [
+          "Binance futures funding history (public market data, read-only)"
+        ]
+      },
+      "cost_sensitivity": "none (filter only)",
+      "license": "public market data",
+      "prior": "low (practitioner evidence only)",
+      "trial_budget": 1
     },
     {
-      "id": "B3-stablecoin-inflows", "strategy": "stablecoin_regime", "family": "own:stablecoin_regime", "stage": "card",
-      "sources": [{"cite": "IMF Working Paper 2026/056, Stablecoin Inflows and Spillovers to FX Markets", "url": "https://www.elibrary.imf.org/view/journals/001/2026/056/article-A001-en.xml", "peer_reviewed": false}],
+      "id": "B3-stablecoin-inflows",
+      "strategy": "stablecoin_regime",
+      "family": "own:stablecoin_regime",
+      "stage": "card",
+      "sources": [
+        {
+          "cite": "IMF Working Paper 2026/056, Stablecoin Inflows and Spillovers to FX Markets",
+          "url": "https://www.elibrary.imf.org/view/journals/001/2026/056/article-A001-en.xml",
+          "peer_reviewed": false
+        }
+      ],
       "claim": "stablecoin inflows are strong, significant predictors of bitcoin returns",
-      "rules": {"status": "UNKNOWN", "text": "Flow definition, horizon and sign convention not read yet."},
+      "rules": {
+        "status": "UNKNOWN",
+        "text": "Flow definition, horizon and sign convention not read yet."
+      },
       "our_use": "BTC regime input for the trend core",
-      "data": {"have": false, "needs": ["stablecoin exchange netflow history (CryptoQuant/Glassnode, paid) or on-chain"]}, "cost_sensitivity": "none (regime input)",
-      "license": "data license UNKNOWN (likely paid)", "prior": "medium-low", "trial_budget": 1
+      "data": {
+        "have": false,
+        "needs": [
+          "stablecoin exchange netflow history (CryptoQuant/Glassnode, paid) or on-chain"
+        ]
+      },
+      "cost_sensitivity": "none (regime input)",
+      "license": "data license UNKNOWN (likely paid)",
+      "prior": "medium-low",
+      "trial_budget": 1
     }
   ],
   "rejected_on_evidence": [
-    {"id": "X1-crypto-carry", "why": "Sharpe 6.45 (2020-25) fell to 4.06 in 2024 and turned negative in 2025; needs futures (no-touch code)", "url": "https://arxiv.org/pdf/2510.14435"},
-    {"id": "X2-intraday-seasonality", "why": "effects are localized to a few hourly slots; our ~0.28% round trip kills them", "url": "https://quantpedia.com/are-there-seasonal-intraday-or-overnight-anomalies-in-bitcoin/"},
-    {"id": "X3-freqtrade-megabots", "why": "hundreds of tuned rules, backtests only, no verified live record; GPL code", "url": "https://github.com/iterativv/NostalgiaForInfinity"}
+    {
+      "id": "X1-crypto-carry",
+      "why": "Sharpe 6.45 (2020-25) fell to 4.06 in 2024 and turned negative in 2025; needs futures (no-touch code)",
+      "url": "https://arxiv.org/pdf/2510.14435"
+    },
+    {
+      "id": "X2-intraday-seasonality",
+      "why": "effects are localized to a few hourly slots; our ~0.28% round trip kills them",
+      "url": "https://quantpedia.com/are-there-seasonal-intraday-or-overnight-anomalies-in-bitcoin/"
+    },
+    {
+      "id": "X3-freqtrade-megabots",
+      "why": "hundreds of tuned rules, backtests only, no verified live record; GPL code",
+      "url": "https://github.com/iterativv/NostalgiaForInfinity"
+    }
   ]
 }
