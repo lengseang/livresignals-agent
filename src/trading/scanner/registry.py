@@ -16,6 +16,7 @@ from trading.replay.plugins.intraday import IntradayMomentum, IntradayReversal
 from trading.replay.plugins.range_breakout import RangeBreakout
 from trading.replay.plugins.regime_ls import RegimeLS
 from trading.replay.plugins.trend_sma import TrendSMA
+from trading.replay.plugins.xs_momentum import XsMomentum
 from trading.replay.plugins.tsmom_rm import TsmomRiskManaged
 
 GATE_STATES = ("PASSED", "FAILED", "PENDING", "INSUFFICIENT")      # docs/loop/designs/T6.1.md §4.3
@@ -120,3 +121,8 @@ DEFAULT.register(PluginInfo(
     description="Daily: hold each of 7 majors while its 30-day return > 0, equal weight; exposure x0.5 while "
                 "the equal-weight market is >15% off its peak (Howden & Andreev 2026). Candidate A3, not "
                 "evidence of edge."))
+DEFAULT.register(PluginInfo(
+    name="xs_momentum", family="cross_section", factory=XsMomentum,
+    params={}, evidence="research/candidates/candidates.json#A6-xs-momentum",
+    description="Weekly: hold the top quintile by past 3-week return, equal weight, long-only (Liu, Tsyvinski & "
+                "Wu 2022). Candidate A6, control for A2. Not evidence of edge."))

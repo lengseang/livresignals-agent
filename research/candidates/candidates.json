@@ -306,39 +306,55 @@
           "cite": "Lottery-like preferences and the MAX effect in the cryptocurrency market, Financial Innovation (2021)",
           "url": "https://jfin-swufe.springeropen.com/articles/10.1186/s40854-021-00291-9",
           "peer_reviewed": true
+        },
+        {
+          "cite": "MAX momentum in cryptocurrency markets, Int. Review of Financial Analysis 77 (2021); accepted version",
+          "url": "https://centaur.reading.ac.uk/99101/1/MAX%20Momentum.R1.pdf",
+          "peer_reviewed": true
         }
       ],
-      "claim": "coins with the highest max daily return over the past month underperform the next month",
+      "claim": "CORRECTED 2026-09-27: in crypto the evidence is MAX MOMENTUM, the opposite of the stock-market MAX effect: coins with the highest max daily return over the previous month OUTPERFORM (Financial Innovation 2021; Int. Review of Financial Analysis 77, 2021). The first version of this card stated the stock-market direction.",
       "rules": {
         "status": "UNKNOWN",
         "text": "MAX = highest daily return in the prior month; exact cut-off for 'high MAX' not read yet."
       },
-      "our_use": "FILTER on a core strategy: skip high-MAX coins on entry (not standalone)",
+      "our_use": "NOT a skip-high-MAX filter (that would bet against the evidence). Possible standalone MAX-momentum strategy; owner decides before any trial is spent.",
       "data": {
         "have": true,
         "needs": []
       },
       "cost_sensitivity": "none (filter only)",
       "license": "idea from a paper; own implementation",
-      "prior": "medium",
+      "prior": "low-medium; direction corrected",
       "trial_budget": 1
     },
     {
       "id": "A6-xs-momentum",
       "strategy": "xs_momentum",
       "family": "cross_section",
-      "stage": "card",
+      "stage": "rules_read",
       "sources": [
         {
-          "cite": "Liu, Tsyvinski, Wu (2022), Common Risk Factors in Cryptocurrency, Journal of Finance 77(2)",
-          "url": "https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3379131",
+          "cite": "Liu, Tsyvinski, Wu (2022), Common Risk Factors in Cryptocurrency, Journal of Finance 77(2); NBER w25882",
+          "url": "https://www.nber.org/system/files/working_papers/w25882/w25882.pdf",
           "peer_reviewed": true
         }
       ],
       "claim": "market, size and momentum factors price the cross-section; momentum loadings are transient",
       "rules": {
-        "status": "UNKNOWN",
-        "text": "Weekly momentum portfolio construction; formation window and breakpoints not read yet."
+        "status": "KNOWN",
+        "read_from": "primary: NBER w25882 PDF, momentum section and Table 4 (read 2026-09-27)",
+        "published": {
+          "signal": "past three-week return (r_3,0); one-, two-, four-week also significant, three-week strongest",
+          "portfolio": "weekly quintiles, value-weighted; long top minus short bottom = 4.1%/week (1% level)",
+          "universe": "coins with market cap above $1 million"
+        },
+        "our_deviations": [
+          "15 Binance coins, not all coins above $1M",
+          "long-only top quintile",
+          "equal weights (no market-cap history)",
+          "weekly at Monday 00:00 UTC on daily closes"
+        ]
       },
       "our_use": "control for A2 (does CTREND add anything over plain momentum?)",
       "data": {
