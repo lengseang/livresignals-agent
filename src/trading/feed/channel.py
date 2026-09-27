@@ -16,7 +16,7 @@ import time
 from collections import deque
 
 from trading.feed import adapter
-from trading.feed.sources import DataRoot, GapTail, LineTail, read_json
+from trading.feed.sources import DataRoot, GapTail, LineTail, ShadowTail, read_json
 
 
 class Channel:
@@ -114,10 +114,12 @@ class ReplayChannel(Channel):
 
 
 class LiveChannel(Channel):
-    def __init__(self, data: DataRoot, run_id: str, day: str, buffer_size: int, quotes_s: float, clock=time.time):
+    def __init__(self, data: DataRoot, run_id: str, day: str, buffer_size: int, quotes_s: float, clock=time.time,
+                 shadow_root=None):
         super().__init__("LIVE_PAPER", run_id, buffer_size, clock)
         self.data, self.day, self.quotes_s = data, day, quotes_s
         self.tail = LineTail(data.signals_file(day))
+        self.shadow = ShadowTail(shadow_root, day)          # P4a: shadow books' signals and fills, live
         self.gaps = GapTail(data, day)
         self.gap_marks: list[tuple[int, str | None]] = []       # (recv_ms, symbol or None for all)
         self._q: dict | None = None
@@ -133,6 +135,10 @@ class LiveChannel(Channel):
                 self.refused += 1
                 continue
             out.append(r)
+        for lane, strat, rec in self.shadow.poll():
+            r = adapter.shadow_record(lane, strat, rec)
+            if r is not None:
+                out.append(r)
         for rec in self.gaps.poll():
             dq = adapter.data_quality_from_gap(rec)
             if dq[2].get("recv_ms") is not None:
@@ -164,8 +170,9 @@ class LiveChannel(Channel):
 
 
 class Hub:
-    def __init__(self, data: DataRoot, buffer_size: int, quotes_s: float, clock=time.time):
+    def __init__(self, data: DataRoot, buffer_size: int, quotes_s: float, clock=time.time, shadow_root=None):
         self.data, self.buffer_size, self.quotes_s, self.clock = data, buffer_size, quotes_s, clock
+        self.shadow_root = shadow_root
         self.channels: dict[tuple[str, str], Channel] = {}
         self.clients = 0
         self.lock = threading.Lock()
@@ -178,7 +185,8 @@ class Hub:
                 if mode == "REPLAY":
                     ch = ReplayChannel(self.data, run_id, run, self.buffer_size, self.clock)
                 else:
-                    ch = LiveChannel(self.data, run_id, day, self.buffer_size, self.quotes_s, self.clock)
+                    ch = LiveChannel(self.data, run_id, day, self.buffer_size, self.quotes_s, self.clock,
+                                     shadow_root=self.shadow_root)
                 self.channels[key] = ch
             return ch
 

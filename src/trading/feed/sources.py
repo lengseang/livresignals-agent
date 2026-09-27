@@ -178,6 +178,24 @@ class LineTail:
         return out
 
 
+class ShadowTail:
+    """P4a: the shadow scanner's chain files of one day, <root>/<lane>/<strategy>/<day>.jsonl, each tailed by byte
+    offset. New books are discovered on every poll. Yields (lane, strategy, record)."""
+
+    def __init__(self, root: Path | str | None, day: str):
+        self.root, self.day = (Path(root) if root else None), day
+        self.tails: dict[Path, LineTail] = {}
+
+    def poll(self) -> list[tuple[str, str, dict]]:
+        if self.root is None or not self.root.is_dir():
+            return []
+        out = []
+        for f in sorted(self.root.glob(f"*/*/{self.day}.jsonl")):
+            t = self.tails.setdefault(f, LineTail(f))
+            out += [(f.parent.parent.name, f.parent.name, r) for r in t.poll()]
+        return sorted(out, key=lambda x: (x[2].get("ts_event_ms") or 0, x[2].get("seq") or 0))
+
+
 class GapTail:
     """Recorder gap records of one day, each yielded once, across the .jsonl -> .jsonl.gz rename at hour end."""
 

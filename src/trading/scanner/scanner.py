@@ -182,6 +182,8 @@ class Scanner:
                 "strategy_version": m["strategy_version"], "family": m["family"],
                 "params": getattr(strat, "params", {}), "symbol": sig.symbol, "side": _SIDE[sig.side],
                 "action": sig.action, "interval": sig.interval, "ref_price": sig.ref_price,
+                # P4a: a target-weight signal's weight (share of equity to hold; 0 = exit); absent otherwise
+                **({"weight": sig.weight} if getattr(sig, "weight", None) is not None else {}),
                 "reason": sig.reason,
                 # T6.1 fields this strategy cannot know yet: UNKNOWN (null), never a made-up number
                 "class": None, "tp_pct": None, "sl_pct": None, "expected_move_pct": None,

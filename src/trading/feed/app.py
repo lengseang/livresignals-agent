@@ -42,7 +42,7 @@ def create_app(data_root: Path | str, *, heartbeat_s: float = 1.0, quotes_s: flo
     """max_idle_s: close a stream after that long without sending anything (tests only; None in serve).
     candidates: research/candidates/candidates.json (ROADMAP v3 cards), served read-only by /v1/candidates."""
     data = DataRoot(data_root)
-    hub = Hub(data, buffer_size, quotes_s, clock)
+    hub = Hub(data, buffer_size, quotes_s, clock, shadow_root=shadow)
     started = clock()
     app = FastAPI(title="livresignals paper feed", version="1", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.hub = hub
