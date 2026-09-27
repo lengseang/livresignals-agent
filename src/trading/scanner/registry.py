@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from trading.replay.plugins.ctrend import CTrendLite
 from trading.replay.plugins.intraday import IntradayMomentum, IntradayReversal
 from trading.replay.plugins.range_breakout import RangeBreakout
 from trading.replay.plugins.regime_ls import RegimeLS
@@ -98,3 +99,10 @@ DEFAULT.register(PluginInfo(
     evidence=f"{_T34}#3-regime_ls-audit-9-a-port-of-the-rule-documented-in-scriptsregime_traderpy-read-only-not-imported",
     description="BTC > SMA_R: long the strongest coins above SMA50; else SHORT (PAPER-ONLY) the weakest below "
                 "SMA50; exits on SMA50 cross / 21-day hold. Audit #9, not evidence of edge."))
+DEFAULT.register(PluginInfo(
+    name="ctrend_lite", family="cross_section", factory=CTrendLite,
+    params={"window_weeks": 52, "quantile": 5, "btc": "BTCUSDT"},
+    evidence="research/candidates/candidates.json#A2-ctrend-lite",
+    description="Weekly: 28 technical indicators -> 52-week Fama-MacBeth forecasts -> elastic-net selection "
+                "(Fieberg et al. 2025 JFQA); hold the top CTREND quintile, long-only. Candidate A2, not evidence "
+                "of edge."))
