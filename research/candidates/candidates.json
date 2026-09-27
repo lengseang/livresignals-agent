@@ -332,7 +332,7 @@
       "id": "A6-xs-momentum",
       "strategy": "xs_momentum",
       "family": "cross_section",
-      "stage": "rules_read",
+      "stage": "rejected",
       "sources": [
         {
           "cite": "Liu, Tsyvinski, Wu (2022), Common Risk Factors in Cryptocurrency, Journal of Finance 77(2); NBER w25882",
@@ -364,7 +364,34 @@
       "cost_sensitivity": "medium (weekly)",
       "license": "idea from a paper; own implementation",
       "prior": "low (heavily published)",
-      "trial_budget": 1
+      "trial_budget": 1,
+      "result": {
+        "verdict": "FAIL",
+        "report": "docs/loop/results/P1-2026-09-27.md",
+        "summary": "OOS SR 0.27/yr (0.33 gross) beats basket 0.20 but not BTC 0.42; return -20%, max DD -77%; DSR 0.367 (N=32)",
+        "run": "20260927T080320Z-xs_momentum-paper",
+        "metrics": {
+          "oos_sharpe_ann": 0.27,
+          "oos_sharpe_gross_ann": 0.33,
+          "oos_return": -0.2,
+          "oos_max_dd": -0.77,
+          "daily_dsr": 0.367,
+          "n_trials": 32,
+          "oos_window": "2022-01..2026-03",
+          "benchmarks": {
+            "btc_hold": {
+              "oos_sharpe_ann": 0.42,
+              "oos_return": 0.4,
+              "oos_max_dd": -0.67
+            },
+            "equal_weight_hold": {
+              "oos_sharpe_ann": 0.2,
+              "oos_return": -0.24,
+              "oos_max_dd": -0.71
+            }
+          }
+        }
+      }
     },
     {
       "id": "A7-btc-lead-lag",
