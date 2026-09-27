@@ -76,3 +76,24 @@ jobs:
       # cron job at 03:20 on a box nobody is watching.
       - name: byte-compile all scripts
         run: python3 -m compileall -q scripts/ && echo "all scripts compile"
+
+  # The job above checks the PRODUCTION box's books (paths under /opt/trading-agent and /home/ubuntu), so on
+  # GitHub's runner it can only fail. This job checks the CODE and can pass anywhere: the full dependencies,
+  # the trend_follower safety tests (F1-F3), the loop test suite when present, and a compile of everything.
+  code:
+    name: code (tests runnable anywhere)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.3"
+      - name: install dependencies
+        run: python -m pip install --quiet --disable-pip-version-check -r requirements.txt pytest
+      - name: trend_follower safety tests (F1-F3)
+        run: PYTHONPATH=src python -m pytest -q tests/test_trend_follower_safety.py tests/test_trend_follower_exits.py tests/test_trend_follower_closed.py
+      - name: loop test suite
+        run: |
+          if [ -d tests/loop ]; then PYTHONPATH=src python -m pytest -q tests/loop; else echo "no tests/loop on this branch"; fi
+      - name: byte-compile src and scripts
+        run: python -m compileall -q src/ scripts/ && echo "all compile"
