@@ -1,0 +1,96 @@
+{
+  "mode": "REPLAY",
+  "label": "REPLAY (simulated; research, not evidence of edge)",
+  "run_id": "20260926T014518Z-trend_sma",
+  "strategy": "trend_sma",
+  "params": {
+    "sma": 50,
+    "btc_sma": 50,
+    "btc": "BTCUSDT",
+    "interval": "1d"
+  },
+  "verdict": "FAIL",
+  "reasons": [
+    "DSR 0.8898 < 0.95 (N = 4 trials, T = 76 OOS trades)"
+  ],
+  "oos_window": {
+    "from": "2022-01",
+    "to": "2026-03-01T00:00:00Z",
+    "split_source": "default (pre-registered in docs/loop/designs/T3.0-T3.1.md)",
+    "trade_rule": "opened at or after the split, closed by the window end"
+  },
+  "trials_log": "D:\\1111-Works\\LIVRsignals\\livresignals-agent\\data\\local\\replay\\trials.jsonl",
+  "checks": {
+    "oos_trades": {
+      "value": 76,
+      "min": 30,
+      "ok": true
+    },
+    "shared_account_net": {
+      "value": 83.33892847877793,
+      "ok": true
+    },
+    "oos_net": {
+      "value": 1.5263126658815205,
+      "ok": true
+    },
+    "btc_benchmark": {
+      "strategy_oos_net": 1.5263126658815205,
+      "btc_buy_hold_oos_net": 0.4491066368969121,
+      "beats_btc": true,
+      "gating": false,
+      "note": "reported and flagged, not a pass/fail criterion (strategy-audit.md rule 3)"
+    },
+    "regime": {
+      "label": "bull, low-vol",
+      "detail": {
+        "label": "bull, low-vol",
+        "btc_return": 0.4491066368969119,
+        "btc_ann_vol": 0.5199631248428502,
+        "share_days_above_sma200": 0.5618421052631579,
+        "days_with_sma200": 1520,
+        "days": 1520,
+        "thresholds": "bull>+20%, bear<-20%, else range; high-vol if annualised vol>60%"
+      },
+      "ok": true
+    },
+    "trade_economics": {
+      "round_trip_cost": 0.0026,
+      "mean_net_return_per_trade": 0.03352174674996061,
+      "mean_gross_return_per_trade": 0.03621240033397343,
+      "win_rate_net": 0.25,
+      "mode": "mean_net_vs_cost",
+      "ok": true,
+      "gross_mean_over_cost": 13.927846282297475,
+      "note": "exits are not fixed TP/SL, so p* does not apply; mean net return per trade is compared with zero and the mean gross move with the round-trip cost"
+    },
+    "dsr": {
+      "threshold": 0.95,
+      "n_trials": 4,
+      "trial_sharpes_found": 4,
+      "var_trial_sr": 0.008720276616894205,
+      "sr_per_trade": 0.20852799058998814,
+      "t": 76,
+      "skew": 2.188847444252614,
+      "kurtosis": 6.861997956005765,
+      "sr0": 0.0982497768787369,
+      "value": 0.8898113781168717,
+      "ok": false,
+      "observations": "OOS closed trades, net per-trade returns",
+      "sr0_critical": 0.06051678863593249,
+      "sr0_critical_note": "DSR stays >= threshold while E[max SR] of all trials, including unlogged ones, is below this (per-trade units)"
+    }
+  },
+  "gated_at": "2026-09-26T02:15:26Z",
+  "caveats": [
+    "Observations for DSR are OOS per-trade net returns (the equity curve is not persisted).",
+    "N counts logged trials only; choices made before logging (e.g. SMA50 chosen over 100/150/200 by the live script's author) are not in N, so N is a lower bound.",
+    "Fees, spread and slippage are the run's stated assumptions (real values UNKNOWN).",
+    "REPLAY results are research, not evidence of edge.",
+    "Spread and slippage are assumptions (UNKNOWN until T2.3 measures them); the real fee rate is UNKNOWN.",
+    "SMA50 was chosen by the live script's author over 100/150/200 on this same history: not clean OOS.",
+    "Universe is today's survivors (survivorship bias).",
+    "Per-period numbers are slices of one continuous run, marked to mid at 1m closes.",
+    "Port differs from scripts/trend_follower.py: no -15% hard stop, daily not 4-hourly checks."
+  ]
+}

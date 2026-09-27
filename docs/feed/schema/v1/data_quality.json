@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/data_quality.json",
+  "title": "data_quality",
+  "description": "Replayable. From the recorder's gap records (gaps.py shape), recorded and never interpolated.",
+  "type": "object",
+  "required": [
+    "detail",
+    "extra",
+    "gap",
+    "kind",
+    "stream",
+    "symbol"
+  ],
+  "properties": {
+    "kind": {
+      "enum": [
+        "GAP",
+        "RECONNECT",
+        "STALE_STREAM",
+        "CLOCK_SKEW",
+        "BUFFER_OVERFLOW",
+        "REPLAY_HOLDOUT_BLOCKED",
+        "OTHER"
+      ]
+    },
+    "symbol": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "stream": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "detail": {
+      "type": "string"
+    },
+    "gap": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "from_id",
+            "missing",
+            "to_id"
+          ],
+          "properties": {
+            "from_id": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "to_id": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "missing": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "recv_ms": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "extra": {
+      "type": "object",
+      "description": "every source key not mapped to a v1 field, verbatim (nothing dropped)"
+    }
+  },
+  "additionalProperties": false
+}

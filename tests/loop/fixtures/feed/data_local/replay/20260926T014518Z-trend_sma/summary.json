@@ -1,0 +1,525 @@
+{
+  "mode": "REPLAY",
+  "label": "REPLAY (simulated; research, not evidence of edge)",
+  "run_id": "20260926T014518Z-trend_sma",
+  "strategy": "trend_sma",
+  "params": {
+    "sma": 50,
+    "btc_sma": 50,
+    "btc": "BTCUSDT",
+    "interval": "1d"
+  },
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "slots": 2,
+  "start_equity": 1000.0,
+  "costs": {
+    "gross": {
+      "fee_rate": 0,
+      "spread_bps": 0,
+      "slippage_bps": 0
+    },
+    "net": {
+      "fee_rate": 0.001,
+      "spread_bps": 2.0,
+      "slippage_bps": 2.0
+    },
+    "stress": {
+      "fee_rate": 0.001,
+      "spread_bps": 2.0,
+      "slippage_bps": 5.0
+    }
+  },
+  "window": {
+    "warmup_from": "2017-08-01T00:00:00Z",
+    "trade_from": "2017-11-01T00:00:00Z",
+    "to": "2026-03-01T00:00:00Z",
+    "holdout_from": "2026-03",
+    "holdout_opened": false,
+    "last_complete_month": "2026-08"
+  },
+  "data_first_bar": {
+    "BTCUSDT": "2017-11-01T00:00:00Z",
+    "ETHUSDT": "2017-11-01T00:00:00Z"
+  },
+  "data_anomalies": {
+    "ETHUSDT:dropped_placeholder": 1,
+    "BTCUSDT:dropped_placeholder": 1
+  },
+  "signals": 278,
+  "warmup_signals": 42,
+  "fills": {
+    "net": 278,
+    "gross": 278,
+    "stress": 278
+  },
+  "scenarios_consistent": true,
+  "accounts": {
+    "net": {
+      "final_equity_mid": 84338.92847877793,
+      "final_equity_liquidated": 84338.92847877793,
+      "return_liquidated": 83.33892847877793,
+      "max_dd_1m": 0.5836214064554872,
+      "sharpe_daily_ann": 1.3551182556745187,
+      "fills": 278,
+      "open_positions": [],
+      "periods": {
+        "full": {
+          "ret": 83.33892847877793,
+          "max_dd": 0.5836214064554872,
+          "n": 4393951
+        },
+        "IS": {
+          "ret": 32.38420046647277,
+          "max_dd": 0.5836214064554872,
+          "n": 2205230
+        },
+        "OOS": {
+          "ret": 1.5263126658815205,
+          "max_dd": 0.45105234277294837,
+          "n": 2188721
+        },
+        "WF 2019-08..2020-08": {
+          "ret": 0.7576750576547164,
+          "max_dd": 0.27226877874777144,
+          "n": 525397
+        },
+        "WF 2020-08..2021-08": {
+          "ret": 3.977145391883761,
+          "max_dd": 0.36782075552579174,
+          "n": 524648
+        },
+        "WF 2021-08..2022-08": {
+          "ret": 0.044795279662376286,
+          "max_dd": 0.40263403483434246,
+          "n": 525211
+        },
+        "WF 2022-08..2023-08": {
+          "ret": 0.066547592808329,
+          "max_dd": 0.4002445042062398,
+          "n": 525521
+        },
+        "WF 2023-08..2024-08": {
+          "ret": 0.752438926334706,
+          "max_dd": 0.2541338029743112,
+          "n": 527040
+        },
+        "WF 2024-08..2025-08": {
+          "ret": 0.70908373528903,
+          "max_dd": 0.24374021927027678,
+          "n": 525600
+        }
+      },
+      "closed": 139,
+      "win_rate_net": 0.2733812949640288,
+      "avg_win_net": 0.534054891939568,
+      "avg_loss_net": -0.04118136484587993,
+      "fees_paid": 3929.287718644284
+    },
+    "gross": {
+      "final_equity_mid": 100929.41797978907,
+      "final_equity_liquidated": 100929.41797978907,
+      "return_liquidated": 99.92941797978906,
+      "max_dd_1m": 0.5725760857626394,
+      "sharpe_daily_ann": 1.399713628795696,
+      "fills": 278,
+      "open_positions": [],
+      "periods": {
+        "full": {
+          "ret": 99.92941797978906,
+          "max_dd": 0.5725760857626394,
+          "n": 4393951
+        },
+        "IS": {
+          "ret": 35.240784606488866,
+          "max_dd": 0.5725760857626394,
+          "n": 2205230
+        },
+        "OOS": {
+          "ret": 1.7849677945912292,
+          "max_dd": 0.43968751027207775,
+          "n": 2188721
+        },
+        "WF 2019-08..2020-08": {
+          "ret": 0.7994170423703559,
+          "max_dd": 0.2704762928756689,
+          "n": 525397
+        },
+        "WF 2020-08..2021-08": {
+          "ret": 4.06240628854593,
+          "max_dd": 0.3679841027243578,
+          "n": 524648
+        },
+        "WF 2021-08..2022-08": {
+          "ret": 0.0678249973504883,
+          "max_dd": 0.3928934167766045,
+          "n": 525211
+        },
+        "WF 2022-08..2023-08": {
+          "ret": 0.08683912373336189,
+          "max_dd": 0.39632519168481484,
+          "n": 525521
+        },
+        "WF 2023-08..2024-08": {
+          "ret": 0.7958620187426924,
+          "max_dd": 0.2479399438184824,
+          "n": 527040
+        },
+        "WF 2024-08..2025-08": {
+          "ret": 0.7568682904909658,
+          "max_dd": 0.23564388682958104,
+          "n": 525600
+        }
+      },
+      "closed": 139,
+      "win_rate_net": 0.2805755395683453,
+      "avg_win_net": 0.5242568942740132,
+      "avg_loss_net": -0.03907375518756569,
+      "fees_paid": 0.0
+    },
+    "stress": {
+      "final_equity_mid": 80917.03861575958,
+      "final_equity_liquidated": 80917.03861575958,
+      "return_liquidated": 79.91703861575958,
+      "max_dd_1m": 0.5861281182828391,
+      "sharpe_daily_ann": 1.3448208791021505,
+      "fills": 278,
+      "open_positions": [],
+      "periods": {
+        "full": {
+          "ret": 79.91703861575958,
+          "max_dd": 0.5861281182828391,
+          "n": 4393951
+        },
+        "IS": {
+          "ret": 31.757975684044837,
+          "max_dd": 0.5861281182828391,
+          "n": 2205230
+        },
+        "OOS": {
+          "ret": 1.4701477098650875,
+          "max_dd": 0.45364096104105833,
+          "n": 2188721
+        },
+        "WF 2019-08..2020-08": {
+          "ret": 0.7481862950162643,
+          "max_dd": 0.2726817107962931,
+          "n": 525397
+        },
+        "WF 2020-08..2021-08": {
+          "ret": 3.9576768676526273,
+          "max_dd": 0.36778305163965974,
+          "n": 524648
+        },
+        "WF 2021-08..2022-08": {
+          "ret": 0.03955400569625511,
+          "max_dd": 0.40485883326347305,
+          "n": 525211
+        },
+        "WF 2022-08..2023-08": {
+          "ret": 0.061920549114448775,
+          "max_dd": 0.401144957127306,
+          "n": 525521
+        },
+        "WF 2023-08..2024-08": {
+          "ret": 0.7425745097127427,
+          "max_dd": 0.25555505727879146,
+          "n": 527040
+        },
+        "WF 2024-08..2025-08": {
+          "ret": 0.6982496425527098,
+          "max_dd": 0.24559474580369023,
+          "n": 525600
+        }
+      },
+      "closed": 139,
+      "win_rate_net": 0.2733812949640288,
+      "avg_win_net": 0.5331347348858921,
+      "avg_loss_net": -0.041756483594869165,
+      "fees_paid": 3810.5349174150506
+    }
+  },
+  "buy_and_hold": {
+    "gross": {
+      "final_equity_mid": 10362.56537211821,
+      "final_equity_liquidated": 10362.56537211821,
+      "return_liquidated": 9.36256537211821,
+      "max_dd_1m": 0.840285694920878,
+      "sharpe_daily_ann": 0.7497845076055064,
+      "fills": 1,
+      "open_positions": [
+        "BTCUSDT"
+      ],
+      "periods": {
+        "full": {
+          "ret": 9.36256537211821,
+          "max_dd": 0.840285694920878,
+          "n": 4393951
+        },
+        "IS": {
+          "ret": 6.15100263035742,
+          "max_dd": 0.840285694920878,
+          "n": 2205230
+        },
+        "OOS": {
+          "ret": 0.44910663689691166,
+          "max_dd": 0.6778976636647212,
+          "n": 2188721
+        },
+        "WF 2019-08..2020-08": {
+          "ret": 0.12449047817922243,
+          "max_dd": 0.6898643006772758,
+          "n": 525397
+        },
+        "WF 2020-08..2021-08": {
+          "ret": 2.6577104061061485,
+          "max_dd": 0.5545087962962962,
+          "n": 524648
+        },
+        "WF 2021-08..2022-08": {
+          "ret": -0.4381984586787414,
+          "max_dd": 0.744493768115942,
+          "n": 525211
+        },
+        "WF 2022-08..2023-08": {
+          "ret": 0.2549627962007992,
+          "max_dd": 0.38416590616154045,
+          "n": 525521
+        },
+        "WF 2023-08..2024-08": {
+          "ret": 1.2108458979380652,
+          "max_dd": 0.27105731791322696,
+          "n": 527040
+        },
+        "WF 2024-08..2025-08": {
+          "ret": 0.7912372346351428,
+          "max_dd": 0.3167217627094927,
+          "n": 525600
+        }
+      },
+      "closed": 0,
+      "win_rate_net": null,
+      "avg_win_net": null,
+      "avg_loss_net": null
+    },
+    "net": {
+      "final_equity_mid": 10349.108426431323,
+      "final_equity_liquidated": 10335.657690209491,
+      "return_liquidated": 9.33565769020949,
+      "max_dd_1m": 0.840285694920878,
+      "sharpe_daily_ann": 0.7497845076055064,
+      "fills": 1,
+      "open_positions": [
+        "BTCUSDT"
+      ],
+      "periods": {
+        "full": {
+          "ret": 9.349108426431323,
+          "max_dd": 0.840285694920878,
+          "n": 4393951
+        },
+        "IS": {
+          "ret": 6.141716256708821,
+          "max_dd": 0.840285694920878,
+          "n": 2205230
+        },
+        "OOS": {
+          "ret": 0.4491066368969121,
+          "max_dd": 0.6778976636647212,
+          "n": 2188721
+        },
+        "WF 2019-08..2020-08": {
+          "ret": 0.12449047817922243,
+          "max_dd": 0.6898643006772758,
+          "n": 525397
+        },
+        "WF 2020-08..2021-08": {
+          "ret": 2.657710406106149,
+          "max_dd": 0.5545087962962963,
+          "n": 524648
+        },
+        "WF 2021-08..2022-08": {
+          "ret": -0.4381984586787415,
+          "max_dd": 0.744493768115942,
+          "n": 525211
+        },
+        "WF 2022-08..2023-08": {
+          "ret": 0.2549627962007994,
+          "max_dd": 0.38416590616154034,
+          "n": 525521
+        },
+        "WF 2023-08..2024-08": {
+          "ret": 1.2108458979380647,
+          "max_dd": 0.27105731791322696,
+          "n": 527040
+        },
+        "WF 2024-08..2025-08": {
+          "ret": 0.7912372346351426,
+          "max_dd": 0.3167217627094927,
+          "n": 525600
+        }
+      },
+      "closed": 0,
+      "win_rate_net": null,
+      "avg_win_net": null,
+      "avg_loss_net": null
+    },
+    "stress": {
+      "final_equity_mid": 10346.005555625878,
+      "final_equity_liquidated": 10329.45815434021,
+      "return_liquidated": 9.329458154340209,
+      "max_dd_1m": 0.840285694920878,
+      "sharpe_daily_ann": 0.749784507605506,
+      "fills": 1,
+      "open_positions": [
+        "BTCUSDT"
+      ],
+      "periods": {
+        "full": {
+          "ret": 9.346005555625878,
+          "max_dd": 0.840285694920878,
+          "n": 4393951
+        },
+        "IS": {
+          "ret": 6.139575026569894,
+          "max_dd": 0.840285694920878,
+          "n": 2205230
+        },
+        "OOS": {
+          "ret": 0.44910663689691166,
+          "max_dd": 0.6778976636647212,
+          "n": 2188721
+        },
+        "WF 2019-08..2020-08": {
+          "ret": 0.12449047817922265,
+          "max_dd": 0.6898643006772758,
+          "n": 525397
+        },
+        "WF 2020-08..2021-08": {
+          "ret": 2.6577104061061485,
+          "max_dd": 0.5545087962962962,
+          "n": 524648
+        },
+        "WF 2021-08..2022-08": {
+          "ret": -0.4381984586787414,
+          "max_dd": 0.744493768115942,
+          "n": 525211
+        },
+        "WF 2022-08..2023-08": {
+          "ret": 0.2549627962007992,
+          "max_dd": 0.38416590616154045,
+          "n": 525521
+        },
+        "WF 2023-08..2024-08": {
+          "ret": 1.2108458979380647,
+          "max_dd": 0.27105731791322696,
+          "n": 527040
+        },
+        "WF 2024-08..2025-08": {
+          "ret": 0.7912372346351428,
+          "max_dd": 0.3167217627094927,
+          "n": 525600
+        }
+      },
+      "closed": 0,
+      "win_rate_net": null,
+      "avg_win_net": null,
+      "avg_loss_net": null
+    }
+  },
+  "regime": {
+    "full": {
+      "label": "bull, high-vol",
+      "btc_return": 9.36256537211821,
+      "btc_ann_vol": 0.6751699712946896,
+      "share_days_above_sma200": 0.5464200068516615,
+      "days_with_sma200": 2919,
+      "days": 3042,
+      "thresholds": "bull>+20%, bear<-20%, else range; high-vol if annualised vol>60%"
+    },
+    "IS": {
+      "label": "bull, high-vol",
+      "btc_return": 6.151002630357419,
+      "btc_ann_vol": 0.800594900524015,
+      "share_days_above_sma200": 0.5296640457469621,
+      "days_with_sma200": 1399,
+      "days": 1522,
+      "thresholds": "bull>+20%, bear<-20%, else range; high-vol if annualised vol>60%"
+    },
+    "OOS": {
+      "label": "bull, low-vol",
+      "btc_return": 0.4491066368969119,
+      "btc_ann_vol": 0.5199631248428502,
+      "share_days_above_sma200": 0.5618421052631579,
+      "days_with_sma200": 1520,
+      "days": 1520,
+      "thresholds": "bull>+20%, bear<-20%, else range; high-vol if annualised vol>60%"
+    },
+    "WF 2019-08..2020-08": {
+      "label": "range, high-vol",
+      "btc_return": 0.12449047817922265,
+      "btc_ann_vol": 0.7696375369269848,
+      "share_days_above_sma200": 0.546448087431694,
+      "days_with_sma200": 366,
+      "days": 366,
+      "thresholds": "bull>+20%, bear<-20%, else range; high-vol if annualised vol>60%"
+    },
+    "WF 2020-08..2021-08": {
+      "label": "bull, high-vol",
+      "btc_return": 2.657710406106149,
+      "btc_ann_vol": 0.7798978467962618,
+      "share_days_above_sma200": 0.8,
+      "days_with_sma200": 365,
+      "days": 365,
+      "thresholds": "bull>+20%, bear<-20%, else range; high-vol if annualised vol>60%"
+    },
+    "WF 2021-08..2022-08": {
+      "label": "bear, high-vol",
+      "btc_return": -0.4381984586787414,
+      "btc_ann_vol": 0.685044587959994,
+      "share_days_above_sma200": 0.32602739726027397,
+      "days_with_sma200": 365,
+      "days": 365,
+      "thresholds": "bull>+20%, bear<-20%, else range; high-vol if annualised vol>60%"
+    },
+    "WF 2022-08..2023-08": {
+      "label": "bull, low-vol",
+      "btc_return": 0.2549627962007992,
+      "btc_ann_vol": 0.5016921829158407,
+      "share_days_above_sma200": 0.547945205479452,
+      "days_with_sma200": 365,
+      "days": 365,
+      "thresholds": "bull>+20%, bear<-20%, else range; high-vol if annualised vol>60%"
+    },
+    "WF 2023-08..2024-08": {
+      "label": "bull, low-vol",
+      "btc_return": 1.2108458979380652,
+      "btc_ann_vol": 0.48363019687310965,
+      "share_days_above_sma200": 0.8142076502732241,
+      "days_with_sma200": 366,
+      "days": 366,
+      "thresholds": "bull>+20%, bear<-20%, else range; high-vol if annualised vol>60%"
+    },
+    "WF 2024-08..2025-08": {
+      "label": "bull, low-vol",
+      "btc_return": 0.7912372346351426,
+      "btc_ann_vol": 0.47941963834623696,
+      "share_days_above_sma200": 0.7287671232876712,
+      "days_with_sma200": 365,
+      "days": 365,
+      "thresholds": "bull>+20%, bear<-20%, else range; high-vol if annualised vol>60%"
+    }
+  },
+  "replay_seconds": 182.4,
+  "steps": 4502768,
+  "caveats": [
+    "REPLAY results are research, not evidence of edge.",
+    "Spread and slippage are assumptions (UNKNOWN until T2.3 measures them); the real fee rate is UNKNOWN.",
+    "SMA50 was chosen by the live script's author over 100/150/200 on this same history: not clean OOS.",
+    "Universe is today's survivors (survivorship bias).",
+    "Per-period numbers are slices of one continuous run, marked to mid at 1m closes.",
+    "Port differs from scripts/trend_follower.py: no -15% hard stop, daily not 4-hourly checks."
+  ]
+}

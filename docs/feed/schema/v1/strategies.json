@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/strategies.json",
+  "title": "GET /v1/strategies",
+  "description": "Strategy rows for exactly one mode.",
+  "type": "object",
+  "required": [
+    "counts_by_gate",
+    "items",
+    "mode",
+    "simulated",
+    "total",
+    "v"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "simulated": {
+      "const": true
+    },
+    "mode": {
+      "enum": [
+        "LIVE_PAPER",
+        "REPLAY"
+      ]
+    },
+    "total": {
+      "type": "integer"
+    },
+    "counts_by_gate": {
+      "type": "object",
+      "required": [
+        "FAILED",
+        "INSUFFICIENT",
+        "PASSED",
+        "PENDING"
+      ],
+      "properties": {
+        "PASSED": {
+          "type": "integer"
+        },
+        "FAILED": {
+          "type": "integer"
+        },
+        "PENDING": {
+          "type": "integer"
+        },
+        "INSUFFICIENT": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "strategy_status.json#/$defs/row"
+      }
+    }
+  },
+  "additionalProperties": false
+}

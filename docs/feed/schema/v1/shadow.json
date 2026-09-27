@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/shadow.json",
+  "title": "GET /v1/shadow",
+  "description": "Forward (shadow) paper records per book: SIMULATED, not evidence of edge.",
+  "type": "object",
+  "required": [
+    "v",
+    "simulated",
+    "books",
+    "unknown"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "simulated": {
+      "const": true
+    },
+    "label": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "books": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "lane",
+          "strategy",
+          "status",
+          "chain_ok"
+        ]
+      }
+    },
+    "unknown": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": false
+}

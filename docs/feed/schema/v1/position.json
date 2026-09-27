@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/position.json",
+  "title": "position",
+  "description": "Replayable, upsert by position_id. cost_bp = (gross - net) return x 1e4 of the same record.",
+  "type": "object",
+  "required": [
+    "account",
+    "closed_ms",
+    "cost_bp",
+    "cost_share",
+    "entry_price",
+    "exit_reason",
+    "mark_price",
+    "opened_ms",
+    "pnl_gross_pct",
+    "pnl_net_pct",
+    "position_id",
+    "qty",
+    "side",
+    "sl_price",
+    "state",
+    "strategy_id",
+    "symbol",
+    "tp_price",
+    "unknown"
+  ],
+  "properties": {
+    "position_id": {
+      "type": "string"
+    },
+    "strategy_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "symbol": {
+      "type": "string"
+    },
+    "side": {
+      "enum": [
+        "LONG",
+        "SHORT"
+      ]
+    },
+    "state": {
+      "enum": [
+        "OPEN",
+        "CLOSED"
+      ]
+    },
+    "qty": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "entry_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "mark_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "opened_ms": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "closed_ms": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "pnl_gross_pct": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "pnl_net_pct": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "cost_bp": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "cost_share": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "tp_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "sl_price": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "exit_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "account": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "unknown": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "names of fields that are null because the source cannot know them (status UNKNOWN)"
+    }
+  },
+  "additionalProperties": false
+}

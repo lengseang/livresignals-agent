@@ -6,6 +6,7 @@ import json
 import pytest
 
 from trading.allocation import forward
+from trading.allocation.engine import AllocationConfig
 
 
 def test_load_state_default(tmp_path, monkeypatch):
@@ -28,18 +29,19 @@ def test_save_load_roundtrip(tmp_path, monkeypatch):
 
 
 def test_wallet_cap_no_dead_entries(tmp_path, monkeypatch):
+    # Seeded DB, not data/trading.db: against the real DB this test failed to
+    # open the file off the VPS, and on the VPS an empty table made every
+    # assertion pass vacuously.
+    _seed_db(tmp_path, monkeypatch)
     monkeypatch.setattr(forward, "STATE_FILE", tmp_path / "state.json")
     st = forward.load_state()
-    # Tiny wallet + many entries -> should exhaust and stop recording
     st["usdt_started"] = 10.0
-    # Simulate advance against the real DB (may be empty in test env -> processed small)
-    res = forward.advance(st)
-    assert res["processed"] >= 0
-    # Every recorded entry must have amount > 0
-    for e in st["entries"]:
-        assert e["amount"] > 0
-    # Cash never exceeds wallet
-    assert st["cash_invested"] <= st["usdt_started"] + 1e-9
+    cfg = AllocationConfig(base_amount=4.0, interval_days=1, lookback_days=5)
+    res = forward.advance(st, cfg)
+    assert res["processed"] == 200
+    # $10 wallet at $4 a buy: 4 + 4 + the 2 left, then nothing more is recorded.
+    assert [e["amount"] for e in st["entries"]] == [4.0, 4.0, 2.0]
+    assert st["cash_invested"] == pytest.approx(st["usdt_started"])
 
 
 def _seed_db(tmp_path, monkeypatch):

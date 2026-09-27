@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/health.json",
+  "title": "GET /v1/health",
+  "description": "Feed liveness. Component status comes from file freshness only (see evidence).",
+  "type": "object",
+  "required": [
+    "bind",
+    "components",
+    "evidence",
+    "server_version",
+    "simulated",
+    "status",
+    "uptime_s",
+    "v"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "status": {
+      "const": "ok"
+    },
+    "simulated": {
+      "const": true
+    },
+    "uptime_s": {
+      "type": "number"
+    },
+    "server_version": {
+      "type": "string"
+    },
+    "bind": {
+      "type": "string"
+    },
+    "components": {
+      "type": "object",
+      "required": [
+        "ingest",
+        "paper_engine",
+        "recorder",
+        "scanner"
+      ],
+      "properties": {
+        "ingest": {
+          "enum": [
+            "ok",
+            "degraded",
+            "down",
+            "unknown"
+          ]
+        },
+        "scanner": {
+          "enum": [
+            "ok",
+            "degraded",
+            "down",
+            "unknown"
+          ]
+        },
+        "paper_engine": {
+          "enum": [
+            "ok",
+            "degraded",
+            "down",
+            "unknown"
+          ]
+        },
+        "recorder": {
+          "enum": [
+            "ok",
+            "degraded",
+            "down",
+            "unknown"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

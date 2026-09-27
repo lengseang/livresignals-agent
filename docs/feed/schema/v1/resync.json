@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/resync.json",
+  "title": "resync",
+  "description": "Control event: the client must discard its state; the buffered backlog follows as a snapshot.",
+  "type": "object",
+  "required": [
+    "detail",
+    "reason"
+  ],
+  "properties": {
+    "reason": {
+      "enum": [
+        "buffer_expired",
+        "run_changed",
+        "server_restart"
+      ]
+    },
+    "detail": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

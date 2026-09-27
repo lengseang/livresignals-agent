@@ -1,0 +1,25 @@
+{
+  "_version": 1,
+  "_source": "docs/research/spreads.md (T4.1, 2026-09-26), produced by research/08-spread-stats.py over the recorder's closed hourly files; a 7.56 h sample, NOT a long-run estimate. Values copied verbatim; nothing interpolated or invented.",
+  "_window": "receive clock UTC 2026-09-25 17:26:13 -> 2026-09-26 00:59:59 (7.56 h); Binance spot bookTicker via data-stream.binance.vision",
+  "_units": "bp of mid, full quoted spread (a taker side pays half); time-weighted, intervals capped at 5 s",
+  "_ticks": "ticks is null for every symbol: the tick size is not in the recording (UNKNOWN). spreads.md reports the spread sits at its minimum observed value (read as ~1 tick) 88.8-100% of the time; that is an approximation, not a checked exchange fact",
+  "_unmeasured": "any symbol not listed is UNKNOWN; the paper engine refuses to simulate it unless an explicit spread_override is passed",
+  "symbols": {
+    "ADAUSDT":  {"median_bp": 3.9162, "p90_bp": 3.9424, "p99_bp": 3.9549, "ticks": null},
+    "ARBUSDT":  {"median_bp": 4.4573, "p90_bp": 8.8261, "p99_bp": 9.0457, "ticks": null},
+    "ATOMUSDT": {"median_bp": 5.6386, "p90_bp": 5.7029, "p99_bp": 11.3379, "ticks": null},
+    "AVAXUSDT": {"median_bp": 0.9512, "p90_bp": 0.9605, "p99_bp": 1.9185, "ticks": null},
+    "BNBUSDT":  {"median_bp": 0.1290, "p90_bp": 0.1294, "p99_bp": 0.1296, "ticks": null},
+    "BTCUSDT":  {"median_bp": 0.0012, "p90_bp": 0.0012, "p99_bp": 0.0012, "ticks": null},
+    "DOGEUSDT": {"median_bp": 1.0187, "p90_bp": 1.0271, "p99_bp": 1.0317, "ticks": null},
+    "DOTUSDT":  {"median_bp": 8.3717, "p90_bp": 8.4782, "p99_bp": 8.5288, "ticks": null},
+    "ETHUSDT":  {"median_bp": 0.0372, "p90_bp": 0.0373, "p99_bp": 0.0373, "ticks": null},
+    "LINKUSDT": {"median_bp": 0.7211, "p90_bp": 0.7262, "p99_bp": 0.7283, "ticks": null},
+    "LTCUSDT":  {"median_bp": 1.4054, "p90_bp": 1.4264, "p99_bp": 1.4392, "ticks": null},
+    "NEARUSDT": {"median_bp": 2.0094, "p90_bp": 2.0315, "p99_bp": 2.0477, "ticks": null},
+    "SOLUSDT":  {"median_bp": 0.8203, "p90_bp": 0.8263, "p99_bp": 0.8291, "ticks": null},
+    "SUIUSDT":  {"median_bp": 0.8611, "p90_bp": 0.8863, "p99_bp": 0.8951, "ticks": null},
+    "XRPUSDT":  {"median_bp": 0.6380, "p90_bp": 0.6428, "p99_bp": 0.6441, "ticks": null}
+  }
+}
