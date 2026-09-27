@@ -11,10 +11,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from trading.replay.plugins.ctrend import CTrendLite
+from trading.replay.plugins.donchian import DonchianEnsemble
 from trading.replay.plugins.intraday import IntradayMomentum, IntradayReversal
 from trading.replay.plugins.range_breakout import RangeBreakout
 from trading.replay.plugins.regime_ls import RegimeLS
 from trading.replay.plugins.trend_sma import TrendSMA
+from trading.replay.plugins.tsmom_rm import TsmomRiskManaged
 
 GATE_STATES = ("PASSED", "FAILED", "PENDING", "INSUFFICIENT")      # docs/loop/designs/T6.1.md §4.3
 
@@ -106,3 +108,15 @@ DEFAULT.register(PluginInfo(
     description="Weekly: 28 technical indicators -> 52-week Fama-MacBeth forecasts -> elastic-net selection "
                 "(Fieberg et al. 2025 JFQA); hold the top CTREND quintile, long-only. Candidate A2, not evidence "
                 "of edge."))
+DEFAULT.register(PluginInfo(
+    name="donchian_ensemble", family="trend", factory=DonchianEnsemble,
+    params={}, evidence="research/candidates/candidates.json#A1-donchian-ensemble",
+    description="Daily: 9 Donchian lookbacks (5-360d) per coin with trailing midpoint stops, share of open "
+                "lookbacks x 25% vol target (90d), 1/K per eligible coin, target weights (Zarattini et al. 2025). "
+                "Candidate A1, not evidence of edge."))
+DEFAULT.register(PluginInfo(
+    name="tsmom_risk_managed", family="trend", factory=TsmomRiskManaged,
+    params={}, evidence="research/candidates/candidates.json#A3-tsmom-risk-managed",
+    description="Daily: hold each of 7 majors while its 30-day return > 0, equal weight; exposure x0.5 while "
+                "the equal-weight market is >15% off its peak (Howden & Andreev 2026). Candidate A3, not "
+                "evidence of edge."))
