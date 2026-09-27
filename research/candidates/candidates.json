@@ -47,7 +47,7 @@
       "id": "A1-donchian-ensemble",
       "strategy": "donchian_ensemble",
       "family": "trend",
-      "stage": "rules_read",
+      "stage": "rejected",
       "sources": [
         {
           "cite": "Zarattini, Pagani, Barbon (2025), Catching Crypto Trends, SSRN 5209907",
@@ -97,13 +97,19 @@
       "cost_sensitivity": "low (daily)",
       "license": "idea from a paper; own implementation",
       "prior": "medium-low (not peer-reviewed; decay ~58% post-publication)",
-      "trial_budget": 1
+      "trial_budget": 1,
+      "result": {
+        "verdict": "FAIL",
+        "summary": "OOS SR 0.77/yr beats BTC 0.42 and basket 0.20, max DD -9%; daily DSR 0.817 < 0.95 (N=31)",
+        "report": "docs/loop/results/P1-2026-09-27.md",
+        "run": "20260927T071811Z-donchian_ensemble-paper"
+      }
     },
     {
       "id": "A2-ctrend-lite",
       "strategy": "ctrend_lite",
       "family": "cross_section",
-      "stage": "rules_read",
+      "stage": "rejected",
       "sources": [
         {
           "cite": "Fieberg, Liedtke, Poddig, Walker, Zaremba (2025), A Trend Factor for the Cross Section of Cryptocurrency Returns, JFQA 60",
@@ -140,13 +146,19 @@
       "cost_sensitivity": "medium (weekly turnover)",
       "license": "idea from a paper; own implementation",
       "prior": "medium (peer-reviewed)",
-      "trial_budget": 2
+      "trial_budget": 2,
+      "result": {
+        "verdict": "FAIL",
+        "summary": "OOS SR -0.02/yr, return -65%, max DD -81%; DSR 0.000 (N=31)",
+        "report": "docs/loop/results/P1-2026-09-27.md",
+        "run": "20260927T071811Z-ctrend_lite-paper"
+      }
     },
     {
       "id": "A3-tsmom-risk-managed",
       "strategy": "tsmom_risk_managed",
       "family": "trend",
-      "stage": "rules_read",
+      "stage": "rejected",
       "sources": [
         {
           "cite": "Howden & Andreev, Risk-Managed Time-Series Momentum in Crypto Majors, SSRN 7115459",
@@ -186,7 +198,13 @@
       "cost_sensitivity": "low-medium",
       "license": "idea from a paper; own implementation",
       "prior": "medium-low (not peer-reviewed)",
-      "trial_budget": 1
+      "trial_budget": 1,
+      "result": {
+        "verdict": "FAIL",
+        "summary": "OOS SR 0.29/yr net (0.47 gross) < BTC 0.42; max DD -47%; DSR 0.473 (N=31)",
+        "report": "docs/loop/results/P1-2026-09-27.md",
+        "run": "20260927T071811Z-tsmom_risk_managed-paper"
+      }
     },
     {
       "id": "A4-high-52w",
