@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from trading.replay.plugins.buy_hold import BuyHoldBTC, BuyHoldEW
 from trading.replay.plugins.ctrend import CTrendLite
 from trading.replay.plugins.donchian import DonchianEnsemble
 from trading.replay.plugins.intraday import IntradayMomentum, IntradayReversal
@@ -126,3 +127,10 @@ DEFAULT.register(PluginInfo(
     params={}, evidence="research/candidates/candidates.json#A6-xs-momentum",
     description="Weekly: hold the top quintile by past 3-week return, equal weight, long-only (Liu, Tsyvinski & "
                 "Wu 2022). Candidate A6, control for A2. Not evidence of edge."))
+DEFAULT.register(PluginInfo(
+    name="buy_hold_btc", family="benchmark", factory=BuyHoldBTC, params={},
+    description="Benchmark: BTC at weight 1 from the first daily close, held. Shadow benchmark lane."))
+DEFAULT.register(PluginInfo(
+    name="buy_hold_ew", family="benchmark", factory=BuyHoldEW, params={},
+    description="Benchmark: each universe coin at 1/N from its first daily close, never rebalanced. Shadow "
+                "benchmark lane."))
