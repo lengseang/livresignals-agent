@@ -65,3 +65,19 @@ def test_the_verdict_fails_and_names_the_benchmark_it_lost_to():
                                    "benchmarks_sr_ann": {"btc_hold": 0.4, "equal_weight_hold": 0.9}})
     assert res["verdict"] == gate.FAIL
     assert any("equal_weight_hold 0.90/yr" in r and "btc_hold" not in r for r in res["reasons"])
+
+
+def test_a_coin_listed_late_still_gets_its_one_nth_share():
+    # the real failure: early coins rise, so min(cash, equity/N) over-spends on the next listing and the last
+    # coin finds no cash (full history: DOT, AVAX, NEAR, ARB, SUI were never bought)
+    d0 = ms("2021-01-01T00:00:00")
+    up = [100.0, 200.0, 200.0, 200.0, 200.0]
+    streams = {"BTCUSDT": daily_minutes("BTCUSDT", d0, up), "ETHUSDT": daily_minutes("ETHUSDT", d0, up),
+               "SOLUSDT": daily_minutes("SOLUSDT", d0 + 2 * DAY, [50.0, 50.0, 50.0]),
+               "DOTUSDT": daily_minutes("DOTUSDT", d0 + 3 * DAY, [20.0, 20.0])}
+    basket = PaperAccount(1200, 4, CostModel(0, 0, 0), name="bh_ew_net")
+    basket.fixed_budget = 300.0
+    replay(streams, [], {"net": PaperAccount(1200, 1, CostModel(0, 0, 0))},
+           benchmarks={"ew_net": (("BTCUSDT", "ETHUSDT", "SOLUSDT", "DOTUSDT"), basket)})
+    assert {s: round(p["spent"], 6) for s, p in basket.positions.items()} == {
+        "BTCUSDT": 300.0, "ETHUSDT": 300.0, "SOLUSDT": 300.0, "DOTUSDT": 300.0}
