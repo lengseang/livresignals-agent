@@ -47,28 +47,56 @@ def load_env() -> dict:
     return env
 
 
+def _github_token() -> str | None:
+    """Read GITHUB_TOKEN from HERMES_HOME/.env. Never logged, never committed."""
+    envf = Path(os.environ.get("HERMES_HOME", "/home/ubuntu/hermes-home")) / ".env"
+    if not envf.exists():
+        return None
+    for line in envf.read_text(encoding="utf-8", errors="ignore").splitlines():
+        if line.startswith("GITHUB_TOKEN="):
+            tok = line.split("=", 1)[1].strip().strip('"').strip("'")
+            return tok or None
+    return None
+
+
 def _ensure_deploy_key(work: Path) -> None:
-    """Pin the ledger-backup deploy key to this repo.
+    """Configure auth for the ledger-backup repo.
 
-    🔴 WHY (found 2026-09-23): a GitHub deploy key is scoped to exactly ONE
-    repository. The default `github.com` identity in ~/.ssh/config points at
-    `id_ed25519_github`, which is the key for the PUBLIC signals-site repo. Use
-    it against the private backup repo and GitHub answers
+    🔴 HISTORY — why this is HTTPS now (2026-09-27)
+    -----------------------------------------------
+    This used a per-repo SSH deploy key (LEDGER_BACKUP_SSH_KEY). On the HKG
+    migration the backup/agent deploy keys were NOT copied to the new box, so
+    every nightly off-box replication failed with
 
-        ERROR: Repository not found.
+        fatal: 'origin' does not appear to be a git repository
 
-    which reads like "the repo does not exist" rather than "wrong key" — a
-    misleading failure, and the reason this went unnoticed.
+    while the cron carried on reporting success. The ledger is the asset; its
+    off-box mirror is the thing that survives losing this disk, so a silently
+    dead mirror is the worst possible failure.
 
-    The off-box replication had therefore been dead since the keys were split
-    on 2026-09-21: the last successful sync was 2026-09-18, while the daily cron
-    carried on reporting success. The backup was configured, ran, and did
-    nothing.
-
-    Setting core.sshCommand here (rather than editing ~/.ssh/config) keeps the
-    fix inside the repo, so it survives the work-dir being recreated.
+    Now uses the GITHUB_TOKEN from HERMES_HOME/.env — a gho_ OAuth token with
+    `repo` scope, verified push=True on livresignals, -backup and -agent — so
+    ONE durable secret covers all three repos and there is no per-repo key file
+    left to lose. Falls back to the legacy SSH key if the token is absent, so
+    an older box still works.
     """
-    key = Path("/home/ubuntu/.ssh/id_ed25519_ledger_backup")
+    token = _github_token()
+    if token:
+        code, out = sh("git remote get-url origin", work)
+        url = out.strip().splitlines()[-1] if out.strip() else ""
+        if url.startswith("git@github.com:"):
+            slug = url.split("git@github.com:", 1)[1]
+        elif url.startswith("https://github.com/"):
+            slug = url.split("https://github.com/", 1)[1]
+        else:
+            slug = "lengseang/livresignals-backup.git"
+        # Token is embedded per-invocation, NOT written to .git/config.
+        sh(f'git remote set-url origin '
+           f'https://x-access-token:{token}@github.com/{slug}', work)
+        return
+
+    key = Path(load_env().get("LEDGER_BACKUP_SSH_KEY")
+               or "/home/ubuntu/.ssh/id_ed25519_ledger_backup")
     if key.exists():
         sh(f'git config core.sshCommand '
            f'"ssh -i {key} -o IdentitiesOnly=yes '

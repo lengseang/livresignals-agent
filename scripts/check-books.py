@@ -339,14 +339,28 @@ print("\n[8] AGENT CODE BACKUP (the source must not live on one disk only)")
 try:
     import subprocess as _sp
     _repo = "/opt/trading-agent"
+    # Auth mirror of agent_backup.py: prefer GITHUB_TOKEN, fall back to ssh key.
+    # (2026-09-27: the per-repo deploy key was not copied in the HKG migration,
+    # so this check failed — and the backups it guards were dead too.)
+    _envf = Path(__import__("os").environ.get("HERMES_HOME",
+                                              "/home/ubuntu/hermes-home")) / ".env"
+    _tok = ""
+    if _envf.exists():
+        for _l in _envf.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if _l.startswith("GITHUB_TOKEN="):
+                _tok = _l.split("=", 1)[1].strip().strip('"').strip("'")
+                break
     _key = "/home/ubuntu/.ssh/id_ed25519_agent_backup"
-    _remote = "git@github.com:lengseang/livresignals-agent.git"
-    _env = {**__import__("os").environ,
-            "GIT_SSH_COMMAND": f"ssh -i {_key} -o IdentitiesOnly=yes "
-                               f"-o StrictHostKeyChecking=accept-new"}
-    if not Path(_key).exists():
-        fails.append("agent-backup deploy key missing")
-        print("  🔴 deploy key not present")
+    _remote = ("https://x-access-token:" + _tok + "@github.com/"
+               "lengseang/livresignals-agent.git") if _tok \
+        else "git@github.com:lengseang/livresignals-agent.git"
+    _env = {**__import__("os").environ}
+    if not _tok:
+        _env["GIT_SSH_COMMAND"] = (f"ssh -i {_key} -o IdentitiesOnly=yes "
+                                   f"-o StrictHostKeyChecking=accept-new")
+    if not _tok and not Path(_key).exists():
+        fails.append("agent-backup deploy key missing and no GITHUB_TOKEN")
+        print("  🔴 no usable auth for agent backup")
     else:
         r = _sp.run(["git", "ls-remote", "--heads", _remote], cwd=_repo,
                     capture_output=True, text=True, timeout=60, env=_env)
