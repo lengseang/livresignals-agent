@@ -439,3 +439,19 @@ def test_p4a_shadow_signals_fills_and_gaps_stream_live(data_root, tmp_path):
     assert sig["extra"]["weight"] == 0.05
     fill = next(e for e in shadow if e["event"] == "paper_fill")["data"]["data"]
     assert fill["intent"] == "OPEN" and fill["side"] == "BUY" and fill["fill_price"] == 4001.0
+
+
+def test_p4c_live_scans_are_served_as_provisional(data_root, tmp_path):
+    (tmp_path / "scan").mkdir()
+    (tmp_path / "scan" / "rejected__tsmom_risk_managed.json").write_text(json.dumps({
+        "v": 1, "simulated": True, "provisional": True, "label": "PROVISIONAL", "lane": "rejected",
+        "strategy": "tsmom_risk_managed", "as_of_ms": 1, "next_decision_ms": 2,
+        "coins": [{"symbol": "BTCUSDT", "state": "would HOLD", "score": 0.05}]}), encoding="utf-8")
+    c = TestClient(create_app(data_root, heartbeat_s=3600, quotes_s=0.0, max_idle_s=1.0, shadow=tmp_path))
+    body = c.get("/v1/scan").json()
+    validate_rest("scan", body)
+    assert body["provisional"] is True and body["books"][0]["coins"][0]["state"] == "would HOLD"
+    body = TestClient(create_app(data_root, heartbeat_s=3600, quotes_s=0.0, max_idle_s=1.0,
+                                 shadow=tmp_path / "none")).get("/v1/scan").json()
+    validate_rest("scan", body)
+    assert body["books"] == [] and body["unknown"] == ["scan"]

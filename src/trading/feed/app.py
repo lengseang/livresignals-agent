@@ -169,6 +169,15 @@ def create_app(data_root: Path | str, *, heartbeat_s: float = 1.0, quotes_s: flo
         books = [{k: b.get(k) for k in keep} | {"chain_ok": (b.get("chain") or {}).get("ok")} for b in doc.get("books", [])]
         return {"v": 1, "simulated": True, "label": doc.get("label"), "books": books, "unknown": []}
 
+    @app.get("/v1/scan")
+    def scan_():
+        # P4c: the shadow books' live scans. PROVISIONAL previews, never signals; latest only, one file per book.
+        d = Path(shadow) / "scan" if shadow else None
+        if d is None or not d.is_dir():
+            return {"v": 1, "simulated": True, "provisional": True, "books": [], "unknown": ["scan"]}
+        books = [b for b in (read_json(f) for f in sorted(d.glob("*.json"))) if b]
+        return {"v": 1, "simulated": True, "provisional": True, "books": books, "unknown": []}
+
     @app.get("/v1/runs/{run_id}/summary")
     def run_summary(run_id: str):
         if LIVE_ID_RE.match(run_id):

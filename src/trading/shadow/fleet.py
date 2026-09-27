@@ -41,6 +41,7 @@ class ShadowFleet:
         """candidates: [{"lane": "candidate"|"rejected"|"benchmark", "strategy": name, "params": {}, "slots": n}]"""
         self.symbols = sorted(set(symbols))
         self.books: list[Book] = []
+        self.root, self._scan_minute = Path(root), None      # P4c: live scan written once per minute
         costs = costs or CostModel(0.001, 2.0, 2.0)   # P2a: flat model; P2b switches to the lab's paper fill model
         for c in candidates:
             if c["lane"] not in LANES:
@@ -55,6 +56,7 @@ class ShadowFleet:
 
     # --- stream --------------------------------------------------------------------------------------------
     def on_tick(self, tick) -> None:
+        self._maybe_scan(getattr(tick, "ts_exchange_ms", None))
         for b in self.books:
             if b.stopped:
                 continue
@@ -82,6 +84,18 @@ class ShadowFleet:
                            "data": {"from_ms": from_ms, "to_ms": to_ms, "reason": reason}})
             if not b.stopped:
                 b.scanner.reconnected()
+
+    def _maybe_scan(self, t_ms: int | None) -> None:
+        if t_ms is None:
+            return
+        minute = t_ms // 60_000
+        if self._scan_minute is not None and minute == self._scan_minute:
+            return
+        first = self._scan_minute is None
+        self._scan_minute = minute
+        if not first:                                          # never during the first (catch-up) instant
+            from trading.shadow.scan import write_scans
+            write_scans(self, self.root, t_ms)
 
     # --- internals -----------------------------------------------------------------------------------------
     def _stop(self, b: Book, e: Exception, t_ms: int | None) -> None:
