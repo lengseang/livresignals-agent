@@ -87,6 +87,43 @@ def scanner_signal(rec: dict, expect_mode: str | None = None):
     return "signal", rec.get("ts_event_ms"), d
 
 
+def shadow_record(lane: str, strategy: str, rec: dict):
+    """P4a: one shadow-chain record -> a v1 envelope tuple, or None. Signals keep the scanner mapping; fills map to
+    paper_fill (a rebalance purchase is an OPEN, a sale arrives as a close); gaps/errors become data_quality."""
+    chain = {"lane": lane, "chain_strategy": strategy, "chain_seq": rec.get("seq"), "chain_hash": rec.get("hash")}
+    t = rec.get("type")
+    if t == "signal":
+        r = scanner_signal(rec, expect_mode="LIVE_PAPER")
+        if r is None:
+            return None
+        typ, ts, d = r
+        d["source"] = {**d["source"], "kind": "shadow"}
+        d["extra"] = {**d["extra"], **chain}
+        return typ, ts, d
+    if t == "shadow_fill":
+        p = rec.get("data") or {}
+        ft = p.get("fill_type")
+        opening = ft in ("signal", "rebalance")
+        price = p.get("entry") if ft == "signal" else p.get("price") if ft == "rebalance" else p.get("exit")
+        qty, fee = p.get("qty"), p.get("fee")
+        notional = None if price is None or qty is None else price * qty
+        d = {"fill_id": f"shadow:{strategy}:{rec.get('seq')}", "signal_id": p.get("id"), "strategy_id": strategy,
+             "symbol": p.get("symbol"), "side": "BUY" if opening else "SELL", "intent": "OPEN" if opening else "CLOSE",
+             "status": "FILLED", "liquidity": None, "ref_price": None, "fill_price": price, "qty": qty,
+             "fee_quote": fee, "fee_bp": (fee / notional * 1e4) if (fee is not None and notional) else None,
+             "spread_paid_bp": None, "slippage_bp": None, "modelled_latency_ms": None,
+             "model_version": "shadow-paper-v1", "account": p.get("account"), "flags": [],
+             "extra": {**{k: v for k, v in p.items() if k not in ("symbol", "qty", "fee", "account", "id")}, **chain}}
+        d["unknown"] = _unknown(d, _FILL_NULLABLE)
+        return "paper_fill", rec.get("ts_event_ms"), d
+    if t in ("gap", "error"):
+        p = rec.get("data") or {}
+        return ("data_quality", rec.get("ts_event_ms"), {
+            "kind": "OTHER", "symbol": None, "stream": f"shadow:{lane}:{strategy}",
+            "detail": (f"shadow {t}: {p.get('reason') or p.get('error')}"), "gap": None, "extra": {**p, **chain}})
+    return None                                   # shadow_mark: daily equity, served by /v1/shadow instead
+
+
 def replay_strategy_signal(ev: dict, run_id: str):
     p = ev["payload"]
     meta = _registry_meta(p.get("strategy"))

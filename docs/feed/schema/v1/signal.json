@@ -67,8 +67,10 @@
       "enum": [
         "open",
         "close",
+        "target",
         null
-      ]
+      ],
+      "description": "open/close; target = hold `weight` (in extra) of equity after the next fill (target-weight strategies, P1c); weight 0 is an exit"
     },
     "interval": {
       "type": [
@@ -166,7 +168,8 @@
         "kind": {
           "enum": [
             "scanner",
-            "replay"
+            "replay",
+            "shadow"
           ]
         },
         "seq": {

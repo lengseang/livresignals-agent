@@ -405,3 +405,37 @@ def test_missing_scorecards_are_unknown(data_root, tmp_path):
     body = c.get("/v1/shadow").json()
     validate_rest("shadow", body)
     assert body["books"] == [] and body["unknown"] == ["scorecards"]
+
+
+def test_p4a_shadow_signals_fills_and_gaps_stream_live(data_root, tmp_path):
+    from trading.shadow.chain import ShadowChain
+    day_ms = adapter.iso_ms("2026-09-26")
+    ch = ShadowChain(tmp_path / "shadow", "rejected", "donchian_ensemble", day_ms)
+    ch.write({"v": 1, "type": "signal", "ts_emit_ms": day_ms + 10, "ts_event_ms": day_ms + 5, "mode": "LIVE_PAPER",
+              "simulated": True, "data": {"signal_id": "donchian_ensemble:ETHUSDT:1", "strategy_id": "donchian_ensemble",
+                                          "symbol": "ETHUSDT", "side": "LONG", "action": "target", "interval": "1d",
+                                          "ref_price": 4000.0, "reason": "ensemble x vol scale -> weight 0.05", "weight": 0.05,
+                                          # the rest exactly as trading.scanner.scanner._emit writes them
+                                          "strategy_version": "1", "family": "trend", "params": {},
+                                          "class": None, "tp_pct": None, "sl_pct": None, "expected_move_pct": None,
+                                          "cost_rt_pct": None, "p_star": None, "gate_status_at_fire": "PENDING",
+                                          "evidence": "research/candidates/candidates.json#A1-donchian-ensemble",
+                                          "latency_ms": {"tick_to_signal": 12.5}}})
+    ch.write({"v": 1, "type": "shadow_fill", "ts_event_ms": day_ms + 60_000, "mode": "LIVE_PAPER", "simulated": True,
+              "data": {"fill_type": "rebalance", "id": "donchian_ensemble:ETHUSDT:1", "symbol": "ETHUSDT",
+                       "qty": 0.0125, "price": 4001.0, "fee": 0.05, "account": "rejected:donchian_ensemble"}})
+    ch.write({"v": 1, "type": "gap", "ts_event_ms": day_ms + 120_000, "mode": "LIVE_PAPER", "simulated": True,
+              "data": {"from_ms": day_ms + 100_000, "to_ms": day_ms + 120_000, "reason": "stream reconnect"}})
+    c = TestClient(create_app(data_root, heartbeat_s=3600, quotes_s=0.0, poll_s=0.02, max_idle_s=1.0,
+                              shadow=tmp_path / "shadow"))
+    evs = stream(c, 40, mode="LIVE_PAPER", run_id=LIVE)
+    shadow = [e for e in evs if (e["data"]["data"].get("extra") or {}).get("lane") == "rejected"]
+    kinds = {e["event"] for e in shadow}
+    assert {"signal", "paper_fill", "data_quality"} <= kinds
+    for e in shadow:
+        validate_envelope(e["data"])
+    sig = next(e for e in shadow if e["event"] == "signal")["data"]["data"]
+    assert sig["source"]["kind"] == "shadow" and sig["symbol"] == "ETHUSDT" and sig["action"] == "target"
+    assert sig["extra"]["weight"] == 0.05
+    fill = next(e for e in shadow if e["event"] == "paper_fill")["data"]["data"]
+    assert fill["intent"] == "OPEN" and fill["side"] == "BUY" and fill["fill_price"] == 4001.0
