@@ -126,8 +126,10 @@ def main(argv: list[str] | None = None) -> dict:
     accts = {k: make(k, slots, k) for k in ("net", "gross", "stress")}
     bench = {k: (a.benchmark, make(k, 1, f"bh_{k}")) for k in ("gross", "net", "stress")}
     # P0b: equal-weight basket of the run's universe: each coin bought once at its first tradable open with
-    # min(cash, equity/N), never rebalanced, same costs as the account it is compared with
+    # 1/N of the START equity (a late listing still gets its share), never rebalanced, same costs
     bench.update({f"ew_{k}": (tuple(syms), make(k, len(syms), f"bh_ew_{k}")) for k in ("gross", "net", "stress")})
+    for k in ("gross", "net", "stress"):
+        bench[f"ew_{k}"][1].fixed_budget = a.equity / len(syms)   # 1/N of START equity; unlisted shares wait in cash
     if a.strategy == "trend_real":
         stop = None if a.hard_stop.lower() == "none" else float(a.hard_stop)
         strat = TrendReal(sma=a.sma, hard_stop=stop, max_pos=a.max_pos, btc=a.benchmark, universe=tuple(syms),
