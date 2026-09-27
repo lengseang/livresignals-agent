@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://livresignals.local/feed/schema/v1/scan.json",
+  "title": "GET /v1/scan",
+  "description": "Shadow books' live scans: PROVISIONAL (if the day closed at the current price). Never signals, never recorded.",
+  "type": "object",
+  "required": [
+    "v",
+    "simulated",
+    "provisional",
+    "books",
+    "unknown"
+  ],
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "simulated": {
+      "const": true
+    },
+    "provisional": {
+      "const": true
+    },
+    "books": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "strategy",
+          "lane",
+          "as_of_ms",
+          "coins"
+        ]
+      }
+    },
+    "unknown": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": false
+}
