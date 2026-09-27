@@ -54,6 +54,24 @@ SIZE_USD = 5.5      # per position
 HARD_STOP = 0.15    # disaster stop: exit at -15% even if the trend hasn't broken
 REAL = os.environ.get("TREND_REAL", "0") == "1"
 
+# ---- CENTRAL LIVE SWITCH -------------------------------------------------
+# Every script that can spend real money must consult this same flag, so there
+# is ONE place to disable live trading instead of one per script.
+#
+#   config/LIVE_ENABLED  -> new real entries permitted
+#   absent               -> entries refused; open positions still exit normally
+#
+# Rationale (2026-09-27): live_executor honoured LIVE_ENABLED, but this script
+# and futures_executor did not — so "live is disabled" was true for one of three
+# scripts and false overall. That is a dangerous thing to believe about a box
+# holding real money.
+_LIVE_FLAG = Path(__file__).resolve().parents[1] / "config" / "LIVE_ENABLED"
+
+
+def live_enabled() -> bool:
+    """True only if the central live switch is present."""
+    return _LIVE_FLAG.exists()
+
 # F1 (docs/loop/designs/T0.3.md): never buy the same coin twice after a crash.
 LOCK = BASE / "data" / "trend-follower.lock"
 DUST_USD = 1.0            # a wallet coin worth less than this does not count as held (owner, 2026-09-27)
@@ -600,7 +618,14 @@ def _run():
     # which is the exact opposite of the intent.
     if REAL and candidates and buys_blocked:
         events.append(("ERR", "trend", None, "new buys blocked this run until earlier orders are resolved"))
-    if REAL and candidates and not buys_blocked:
+    if REAL and not live_enabled():
+        # Central kill switch. New REAL ENTRIES are refused unless
+        # config/LIVE_ENABLED exists. Exits above still run, so an open
+        # position is never stranded by flipping this flag off.
+        events.append(("ERR", "trend", None,
+                       "entry blocked: config/LIVE_ENABLED absent (central live switch)"))
+        print("  🔒 live switch OFF — no new real entries (exits still managed)")
+    elif REAL and candidates and not buys_blocked:
         candidates.sort(reverse=True)
         held_now = max(len(real["open"]) + len(real["pending"]), _wallet_held(bal, last_px))
         for mom, s, px in candidates:
