@@ -35,6 +35,35 @@ LEDGER = BASE / "data" / "signal-ledger.jsonl"
 SITE = Path("/home/ubuntu/signals-site")
 OUT = SITE / "public" / "data" / "ledger.json"
 
+
+def _published_body() -> str | None:
+    """The `ledger.json` body as published on the REMOTE (origin/main),
+    normalised like the working-tree body (generated_at stripped, indented,
+    sorted). Returns None when git or the remote ref is unavailable.
+
+    Why origin/main and not HEAD: the question a deploy asks is "is the
+    PUBLISHED record stale?", and the published record lives on the remote.
+    This checkout's HEAD can be ahead of, behind, or equal to origin/main, so
+    HEAD is not a reliable proxy. (An earlier version of this function read
+    HEAD, which made it wrongly veto a legitimate push when HEAD already
+    happened to contain the new record but the remote did not.)
+    """
+    ref = "origin/main"
+    try:
+        p = subprocess.run(
+            ["git", "show", f"{ref}:{OUT.relative_to(SITE).as_posix()}"],
+            cwd=str(SITE), capture_output=True, text=True, timeout=60)
+    except Exception:
+        return None
+    if p.returncode != 0 or not p.stdout.strip():
+        return None
+    try:
+        prev = json.loads(p.stdout)
+    except Exception:
+        return None
+    return json.dumps({k: v for k, v in prev.items() if k != "generated_at"},
+                      indent=1, sort_keys=True)
+
 sys.path.insert(0, str(BASE / "scripts"))
 sys.path.insert(0, str(BASE / "src"))
 
@@ -367,8 +396,27 @@ def main() -> int:
         print("\n  (dry run — pass --push to commit and deploy)")
         return 0
 
+    # PUSH MODE. Two independent reasons the record may need publishing, and
+    # EITHER is sufficient — neither may veto the other:
+    #
+    #   (a) the payload differs from what is in the site checkout's working
+    #       tree, because a dry run or an earlier run already wrote it there;
+    #   (b) the payload differs from what is PUBLISHED (origin/main), because
+    #       a signal closed since the last deploy.
+    #
+    # (b) must be measured against origin/main, not HEAD: this checkout's HEAD
+    # can already contain the new record while the remote does not (a previous
+    # push was rejected, a merge landed, etc). Reading HEAD there caused a
+    # legitimate push to be skipped as "already current".
+    published = _published_body()
+    if published is not None:
+        published_changed = published != after_body
+        if published_changed and not changed:
+            print("  note        : working tree already matches the payload, "
+                  "but the PUBLISHED record is stale — pushing against origin/main")
+        changed = changed or published_changed
     if not changed:
-        print("\n  nothing to deploy — record unchanged")
+        print("\n  nothing to deploy — published record is already current")
         return 0
 
     return publish(SITE, payload["chain"]["records"], payload["stats"].get("closed"))
