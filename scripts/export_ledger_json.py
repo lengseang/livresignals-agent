@@ -371,19 +371,27 @@ def main() -> int:
         print("\n  nothing to deploy — record unchanged")
         return 0
 
-    n = payload["chain"]["records"]
-    cmds = [
-        ("git add -A", None),
-        (f'git -c user.name="ledger-bot" -c user.email="ledger-bot@users.noreply.github.com" '
-         f'commit -q -m "data: ledger export — {n} records, '
-         f'{payload["stats"].get("closed")} closed"', None),
-        ("git push -q origin main", None),
+    return publish(SITE, payload["chain"]["records"], payload["stats"].get("closed"))
+
+
+def publish(site: Path, n, closed) -> int:
+    """Commit the export and push it. The site repo also receives front-end changes, so this checkout can be
+    behind origin: pull --rebase BEFORE the push, or the push is rejected (non-fast-forward) and the public
+    record silently stops updating. A rebase conflict aborts the rebase and fails loudly; nothing is forced."""
+    bot = ["-c", "user.name=ledger-bot", "-c", "user.email=ledger-bot@users.noreply.github.com"]
+    steps = [
+        ("add", ["git", "add", "-A"]),
+        ("commit", ["git", *bot, "commit", "-q", "-m", f"data: ledger export — {n} records, {closed} closed"]),
+        ("pull --rebase", ["git", *bot, "pull", "--rebase", "-q", "origin", "main"]),
+        ("push", ["git", "push", "-q", "origin", "main"]),
     ]
-    for cmd, _ in cmds:
-        p = subprocess.run(cmd, shell=True, cwd=str(SITE),
-                           capture_output=True, text=True, timeout=180)
+    for step, argv in steps:
+        p = subprocess.run(argv, cwd=str(site), capture_output=True, text=True, timeout=180)
         if p.returncode != 0 and "nothing to commit" not in (p.stdout + p.stderr):
-            print(f"  ⛔ {cmd.split()[0]} failed: {(p.stdout + p.stderr).strip()[:200]}")
+            if step == "pull --rebase":
+                subprocess.run(["git", "rebase", "--abort"], cwd=str(site), capture_output=True, text=True,
+                               timeout=60)
+            print(f"  ⛔ {step} failed: {(p.stdout + p.stderr).strip()[:200]}")
             return 3
     print("\n  ✅ committed and pushed — Vercel will redeploy")
     return 0
