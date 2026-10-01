@@ -17,7 +17,9 @@
     "heartbeat": 9,
     "reports": 11,
     "chat": 13,
-    "gold": 777
+    "gold": 777,
+    "scalper": 1110,
+    "ledger": 1166
   },
   "verified_at_utc": "2026-08-12T04:40:00Z",
   "verification": "bot sent probe message to each thread; Telegram confirmed message_thread_id per topic (all ok=True)",

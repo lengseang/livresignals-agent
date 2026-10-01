@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,6 +34,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 ROOT = Path(__file__).resolve().parents[1]
 PAPER_STATE = ROOT / "data" / "unified-paper.json"
+
+# RELIABILITY FIX (2026-10-01): set False when ex.load_markets() fails after
+# retries. A degraded cycle still runs paper + position management + futures,
+# but _real_can_trade() returns False so no real order is attempted without a
+# healthy market/precision cache. Assumed True until main() proves otherwise,
+# so any non-main caller (tests, imports) keeps the normal real path.
+_MARKETS_OK = True
 
 # --- validated edges (from walkforward_full.py, must hold to fire) ---
 VALIDATED = {
@@ -138,6 +146,8 @@ def _validated(sig: dict) -> dict | None:
 
 
 def _paper_open(sig: dict) -> None:
+    if _symbol_disabled(sig.get("symbol", "")):
+        return
     s = {}
     if PAPER_STATE.exists():
         try:
@@ -325,6 +335,29 @@ def _pullback_open(sig: dict) -> bool:
     return True
 
 
+def _symbol_disabled(sym: str) -> bool:
+    """True if this SYMBOL is on the autonomous disable list in
+    data/signals-state.json (key 'disabled_symbols').
+
+    SELF-IMPROVE DISABLE LIST (2026-09-30): mirrors the existing edge-disable
+    mechanism (see _imported_strategy_open). An edge disable stops a STRATEGY;
+    this stops a SYMBOL that has flipped from proven-winner to persistent
+    bleeder across a split-half OOS test. ARB/USDT is the first entry:
+    30d split-half IS +3.70 (WR 46%) / OOS -1.20 (WR 37%), and the last 7d
+    was n=45 WR 26.7% net -1.171 (median pnl -0.010, net still -1.71 with the
+    top-3 winners removed) -> a real regime-shift loser, not one-half noise.
+    Paper-only impact: ARB is never real (not in ELITE/REAL_TIER); removing it
+    frees a scarce paper slot for NEAR/JUP, which pass the same OOS test.
+    """
+    try:
+        st = ROOT / "data" / "signals-state.json"
+        if st.exists():
+            return sym in json.loads(st.read_text()).get("disabled_symbols", [])
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
 def _is_loose(sig: dict) -> bool:
     """Pure loose-signal test (no side effects) — used by scan loop for REAL
     firing, and by _paper_loose_open. Keeps real-vs-paper gates identical.
@@ -369,6 +402,8 @@ def _paper_loose_open(sig: dict) -> bool:
     (52% WR, +$0.49 net over 23 trades) justifies real money on these too.
     """
     if not _is_loose(sig):
+        return False
+    if _symbol_disabled(sig.get("symbol", "")):
         return False
     s = {}
     if PAPER_STATE.exists():
@@ -522,7 +557,37 @@ def main():
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from trade_judge import decide as judge_decide
     ex = make_live_exchange()
-    ex.load_markets()
+    # RELIABILITY FIX (2026-10-01): load_markets() hits Binance's authenticated
+    # sapi/capital/config/getall endpoint. Originally (2026-09-30) we retried 3x
+    # and, on total failure, returned EARLY. That was still a blackout bug: the
+    # endpoint was down for ~14 CONSECUTIVE cron cycles (logs/unified.log:1239-1291,
+    # ~7 hours) and every one of those cycles skipped the ENTIRE scan — including
+    # _paper_check() position management and futures_manage(), so open live/paper/
+    # futures positions got ZERO TP/SL/trail supervision for 7 hours.
+    #
+    # load_markets() is NOT required for any of that: paper management uses public
+    # fetch_ohlcv/fetch_ticker, and the real-order path (live_executor.open_long ->
+    # place_market_buy) creates its OWN exchange client and loads markets itself.
+    # So make it NON-FATAL: on failure, warn, mark markets as DEGRADED (which blocks
+    # only the real-order path via _real_can_trade), and CONTINUE the scan so paper
+    # learning + position management + futures keep running.
+    global _MARKETS_OK
+    _markets_ok = False
+    for _attempt in range(3):
+        try:
+            ex.load_markets()
+            _markets_ok = True
+            break
+        except Exception as _e:
+            print(f"WARN: load_markets attempt {_attempt + 1}/3 failed: {str(_e)[:120]}")
+            if _attempt < 2:
+                time.sleep(2 * (_attempt + 1))
+    _MARKETS_OK = _markets_ok
+    if not _markets_ok:
+        # Fail SOFT, not fatal: continue with paper + position management + futures.
+        # Real orders are blocked this cycle (degraded) until markets reload.
+        print("WARN: exchange markets unavailable after 3 attempts — DEGRADED cycle: "
+              "paper + position management + futures continue; REAL orders skipped")
 
     # 0) THE JUDGE: regime-aware decision (the "human PM" layer).
     b = live_balances()
@@ -735,6 +800,11 @@ def _real_tier_ok(sym: str, risk_off: bool = False, sig: dict | None = None,
 
 
 def _real_can_trade() -> bool:
+    # DEGRADED MODE (2026-10-01): if markets failed to load this cycle, do not
+    # attempt real orders (precision/lot-rounding cache is stale/absent).
+    # Paper + management still run; real resumes automatically next healthy cycle.
+    if not _MARKETS_OK:
+        return False
     try:
         from live_executor import live_enabled, LIVE_MAX_OPEN, _load as _lload
         if not live_enabled():
