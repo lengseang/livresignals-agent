@@ -304,7 +304,19 @@ def futures_scan() -> dict:
         return {"ok": True, "opened": 0, "reason": "daily loss cap hit"}
     ex = make_futures_exchange()
     try:
-        ex.load_markets()
+        # RELIABILITY FIX (2026-10-01): load_markets() hits the SPOT endpoint
+        # api.binance.com/sapi/v1/capital/config/getall even though this client
+        # is defaultType='future'. A spot-API outage therefore killed the ENTIRE
+        # futures scan at this line (logs/futures-manage.log:523,525 on 09-29)
+        # before it ever checked breadth or dip signals -> silent entry blackout.
+        # load_markets() is NOT required on this path: fetch_ticker / fetch_ohlcv
+        # / create_order all resolve 'SOL/USDT:USDT' via fapi without it (verified
+        # live: both work with markets unloaded). Make it NON-FATAL — a failure
+        # just warns and the scan continues.
+        try:
+            ex.load_markets()
+        except Exception as _e:
+            print(f"WARN: futures load_markets failed (non-fatal): {str(_e)[:120]}")
         # breadth risk-off guard
         up = down = 0
         for fut in ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",

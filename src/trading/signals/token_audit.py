@@ -87,15 +87,19 @@ def audit(chain_id: str, contract_address: str) -> dict:
         return {"success": False, "error": d.get("error", "unknown")}
 
     data = d.get("data") or {}
+    # extraInfo may be present-and-null (native SOL returns extraInfo=None).
+    # dict.get(k, {}) does NOT guard this — the default only applies when the
+    # key is ABSENT. Coerce None -> {} explicitly or .get() crashes.
+    extra = data.get("extraInfo") or {}
     result = {
         "success": True,
         "has_result": data.get("hasResult", False),
         "supported": data.get("isSupported", False),
         "risk_level": data.get("riskLevelEnum"),
         "risk_code": data.get("riskLevel"),
-        "buy_tax": data.get("extraInfo", {}).get("buyTax"),
-        "sell_tax": data.get("extraInfo", {}).get("sellTax"),
-        "is_verified": data.get("extraInfo", {}).get("isVerified"),
+        "buy_tax": extra.get("buyTax"),
+        "sell_tax": extra.get("sellTax"),
+        "is_verified": extra.get("isVerified"),
         "issues": [],
         "hits": {},
         "raw": d,
