@@ -114,6 +114,72 @@ def _check_market_watch() -> tuple[bool, str]:
         return True, f"watch check skipped: {str(e)[:50]}"
 
 
+def _check_live_capital() -> tuple[bool, str]:
+    """Is REAL money actually trading, or is it silently stuck?
+
+    Added 2026-10-03 by the autonomous improvement agent. Found by reading
+    live-trades.json + unified.log: the live spot executor had not opened or
+    closed a real trade in 24 days while the paper book traded every few
+    minutes, because ~86% of the ~$20.68 real equity was stuck in NEAR/ARB
+    (never sold, and NOT in live_executor.py ALLOWED_REAL so they can never be
+    rotated) leaving only $0.03 free USDT — below the $6 order minimum. Every
+    other heartbeat component said OK, so the owner never heard that real
+    trading had completely stopped. This component is that voice.
+
+    LOCAL-ONLY (reads state files; no exchange call) so it is fast and cannot
+    rate-limit or hang the daily card.
+    """
+    if not (ROOT / "config" / "LIVE_ENABLED").exists():
+        return True, "live trading intentionally off"
+    try:
+        lt = json.loads((ROOT / "data" / "live-trades.json").read_text())
+    except Exception:
+        return True, "no live-trades state"
+    newest = None
+    for t in (lt.get("closed") or []) + (lt.get("open") or []):
+        s = t.get("close_ts_utc") or t.get("open_ts_utc")
+        if not s:
+            continue
+        try:
+            d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            if newest is None or d > newest:
+                newest = d
+        except Exception:
+            continue
+    if newest is None:
+        return True, "no live trades yet"
+    age_h = (datetime.now(timezone.utc) - newest).total_seconds() / 3600
+    # is the paper path still trading? (dead-live + live-paper = the signature)
+    paper_h = None
+    try:
+        up = json.loads((ROOT / "data" / "unified-paper.json").read_text())
+        pnew = None
+        for t in (up.get("closed") or []):
+            s = t.get("ts_utc")
+            if not s:
+                continue
+            try:
+                d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                if pnew is None or d > pnew:
+                    pnew = d
+            except Exception:
+                continue
+        if pnew is not None:
+            paper_h = (datetime.now(timezone.utc) - pnew).total_seconds() / 3600
+    except Exception:
+        pass
+    if age_h > 7 * 24 and paper_h is not None and paper_h < 72:
+        free = "?"
+        try:
+            lb = json.loads((ROOT / "data" / "live-balance-cache.json").read_text())
+            free = lb.get("usdt")
+        except Exception:
+            pass
+        return False, (f"DEAD {age_h/24:.0f}d (paper traded {paper_h:.0f}h ago) "
+                       f"— untradeable bag / free USDT {free} < $6 order min")
+    return True, f"last real trade {age_h:.0f}h ago"
+
+
 def main():
     always = "--always" in sys.argv
     checks = [
@@ -122,6 +188,7 @@ def main():
         ("circuit", *_check_circuit()),
         ("adaptive", *_check_adaptive()),
         ("market", *_check_market_watch()),
+        ("capital", *_check_live_capital()),
     ]
     all_ok = all(ok for _, ok, _ in checks)
 

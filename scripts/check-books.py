@@ -465,6 +465,76 @@ try:
 except Exception as e:
     warn(f"site-claim audit could not run: {str(e)[:80]}", False)
 
+# ------------ 12. LIVE EXECUTOR LIVENESS (a silent dead real-money path)
+# Added 2026-10-03 by the autonomous improvement agent.
+#
+# WHY: the live spot executor had not opened OR closed a single real trade for
+# 24 days (newest live-trades.json record 2026-09-09) while the paper book kept
+# trading every few minutes. unified.log was full of
+#   "real skipped: insufficient free (0.03 < 6.0)"
+# because ~86% of the ~$20.68 real equity had become stuck in NEAR/ARB (never
+# sold, and NOT in live_executor.py ALLOWED_REAL so they can never be rotated),
+# leaving $0.03 free USDT. Every other check passed: books were internally
+# consistent, the paper path was healthy — so nothing in the fleet noticed that
+# REAL trading was completely halted. This section is that oversight.
+#
+# It is deliberately LOCAL-ONLY (reads state files + the cached balance, no
+# exchange call) so it cannot hang or rate-limit the scheduled health run.
+print("\n[12] LIVE EXECUTOR LIVENESS (is real money actually trading?)")
+try:
+    live_on = Path("/opt/trading-agent/config/LIVE_ENABLED").exists()
+    lt = load("live-trades.json") or {}
+    lclosed = lt.get("closed") or []
+    lopen = lt.get("open") or []
+    newest_live = None
+    for t in lclosed:
+        s = t.get("close_ts_utc") or t.get("open_ts_utc")
+        if not s:
+            continue
+        try:
+            d = dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+            if newest_live is None or d > newest_live:
+                newest_live = d
+        except Exception:
+            continue
+    if live_on and newest_live is not None:
+        age_d = (NOW - newest_live).total_seconds() / 86400
+        # is the paper book still alive? (a dead live path with a live paper path
+        # is the exact silent-failure signature; both dead = a separate problem)
+        up = load("unified-paper.json") or {}
+        p_newest = None
+        for t in (up.get("closed") or []):
+            s = t.get("ts_utc")
+            if not s:
+                continue
+            try:
+                d = dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+                if p_newest is None or d > p_newest:
+                    p_newest = d
+            except Exception:
+                continue
+        paper_alive = p_newest is not None and (NOW - p_newest).total_seconds() < 3 * 86400
+        check("real-money path traded within the last 7 days",
+              age_d <= 7,
+              f"newest live closed trade {age_d:.1f}d ago" if age_d > 7 else "")
+        if age_d > 7 and paper_alive:
+            # diagnose the usual cause from the CACHED balance (may be stale)
+            lb = load("live-balance-cache.json") or {}
+            free = lb.get("usdt")
+            tot = lb.get("total_usdt")
+            fails.append(
+                "live spot executor is SILENTLY DEAD "
+                f"(no real trade in {age_d:.0f}d) while paper keeps trading — "
+                f"check untradeable bag + free USDT (cached free={free})")
+            print(f"     ⚠️  live-trades frozen {age_d:.0f}d while paper traded "
+                  f"{0 if p_newest is None else (NOW - p_newest).total_seconds()/3600:.1f}h ago.")
+            print(f"     cached balance: usdt={free} total_usdt={tot} "
+                  f"(free < LIVE_MIN_FREE_BUFFER blocks every order)")
+    elif not live_on:
+        warn("LIVE_ENABLED flag is absent — real trading intentionally off", False)
+except Exception as e:
+    warn(f"live-liveness check could not run: {str(e)[:80]}", False)
+
 print()
 print("=" * 82)
 if fails:
