@@ -16,6 +16,7 @@ Append-only: data/altdata.jsonl    One line per symbol per day.
 from __future__ import annotations
 
 import json
+import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +34,42 @@ def g(url, timeout=15):
         return json.loads(urllib.request.urlopen(req, timeout=timeout).read())
     except Exception:
         return None
+
+
+def g_last(url, timeout=15):
+    """Fetch a futures/data series and return its LAST row, or None.
+
+    Binance caps these positioning series at ~30 days of history (measured
+    2026-10-02: limit=500 still returns 30 daily rows), so a daily snapshot is
+    the only way to own a long history. limit=1 is enough for a snapshot.
+    """
+    time.sleep(0.15)                      # be polite; we add several calls/symbol
+    r = g(url, timeout=timeout)
+    if isinstance(r, list) and r:
+        return r[-1]
+    return None
+
+
+def apply_top_trader_positioning(row: dict, top_pos: dict | None,
+                                 top_acct: dict | None) -> dict:
+    """Merge top-trader positioning into a snapshot row and compute divergence.
+
+    Pure function (no network) so it is unit-testable. top_pos / top_acct are the
+    last rows of Binance's topLongShortPositionRatio / topLongShortAccountRatio
+    series, or None when unavailable. Missing data is simply omitted — a partial
+    snapshot is still valuable and must never raise.
+
+    lsr_divergence = top-trader long/short ratio − all-account (retail) ratio.
+    Positive means the big accounts lean LONGER than the crowd.
+    """
+    if top_pos:
+        row["top_pos_lsr"] = float(top_pos["longShortRatio"])
+        row["top_pos_long_pct"] = float(top_pos["longAccount"]) * 100
+    if top_acct:
+        row["top_acct_lsr"] = float(top_acct["longShortRatio"])
+    if "top_pos_lsr" in row and "ls_ratio" in row:
+        row["lsr_divergence"] = round(row["top_pos_lsr"] - float(row["ls_ratio"]), 4)
+    return row
 
 
 def main():
@@ -66,6 +103,21 @@ def main():
         if r:
             row["ls_ratio"] = float(r[-1]["longShortRatio"])
             row["long_pct"] = float(r[-1]["longAccount"]) * 100
+
+        # ---- TOP-TRADER positioning (added 2026-10-02) --------------------
+        # "Top traders" = the largest accounts by position size on this venue.
+        # This is DIFFERENT information from ls_ratio above (which counts ALL
+        # accounts, i.e. mostly retail). The retail-vs-whale divergence is the
+        # one thing this pair exposes that neither column alone does.
+        # ⚠ MONITOR-ONLY: Binance caps this series at ~30 days, so it CANNOT be
+        # backtested yet. We log it daily to buy a future backtest window —
+        # same rationale as the OI columns (see module docstring).
+        top_pos = g_last(f"https://fapi.binance.com/futures/data/"
+                         f"topLongShortPositionRatio?symbol={s}&period=1d&limit=1")
+        top_acct = g_last(f"https://fapi.binance.com/futures/data/"
+                          f"topLongShortAccountRatio?symbol={s}&period=1d&limit=1")
+        apply_top_trader_positioning(row, top_pos, top_acct)
+
         r = g(f"https://fapi.binance.com/futures/data/takerlongshortRatio"
               f"?symbol={s}&period=1d&limit=1")
         if r:

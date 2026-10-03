@@ -43,6 +43,21 @@ TRACKING_MAX_HOURS = 72.0
 TP_MULT = 2.0       # TP = entry + 2x SL distance (matches EA InpTPRR)
 SL_BUFFER = 0.001   # 0.1% below dip low
 
+# 🔬 RESEARCH_ONLY (set 2026-10-02 by autonomous improvement agent).
+# Evidence the dip-buy action is NEGATIVE expectancy, robust across halves:
+#   * Live track record (gold-signals.json): 30 decisive signals, WR=33.3%,
+#     and split-half WR identical at 29.4% (IS n=17 / OOS n=17) -> NOT a
+#     regime artifact. At TP_MULT=2.0 break-even needs WR>33.3%, so realized
+#     sumR = +0.01 => ~flat before costs => net-negative after the spread.
+#   * Independent 30-day GC=F 15m OOS backtest (/tmp/gold_backtest.py,
+#     n=42 signals): avg -0.286R, BOTH halves negative (IS sumR=-3, OOS=-9).
+#     Swept TP_MULT in {1.0..3.0} and entry thresholds: all 12 configs failed
+#     the "both halves positive" bar. No mechanical fix rescues the entry.
+# So we STOP emitting an actionable BUY ping (which could mislead a human into
+# buying gold) while KEEPING the signal tracked and resolved, so the statistics
+# keep accumulating and the edge can be re-enabled by flipping this one flag.
+RESEARCH_ONLY = True
+
 
 def fetch_15m(n=300):
     url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{SYM}"
@@ -303,15 +318,26 @@ def main() -> None:
             resolved.append(sig)
             fired = True
             save_state(resolved)
-            send_card("🥇 GOLD BUY-DIP SETUP",
-                      f"<b>Signal fired @ ${entry:.0f}</b>\n"
-                      f"RSI(14): {st['rsi']:.0f} | dip: {st['dd']*100:.2f}%\n"
-                      f"1h: {st['chg1h']:+.2f}%\n\n"
-                      f"Levels (2R plan):\n"
-                      f"🎯 TP: ${tp:.0f}\n"
-                      f"🛑 SL: ${sl:.0f} (below dip low)\n\n"
-                      f"⏱️ I'll track this and ping the RESULT "
-                      f"(win/loss/timeout) automatically.")
+            if RESEARCH_ONLY:
+                # Still logged/tracked/resolved, but NOT an actionable call.
+                send_card("🔬 GOLD DIP — RESEARCH LOG (not an action)",
+                          f"<b>Dip+RSI condition met @ ${entry:.0f}</b>\n"
+                          f"RSI(14): {st['rsi']:.0f} | dip: {st['dd']*100:.2f}%\n\n"
+                          f"⚠️ This setup is <b>negative expectancy</b> on the\n"
+                          f"track record (WR 33% over 30 decisive, both halves\n"
+                          f"~29%; OOS backtest −0.29R). Logged for research only —\n"
+                          f"<b>no trade recommended</b>. Tracking to resolution\n"
+                          f"to keep the statistics honest.")
+            else:
+                send_card("🥇 GOLD BUY-DIP SETUP",
+                          f"<b>Signal fired @ ${entry:.0f}</b>\n"
+                          f"RSI(14): {st['rsi']:.0f} | dip: {st['dd']*100:.2f}%\n"
+                          f"1h: {st['chg1h']:+.2f}%\n\n"
+                          f"Levels (2R plan):\n"
+                          f"🎯 TP: ${tp:.0f}\n"
+                          f"🛑 SL: ${sl:.0f} (below dip low)\n\n"
+                          f"⏱️ I'll track this and ping the RESULT "
+                          f"(win/loss/timeout) automatically.")
         else:
             print("gold: signal condition met but already have an open signal")
     else:
