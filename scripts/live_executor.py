@@ -292,6 +292,7 @@ def _open_long_locked(symbol: str, size_usdt: float | None, atr: float | None, s
         }
         s["open"].append(rec)
         _save(s)
+        _wire_open(rec)
         return {"ok": True, "trade": rec}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "reason": f"open_long error: {str(e)[:120]}"}
@@ -350,6 +351,64 @@ def _notify_close(pos: dict, pnl: float, reason: str) -> None:
         pass  # never block the trade loop on a notification failure
 
 
+def _wire_close(pos: dict, pnl: float, reason: str) -> None:
+    """Post the close to the ledger topic (per-transaction wire).
+
+    Deliberately a SEPARATE function from _notify_close, and called after it:
+    the alert above is the human summary and must keep working even if the wire
+    is misconfigured. This one adds the per-transaction card the owner asked for
+    (thread 1166), tagged REAL.
+
+    Best-effort and non-blocking. If the wire script is missing or errors, the
+    trade is unaffected — the module swallows everything and returns 0 by design.
+    """
+    try:
+        import subprocess
+        w = Path("/home/ubuntu/hermes-home/scripts/ledger_wire.py")
+        if not w.exists():
+            return
+        sym = pos.get("symbol", "?")
+        subprocess.run(
+            [sys.executable, str(w),
+             "--event", "close", "--mode", "real",
+             "--account", "SPOT (real)", "--venue", "binance",
+             "--symbol", sym,
+             "--side", str(pos.get("side", "long")),
+             "--entry", str(pos.get("entry", "")),
+             "--exit", str(pos.get("exit", "")),
+             "--pnl", f"{pnl:.6f}",
+             "--reason", str(reason),
+             "--event-id", str(pos.get("order_id") or f"{sym}-{pos.get('close_ts_utc', '')}")],
+            capture_output=True, text=True, timeout=20,
+        )
+    except Exception:
+        pass  # a notification must never break a trade
+
+
+def _wire_open(pos: dict) -> None:
+    """Post a REAL spot open to the ledger topic. Same safety contract as above."""
+    try:
+        import subprocess
+        w = Path("/home/ubuntu/hermes-home/scripts/ledger_wire.py")
+        if not w.exists():
+            return
+        subprocess.run(
+            [sys.executable, str(w),
+             "--event", "open", "--mode", "real",
+             "--account", "SPOT (real)", "--venue", "binance",
+             "--symbol", str(pos.get("symbol", "?")),
+             "--side", str(pos.get("side", "long")),
+             "--entry", str(pos.get("entry", "")),
+             "--size", str(pos.get("size_usdt", "")),
+             "--tp", str(pos.get("tp", "")),
+             "--sl", str(pos.get("sl", "")),
+             "--event-id", str(pos.get("order_id") or f"{pos.get('symbol')}-{pos.get('open_ts_utc', '')}")],
+            capture_output=True, text=True, timeout=20,
+        )
+    except Exception:
+        pass
+
+
 def manage() -> dict:
     """Check all open live positions; place real SELL on TP/SL/time-stop.
 
@@ -406,6 +465,7 @@ def manage() -> dict:
                 s["closed"].append(pos)
                 events.append(f"HEAL {sym}: coins gone (held {held_free:.6f} < 10% of {expected_qty}) — archived at {exit_px} pnl={pnl:+.2f}")
                 _notify_close(pos, pnl, "SOLD-EXCHANGE")
+                _wire_close(pos, pnl, "SOLD-EXCHANGE")
                 continue
             # --- BREAKEVEN/TRAIL PROTECTION (2026-09-07): a position that
             # moved in our favor must NEVER give it all back. Data: 3 real
@@ -491,6 +551,7 @@ def manage() -> dict:
                 s["closed"].append(pos)
                 events.append(f"SELL {sym} ({reason}) pnl={pnl:+.2f} USDT")
                 _notify_close(pos, pnl, reason)
+                _wire_close(pos, pnl, reason)
             else:
                 keep.append(pos)
         s["open"] = keep

@@ -374,10 +374,34 @@ def main() -> int:
     return publish(SITE, payload["chain"]["records"], payload["stats"].get("closed"))
 
 
+def current_branch(site: Path) -> str:
+    """Name of the checked-out branch, or "" if detached."""
+    p = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                       cwd=str(site), capture_output=True, text=True, timeout=60)
+    return p.stdout.strip()
+
+
 def publish(site: Path, n, closed) -> int:
     """Commit the export and push it. The site repo also receives front-end changes, so this checkout can be
     behind origin: pull --rebase BEFORE the push, or the push is rejected (non-fast-forward) and the public
-    record silently stops updating. A rebase conflict aborts the rebase and fails loudly; nothing is forced."""
+    record silently stops updating. A rebase conflict aborts the rebase and fails loudly; nothing is forced.
+
+    BRANCH GUARD (added 2026-10-03). This previously committed on whatever branch
+    happened to be checked out. The site repo is often left on a feature branch
+    after front-end work, so an export could land on that branch instead of main,
+    and the push to main would then fail with a "non-fast-forward" message that
+    described main's state rather than the real cause. The export appeared to
+    work while the public record silently stopped updating. That happened once
+    and cost a debugging session, so it is now a hard precondition: this refuses
+    to commit anywhere except main, and says so plainly.
+    """
+    br = current_branch(site)
+    if br != "main":
+        print(f"  ⛔ refusing to publish: site repo is on '{br or 'DETACHED HEAD'}', not 'main'.")
+        print("     The ledger must be committed to main. Fix with:")
+        print("       git checkout main && git pull --ff-only origin main")
+        return 4
+
     bot = ["-c", "user.name=ledger-bot", "-c", "user.email=ledger-bot@users.noreply.github.com"]
     steps = [
         ("add", ["git", "add", "-A"]),

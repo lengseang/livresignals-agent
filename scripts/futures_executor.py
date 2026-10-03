@@ -132,6 +132,41 @@ def _notify(title: str, body: str) -> None:
         pass
 
 
+def _wire(event: str, pos: dict, pnl: float | None = None, reason: str | None = None) -> None:
+    """Post a futures event to the ledger topic (per-transaction wire, thread 1166).
+
+    Separate from _notify by design: the alert above is the human summary, this
+    adds the per-transaction card tagged REAL. Best-effort and non-blocking — the
+    wire module swallows every failure and returns 0, so a notification problem
+    can never affect order placement.
+    """
+    try:
+        import subprocess
+        w = Path("/home/ubuntu/hermes-home/scripts/ledger_wire.py")
+        if not w.exists():
+            return
+        argv = [sys.executable, str(w), "--event", event, "--mode", "real",
+                "--account", "FUTURES (real, 3x)", "--venue", "binance",
+                "--symbol", str(pos.get("symbol", "?")),
+                "--side", "long",
+                "--lev", str(pos.get("leverage", 3))]
+        if event == "open":
+            argv += ["--entry", str(pos.get("entry", "")),
+                     "--size", str(pos.get("notional", "")),
+                     "--tp", str(pos.get("tp", "")),
+                     "--sl", str(pos.get("sl", "")),
+                     "--event-id", str(pos.get("order_id", ""))]
+        else:
+            argv += ["--entry", str(pos.get("entry", "")),
+                     "--exit", str(pos.get("exit", "")),
+                     "--pnl", f"{float(pnl or 0):.6f}",
+                     "--reason", str(reason or ""),
+                     "--event-id", str(pos.get("order_id", ""))]
+        subprocess.run(argv, capture_output=True, text=True, timeout=20)
+    except Exception:
+        pass
+
+
 def _daily_loss() -> float:
     """Realized loss today (UTC) — for the daily cap."""
     s = _load()
@@ -266,6 +301,7 @@ def futures_open(symbol_spot: str, sig: dict | None = None) -> dict:
                 f"Notional: ${pos['notional']} (margin ${pos['margin']})\n"
                 f"🎯 TP: ${pos['tp']}  ·  🛑 SL: ${pos['sl']}\n"
                 f"Leverage: 3x · daily cap −$1.00")
+        _wire("open", pos)
         return {"ok": True, "pos": pos}
     except Exception as e:
         return {"ok": False, "err": str(e)[:200]}
@@ -433,6 +469,7 @@ def futures_manage() -> dict:
                         f"Entry ${pos['entry']} → Exit ${pos['exit']}\n"
                         f"<b>P&L: ${pnl:+.2f}</b>\n"
                         f"Futures balance now ${futures_balance():.2f}")
+                _wire("close", pos, pnl=pnl, reason=reason)
             except Exception as e:
                 events.append(f"FUTURES CLOSE FAIL {pos['symbol']}: {str(e)[:80]}")
                 keep.append(pos)
