@@ -1,0 +1,1653 @@
+{
+ "period": [
+  1672531200000,
+  1735689600000
+ ],
+ "choice": "R0_stop_only",
+ "results": {
+  "R0_stop_only": {
+   "rule": {
+    "name": "R0_stop_only",
+    "target": false,
+    "be_at": null,
+    "lock_at": null,
+    "lock_frac": 0.5,
+    "trail_at": null,
+    "trail_k": null
+   },
+   "selection_mean": 0.023108878709373715,
+   "selection_giveback": 0.29272639691714836,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 92,
+     "win_rate": 0.3804347826086957,
+     "mean": 0.017936664980287863,
+     "sum": 1.6501731781864835,
+     "profit_factor": 1.8077089684641434,
+     "giveback_rate": 0.18478260869565216,
+     "giveback_of_reached": 0.3269230769230769,
+     "reasons": {
+      "stop": 53,
+      "target": 0,
+      "timeout": 39
+     },
+     "median_hold_h": 227.21666666666667
+    },
+    "a_all/ETHUSDT": {
+     "trades": 103,
+     "win_rate": 0.30097087378640774,
+     "mean": 0.010449682892650889,
+     "sum": 1.0763173379430415,
+     "profit_factor": 1.418939591635001,
+     "giveback_rate": 0.2621359223300971,
+     "giveback_of_reached": 0.46551724137931033,
+     "reasons": {
+      "stop": 69,
+      "target": 0,
+      "timeout": 34
+     },
+     "median_hold_h": 133.11666666666667
+    },
+    "a_all/SOLUSDT": {
+     "trades": 151,
+     "win_rate": 0.2185430463576159,
+     "mean": 0.02491279423708079,
+     "sum": 3.7618319297991993,
+     "profit_factor": 1.8672653738312037,
+     "giveback_rate": 0.32450331125827814,
+     "giveback_of_reached": 0.5975609756097561,
+     "reasons": {
+      "stop": 117,
+      "target": 0,
+      "timeout": 34
+     },
+     "median_hold_h": 44.03333333333333
+    },
+    "a_all/ALL": {
+     "trades": 346,
+     "win_rate": 0.2861271676300578,
+     "mean": 0.018752377011354692,
+     "sum": 6.488322445928723,
+     "profit_factor": 1.7249720653076364,
+     "giveback_rate": 0.26878612716763006,
+     "giveback_of_reached": 0.484375,
+     "reasons": {
+      "stop": 239,
+      "target": 0,
+      "timeout": 107
+     },
+     "median_hold_h": 74.76666666666667,
+     "mean_lb95": 0.006121634581413182
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 32,
+     "win_rate": 0.3125,
+     "mean": 0.027649936045471616,
+     "sum": 0.8847979534550917,
+     "profit_factor": 2.1225461363223594,
+     "giveback_rate": 0.1875,
+     "giveback_of_reached": 0.375,
+     "reasons": {
+      "stop": 21,
+      "target": 0,
+      "timeout": 11
+     },
+     "median_hold_h": 115.14166666666667
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 30,
+     "win_rate": 0.3,
+     "mean": 0.01658691551441551,
+     "sum": 0.49760746543246537,
+     "profit_factor": 1.639317932636402,
+     "giveback_rate": 0.3,
+     "giveback_of_reached": 0.5,
+     "reasons": {
+      "stop": 21,
+      "target": 0,
+      "timeout": 9
+     },
+     "median_hold_h": 141.9
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 58,
+     "win_rate": 0.2413793103448276,
+     "mean": 0.04111727858633564,
+     "sum": 2.384802158007467,
+     "profit_factor": 2.4768696761001694,
+     "giveback_rate": 0.39655172413793105,
+     "giveback_of_reached": 0.6216216216216216,
+     "reasons": {
+      "stop": 43,
+      "target": 0,
+      "timeout": 15
+     },
+     "median_hold_h": 85.2
+    },
+    "b_bullish/ALL": {
+     "trades": 120,
+     "win_rate": 0.275,
+     "mean": 0.03139339647412521,
+     "sum": 3.7672075768950246,
+     "profit_factor": 2.1841665457390147,
+     "giveback_rate": 0.31666666666666665,
+     "giveback_of_reached": 0.5352112676056338,
+     "reasons": {
+      "stop": 85,
+      "target": 0,
+      "timeout": 35
+     },
+     "median_hold_h": 96.625,
+     "mean_lb95": 0.005786201417498154
+    }
+   }
+  },
+  "R1_bracket": {
+   "rule": {
+    "name": "R1_bracket",
+    "target": true,
+    "be_at": null,
+    "lock_at": null,
+    "lock_frac": 0.5,
+    "trail_at": null,
+    "trail_k": null
+   },
+   "selection_mean": 0.004572696911176325,
+   "selection_giveback": 0.14027361447597148,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 194,
+     "win_rate": 0.422680412371134,
+     "mean": 0.005837130887031001,
+     "sum": 1.1324033920840142,
+     "profit_factor": 1.2779738836020897,
+     "giveback_rate": 0.13402061855670103,
+     "giveback_of_reached": 0.24299065420560748,
+     "reasons": {
+      "stop": 109,
+      "target": 75,
+      "timeout": 10
+     },
+     "median_hold_h": 54.15833333333333
+    },
+    "a_all/ETHUSDT": {
+     "trades": 244,
+     "win_rate": 0.36475409836065575,
+     "mean": 0.0009269457798820124,
+     "sum": 0.22617477029121102,
+     "profit_factor": 1.039707905953382,
+     "giveback_rate": 0.12704918032786885,
+     "giveback_of_reached": 0.25833333333333336,
+     "reasons": {
+      "stop": 153,
+      "target": 87,
+      "timeout": 4
+     },
+     "median_hold_h": 48.75
+    },
+    "a_all/SOLUSDT": {
+     "trades": 591,
+     "win_rate": 0.3688663282571912,
+     "mean": 0.0014280114900420114,
+     "sum": 0.8439547906148287,
+     "profit_factor": 1.0610444968409234,
+     "giveback_rate": 0.15905245346869712,
+     "giveback_of_reached": 0.30128205128205127,
+     "reasons": {
+      "stop": 373,
+      "target": 216,
+      "timeout": 2
+     },
+     "median_hold_h": 14.933333333333334
+    },
+    "a_all/ALL": {
+     "trades": 1029,
+     "win_rate": 0.3780369290573372,
+     "mean": 0.0021404596238970394,
+     "sum": 2.2025329529900537,
+     "profit_factor": 1.0933475279359977,
+     "giveback_rate": 0.1467444120505345,
+     "giveback_of_reached": 0.28014842300556586,
+     "reasons": {
+      "stop": 635,
+      "target": 378,
+      "timeout": 16
+     },
+     "median_hold_h": 22.1,
+     "mean_lb95": -0.0009399084162729935
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 50,
+     "win_rate": 0.48,
+     "mean": 0.011031998395652902,
+     "sum": 0.5515999197826451,
+     "profit_factor": 1.5724006789381995,
+     "giveback_rate": 0.1,
+     "giveback_of_reached": 0.1724137931034483,
+     "reasons": {
+      "stop": 26,
+      "target": 21,
+      "timeout": 3
+     },
+     "median_hold_h": 44.0
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 50,
+     "win_rate": 0.4,
+     "mean": 0.004846308678321845,
+     "sum": 0.24231543391609223,
+     "profit_factor": 1.2179260343004392,
+     "giveback_rate": 0.14,
+     "giveback_of_reached": 0.25925925925925924,
+     "reasons": {
+      "stop": 30,
+      "target": 20,
+      "timeout": 0
+     },
+     "median_hold_h": 50.99166666666667
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 184,
+     "win_rate": 0.3858695652173913,
+     "mean": 0.0033657862361281773,
+     "sum": 0.6193046674475846,
+     "profit_factor": 1.1478683420619198,
+     "giveback_rate": 0.14130434782608695,
+     "giveback_of_reached": 0.26804123711340205,
+     "reasons": {
+      "stop": 113,
+      "target": 71,
+      "timeout": 0
+     },
+     "median_hold_h": 11.966666666666667
+    },
+    "b_bullish/ALL": {
+     "trades": 284,
+     "win_rate": 0.40492957746478875,
+     "mean": 0.0049761268350222605,
+     "sum": 1.413220021146322,
+     "profit_factor": 1.225617286002386,
+     "giveback_rate": 0.13380281690140844,
+     "giveback_of_reached": 0.24836601307189543,
+     "reasons": {
+      "stop": 169,
+      "target": 112,
+      "timeout": 3
+     },
+     "median_hold_h": 20.166666666666668,
+     "mean_lb95": -0.0009271583599115654
+    }
+   }
+  },
+  "R2_be_0.50": {
+   "rule": {
+    "name": "R2_be_0.50",
+    "target": true,
+    "be_at": 0.5,
+    "lock_at": null,
+    "lock_frac": 0.5,
+    "trail_at": null,
+    "trail_k": null
+   },
+   "selection_mean": 0.0029348303842797615,
+   "selection_giveback": 0.0,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 230,
+     "win_rate": 0.5521739130434783,
+     "mean": 0.0030405380403371947,
+     "sum": 0.6993237492775548,
+     "profit_factor": 1.1845726915455417,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 161,
+      "target": 65,
+      "timeout": 4
+     },
+     "median_hold_h": 53.875
+    },
+    "a_all/ETHUSDT": {
+     "trades": 313,
+     "win_rate": 0.5111821086261981,
+     "mean": 2.8375516975629052e-05,
+     "sum": 0.008881536813371893,
+     "profit_factor": 1.0015798286683337,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 228,
+      "target": 83,
+      "timeout": 2
+     },
+     "median_hold_h": 33.666666666666664
+    },
+    "a_all/SOLUSDT": {
+     "trades": 776,
+     "win_rate": 0.5167525773195877,
+     "mean": 0.00045705934865755763,
+     "sum": 0.35467805455826473,
+     "profit_factor": 1.0255175683902313,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 565,
+      "target": 210,
+      "timeout": 1
+     },
+     "median_hold_h": 12.866666666666667
+    },
+    "a_all/ALL": {
+     "trades": 1319,
+     "win_rate": 0.5216072782410918,
+     "mean": 0.0008058251255869532,
+     "sum": 1.0628833406491913,
+     "profit_factor": 1.04559757944528,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 954,
+      "target": 358,
+      "timeout": 7
+     },
+     "median_hold_h": 20.083333333333332,
+     "mean_lb95": -0.0015754695276512143
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 53,
+     "win_rate": 0.6037735849056604,
+     "mean": 0.012172154332316568,
+     "sum": 0.6451241796127781,
+     "profit_factor": 1.8288449942071292,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 32,
+      "target": 21,
+      "timeout": 0
+     },
+     "median_hold_h": 43.71666666666667
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 55,
+     "win_rate": 0.5818181818181818,
+     "mean": 0.0005529288791296812,
+     "sum": 0.030411088352132465,
+     "profit_factor": 1.0356741324793495,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 42,
+      "target": 13,
+      "timeout": 0
+     },
+     "median_hold_h": 34.583333333333336
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 213,
+     "win_rate": 0.5211267605633803,
+     "mean": 0.0013579261882619399,
+     "sum": 0.2892382780997932,
+     "profit_factor": 1.0765076547679269,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 153,
+      "target": 60,
+      "timeout": 0
+     },
+     "median_hold_h": 8.433333333333334
+    },
+    "b_bullish/ALL": {
+     "trades": 321,
+     "win_rate": 0.5451713395638629,
+     "mean": 0.0030055250656221303,
+     "sum": 0.9647735460647038,
+     "profit_factor": 1.1782878815870088,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 227,
+      "target": 94,
+      "timeout": 0
+     },
+     "median_hold_h": 14.916666666666666,
+     "mean_lb95": -0.0016074522509025029
+    }
+   }
+  },
+  "R2_be_0.75": {
+   "rule": {
+    "name": "R2_be_0.75",
+    "target": true,
+    "be_at": 0.75,
+    "lock_at": null,
+    "lock_frac": 0.5,
+    "trail_at": null,
+    "trail_k": null
+   },
+   "selection_mean": 0.002893108948009968,
+   "selection_giveback": 0.09190039652224527,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 201,
+     "win_rate": 0.4626865671641791,
+     "mean": 0.0045094222853293755,
+     "sum": 0.9063938793512044,
+     "profit_factor": 1.2280695663570995,
+     "giveback_rate": 0.08955223880597014,
+     "giveback_of_reached": 0.16363636363636364,
+     "reasons": {
+      "stop": 124,
+      "target": 71,
+      "timeout": 6
+     },
+     "median_hold_h": 58.083333333333336
+    },
+    "a_all/ETHUSDT": {
+     "trades": 280,
+     "win_rate": 0.43214285714285716,
+     "mean": -5.778468017631647e-05,
+     "sum": -0.01617971044936861,
+     "profit_factor": 0.9972315015156941,
+     "giveback_rate": 0.060714285714285714,
+     "giveback_of_reached": 0.12318840579710146,
+     "reasons": {
+      "stop": 192,
+      "target": 86,
+      "timeout": 2
+     },
+     "median_hold_h": 44.15833333333333
+    },
+    "a_all/SOLUSDT": {
+     "trades": 641,
+     "win_rate": 0.42745709828393136,
+     "mean": 0.0010395997281307816,
+     "sum": 0.666383425731831,
+     "profit_factor": 1.0489884925089414,
+     "giveback_rate": 0.11232449297971919,
+     "giveback_of_reached": 0.20809248554913296,
+     "reasons": {
+      "stop": 429,
+      "target": 210,
+      "timeout": 2
+     },
+     "median_hold_h": 15.183333333333334
+    },
+    "a_all/ALL": {
+     "trades": 1122,
+     "win_rate": 0.43493761140819964,
+     "mean": 0.0013873418847002374,
+     "sum": 1.5565975946336663,
+     "profit_factor": 1.0664608417723498,
+     "giveback_rate": 0.09536541889483066,
+     "giveback_of_reached": 0.18013468013468015,
+     "reasons": {
+      "stop": 745,
+      "target": 367,
+      "timeout": 10
+     },
+     "median_hold_h": 22.258333333333333,
+     "mean_lb95": -0.0014624690864399191
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 50,
+     "win_rate": 0.52,
+     "mean": 0.010825696688078638,
+     "sum": 0.5412848344039319,
+     "profit_factor": 1.608504664159493,
+     "giveback_rate": 0.06,
+     "giveback_of_reached": 0.10344827586206896,
+     "reasons": {
+      "stop": 28,
+      "target": 21,
+      "timeout": 1
+     },
+     "median_hold_h": 44.0
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 51,
+     "win_rate": 0.45098039215686275,
+     "mean": -0.0017368756726045488,
+     "sum": -0.08858065930283199,
+     "profit_factor": 0.9146447633258902,
+     "giveback_rate": 0.0784313725490196,
+     "giveback_of_reached": 0.14814814814814814,
+     "reasons": {
+      "stop": 37,
+      "target": 14,
+      "timeout": 0
+     },
+     "median_hold_h": 46.1
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 193,
+     "win_rate": 0.44041450777202074,
+     "mean": 0.0027785953393018783,
+     "sum": 0.5362689004852625,
+     "profit_factor": 1.1339701828965336,
+     "giveback_rate": 0.09844559585492228,
+     "giveback_of_reached": 0.18269230769230768,
+     "reasons": {
+      "stop": 126,
+      "target": 67,
+      "timeout": 0
+     },
+     "median_hold_h": 11.05
+    },
+    "b_bullish/ALL": {
+     "trades": 294,
+     "win_rate": 0.4557823129251701,
+     "mean": 0.0033638539985930698,
+     "sum": 0.9889730755863625,
+     "profit_factor": 1.1667684066611146,
+     "giveback_rate": 0.08843537414965986,
+     "giveback_of_reached": 0.1625,
+     "reasons": {
+      "stop": 191,
+      "target": 102,
+      "timeout": 1
+     },
+     "median_hold_h": 17.816666666666666,
+     "mean_lb95": -0.001800959351836826
+    }
+   }
+  },
+  "R3_lock_0.50": {
+   "rule": {
+    "name": "R3_lock_0.50",
+    "target": true,
+    "be_at": null,
+    "lock_at": 0.5,
+    "lock_frac": 0.5,
+    "trail_at": null,
+    "trail_k": null
+   },
+   "selection_mean": 0.0012541106569983387,
+   "selection_giveback": 0.0,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 294,
+     "win_rate": 0.5374149659863946,
+     "mean": 0.002718339182697959,
+     "sum": 0.7991917197131999,
+     "profit_factor": 1.1603687336371618,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 239,
+      "target": 53,
+      "timeout": 2
+     },
+     "median_hold_h": 38.3
+    },
+    "a_all/ETHUSDT": {
+     "trades": 368,
+     "win_rate": 0.5027173913043478,
+     "mean": -0.00047055096095817217,
+     "sum": -0.17316275363260736,
+     "profit_factor": 0.974251462172388,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 308,
+      "target": 57,
+      "timeout": 3
+     },
+     "median_hold_h": 26.733333333333334
+    },
+    "a_all/SOLUSDT": {
+     "trades": 943,
+     "win_rate": 0.5015906680805938,
+     "mean": -0.0007175613778301851,
+     "sum": -0.6766603792938646,
+     "profit_factor": 0.9611311652467828,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 796,
+      "target": 146,
+      "timeout": 1
+     },
+     "median_hold_h": 9.766666666666667
+    },
+    "a_all/ALL": {
+     "trades": 1605,
+     "win_rate": 0.508411214953271,
+     "mean": -3.154605184627541e-05,
+     "sum": -0.050631413213272025,
+     "profit_factor": 0.9982611303088931,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 1343,
+      "target": 256,
+      "timeout": 6
+     },
+     "median_hold_h": 15.95,
+     "mean_lb95": -0.002021551544424739
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 62,
+     "win_rate": 0.5967741935483871,
+     "mean": 0.005581031457450169,
+     "sum": 0.34602395036191047,
+     "profit_factor": 1.373435365911302,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 52,
+      "target": 10,
+      "timeout": 0
+     },
+     "median_hold_h": 29.316666666666666
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 68,
+     "win_rate": 0.5735294117647058,
+     "mean": 0.0010912975927363968,
+     "sum": 0.07420823630607498,
+     "profit_factor": 1.0690404170040413,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 62,
+      "target": 6,
+      "timeout": 0
+     },
+     "median_hold_h": 22.308333333333334
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 255,
+     "win_rate": 0.5137254901960784,
+     "mean": -0.0006778919521061353,
+     "sum": -0.1728624477870645,
+     "profit_factor": 0.9623878406730499,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 218,
+      "target": 37,
+      "timeout": 0
+     },
+     "median_hold_h": 6.466666666666667
+    },
+    "b_bullish/ALL": {
+     "trades": 385,
+     "win_rate": 0.5376623376623376,
+     "mean": 0.0006425188022881064,
+     "sum": 0.24736973888092095,
+     "profit_factor": 1.0374952162042583,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 332,
+      "target": 53,
+      "timeout": 0
+     },
+     "median_hold_h": 10.783333333333333,
+     "mean_lb95": -0.0031299384921406785
+    }
+   }
+  },
+  "R3_lock_0.75": {
+   "rule": {
+    "name": "R3_lock_0.75",
+    "target": true,
+    "be_at": null,
+    "lock_at": 0.75,
+    "lock_frac": 0.5,
+    "trail_at": null,
+    "trail_k": null
+   },
+   "selection_mean": 0.0023662498237773597,
+   "selection_giveback": 0.09459168813130658,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 227,
+     "win_rate": 0.4581497797356828,
+     "mean": 0.0030126999517171155,
+     "sum": 0.6838828890397852,
+     "profit_factor": 1.1509622885684039,
+     "giveback_rate": 0.08370044052863436,
+     "giveback_of_reached": 0.15447154471544716,
+     "reasons": {
+      "stop": 163,
+      "target": 59,
+      "timeout": 5
+     },
+     "median_hold_h": 51.61666666666667
+    },
+    "a_all/ETHUSDT": {
+     "trades": 293,
+     "win_rate": 0.41638225255972694,
+     "mean": 0.0001238001433842465,
+     "sum": 0.03627344201158422,
+     "profit_factor": 1.0057614716683976,
+     "giveback_rate": 0.07508532423208192,
+     "giveback_of_reached": 0.1527777777777778,
+     "reasons": {
+      "stop": 217,
+      "target": 74,
+      "timeout": 2
+     },
+     "median_hold_h": 39.68333333333333
+    },
+    "a_all/SOLUSDT": {
+     "trades": 709,
+     "win_rate": 0.4203102961918195,
+     "mean": 0.00042458939154170375,
+     "sum": 0.30103387860306796,
+     "profit_factor": 1.0197761750601038,
+     "giveback_rate": 0.11001410437235543,
+     "giveback_of_reached": 0.2074468085106383,
+     "reasons": {
+      "stop": 527,
+      "target": 181,
+      "timeout": 1
+     },
+     "median_hold_h": 13.65
+    },
+    "a_all/ALL": {
+     "trades": 1229,
+     "win_rate": 0.42636289666395444,
+     "mean": 0.0008309114805975897,
+     "sum": 1.0211902096544376,
+     "profit_factor": 1.039204066118298,
+     "giveback_rate": 0.096826688364524,
+     "giveback_of_reached": 0.18506998444790046,
+     "reasons": {
+      "stop": 907,
+      "target": 314,
+      "timeout": 8
+     },
+     "median_hold_h": 20.2,
+     "mean_lb95": -0.0016044776642064483
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 52,
+     "win_rate": 0.5384615384615384,
+     "mean": 0.007972102131158247,
+     "sum": 0.41454931082022883,
+     "profit_factor": 1.4660304023407538,
+     "giveback_rate": 0.057692307692307696,
+     "giveback_of_reached": 0.0967741935483871,
+     "reasons": {
+      "stop": 37,
+      "target": 14,
+      "timeout": 1
+     },
+     "median_hold_h": 43.74166666666667
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 56,
+     "win_rate": 0.44642857142857145,
+     "mean": 0.0007442228773801832,
+     "sum": 0.041676481133290255,
+     "profit_factor": 1.036272596359456,
+     "giveback_rate": 0.08928571428571429,
+     "giveback_of_reached": 0.16666666666666666,
+     "reasons": {
+      "stop": 44,
+      "target": 12,
+      "timeout": 0
+     },
+     "median_hold_h": 37.675
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 206,
+     "win_rate": 0.4320388349514563,
+     "mean": 0.0019200844474826604,
+     "sum": 0.395537396181428,
+     "profit_factor": 1.091211790768333,
+     "giveback_rate": 0.10194174757281553,
+     "giveback_of_reached": 0.19090909090909092,
+     "reasons": {
+      "stop": 149,
+      "target": 57,
+      "timeout": 0
+     },
+     "median_hold_h": 10.916666666666666
+    },
+    "b_bullish/ALL": {
+     "trades": 314,
+     "win_rate": 0.45222929936305734,
+     "mean": 0.0027126216182641627,
+     "sum": 0.8517631881349471,
+     "profit_factor": 1.1336102306000941,
+     "giveback_rate": 0.09235668789808917,
+     "giveback_of_reached": 0.1695906432748538,
+     "reasons": {
+      "stop": 230,
+      "target": 83,
+      "timeout": 1
+     },
+     "median_hold_h": 15.833333333333334,
+     "mean_lb95": -0.002316029543289365
+    }
+   }
+  },
+  "R4_trail_0.25_k2": {
+   "rule": {
+    "name": "R4_trail_0.25_k2",
+    "target": true,
+    "be_at": null,
+    "lock_at": null,
+    "lock_frac": 0.5,
+    "trail_at": 0.25,
+    "trail_k": 2
+   },
+   "selection_mean": 0.0009459302677677448,
+   "selection_giveback": 0.02292175779791603,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 479,
+     "win_rate": 0.6534446764091858,
+     "mean": 0.0011001439935003437,
+     "sum": 0.5269689728866647,
+     "profit_factor": 1.0980865701627192,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 454,
+      "target": 24,
+      "timeout": 1
+     },
+     "median_hold_h": 22.733333333333334
+    },
+    "a_all/ETHUSDT": {
+     "trades": 592,
+     "win_rate": 0.6283783783783784,
+     "mean": -0.0007165273516647104,
+     "sum": -0.4241841921855085,
+     "profit_factor": 0.9411042028626884,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 564,
+      "target": 27,
+      "timeout": 1
+     },
+     "median_hold_h": 19.616666666666667
+    },
+    "a_all/SOLUSDT": {
+     "trades": 1137,
+     "win_rate": 0.4573438874230431,
+     "mean": -0.0005000190978889009,
+     "sum": -0.5685217142996802,
+     "profit_factor": 0.9653559202902203,
+     "giveback_rate": 0.02990325417766051,
+     "giveback_of_reached": 0.08095238095238096,
+     "reasons": {
+      "stop": 976,
+      "target": 160,
+      "timeout": 1
+     },
+     "median_hold_h": 10.15
+    },
+    "a_all/ALL": {
+     "trades": 2208,
+     "win_rate": 0.5457427536231884,
+     "mean": -0.00021093158224570833,
+     "sum": -0.46573693359852397,
+     "profit_factor": 0.9839318657615574,
+     "giveback_rate": 0.015398550724637682,
+     "giveback_of_reached": 0.05037037037037037,
+     "reasons": {
+      "stop": 1994,
+      "target": 211,
+      "timeout": 3
+     },
+     "median_hold_h": 14.308333333333334,
+     "mean_lb95": -0.00156898726830288
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 82,
+     "win_rate": 0.6463414634146342,
+     "mean": 0.002728175056038754,
+     "sum": 0.22371035459517785,
+     "profit_factor": 1.2731950126067726,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 76,
+      "target": 6,
+      "timeout": 0
+     },
+     "median_hold_h": 16.016666666666666
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 88,
+     "win_rate": 0.625,
+     "mean": 0.0017778727897495106,
+     "sum": 0.15645280549795693,
+     "profit_factor": 1.172126535765576,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 83,
+      "target": 5,
+      "timeout": 0
+     },
+     "median_hold_h": 15.216666666666667
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 257,
+     "win_rate": 0.4591439688715953,
+     "mean": 0.0012859362168714714,
+     "sum": 0.33048560773596813,
+     "profit_factor": 1.0890137256738632,
+     "giveback_rate": 0.05058365758754864,
+     "giveback_of_reached": 0.11926605504587157,
+     "reasons": {
+      "stop": 213,
+      "target": 44,
+      "timeout": 0
+     },
+     "median_hold_h": 8.366666666666667
+    },
+    "b_bullish/ALL": {
+     "trades": 427,
+     "win_rate": 0.5292740046838408,
+     "mean": 0.0016642828286395853,
+     "sum": 0.7106487678291029,
+     "profit_factor": 1.130620604685602,
+     "giveback_rate": 0.03044496487119438,
+     "giveback_of_reached": 0.08125,
+     "reasons": {
+      "stop": 372,
+      "target": 55,
+      "timeout": 0
+     },
+     "median_hold_h": 10.933333333333334,
+     "mean_lb95": -0.0016574193714464383
+    }
+   }
+  },
+  "R4_trail_0.25_k3": {
+   "rule": {
+    "name": "R4_trail_0.25_k3",
+    "target": true,
+    "be_at": null,
+    "lock_at": null,
+    "lock_frac": 0.5,
+    "trail_at": 0.25,
+    "trail_k": 3
+   },
+   "selection_mean": 0.0013453689112589583,
+   "selection_giveback": 0.0616156621572551,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 405,
+     "win_rate": 0.5753086419753086,
+     "mean": 0.001463159100447917,
+     "sum": 0.5925794356814064,
+     "profit_factor": 1.1180841809484199,
+     "giveback_rate": 0.0024691358024691358,
+     "giveback_of_reached": 0.007352941176470588,
+     "reasons": {
+      "stop": 363,
+      "target": 41,
+      "timeout": 1
+     },
+     "median_hold_h": 30.866666666666667
+    },
+    "a_all/ETHUSDT": {
+     "trades": 505,
+     "win_rate": 0.5108910891089109,
+     "mean": -0.0011486499118123765,
+     "sum": -0.5800682054652502,
+     "profit_factor": 0.9175170214637023,
+     "giveback_rate": 0.009900990099009901,
+     "giveback_of_reached": 0.029940119760479042,
+     "reasons": {
+      "stop": 457,
+      "target": 47,
+      "timeout": 1
+     },
+     "median_hold_h": 25.516666666666666
+    },
+    "a_all/SOLUSDT": {
+     "trades": 913,
+     "win_rate": 0.3778751369112815,
+     "mean": 0.00015034460461973303,
+     "sum": 0.13726462401781625,
+     "profit_factor": 1.0089262865314426,
+     "giveback_rate": 0.08762322015334063,
+     "giveback_of_reached": 0.2035623409669211,
+     "reasons": {
+      "stop": 711,
+      "target": 202,
+      "timeout": 0
+     },
+     "median_hold_h": 14.066666666666666
+    },
+    "a_all/ALL": {
+     "trades": 1823,
+     "win_rate": 0.4585847504114098,
+     "mean": 8.215899848270568e-05,
+     "sum": 0.14977585423397244,
+     "profit_factor": 1.005460605485068,
+     "giveback_rate": 0.047174986286341196,
+     "giveback_of_reached": 0.1235632183908046,
+     "reasons": {
+      "stop": 1531,
+      "target": 290,
+      "timeout": 2
+     },
+     "median_hold_h": 19.383333333333333,
+     "mean_lb95": -0.001682154725123281
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 68,
+     "win_rate": 0.5882352941176471,
+     "mean": 0.0031554621404919344,
+     "sum": 0.21457142555345154,
+     "profit_factor": 1.2811103053370234,
+     "giveback_rate": 0.014705882352941176,
+     "giveback_of_reached": 0.034482758620689655,
+     "reasons": {
+      "stop": 60,
+      "target": 8,
+      "timeout": 0
+     },
+     "median_hold_h": 22.466666666666665
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 72,
+     "win_rate": 0.5,
+     "mean": 0.0028020646118205365,
+     "sum": 0.20174865205107861,
+     "profit_factor": 1.2374730625110402,
+     "giveback_rate": 0.041666666666666664,
+     "giveback_of_reached": 0.09090909090909091,
+     "reasons": {
+      "stop": 64,
+      "target": 8,
+      "timeout": 0
+     },
+     "median_hold_h": 19.983333333333334
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 215,
+     "win_rate": 0.3953488372093023,
+     "mean": 0.001649832921986005,
+     "sum": 0.3547140782269911,
+     "profit_factor": 1.0934640169029137,
+     "giveback_rate": 0.10697674418604651,
+     "giveback_of_reached": 0.23,
+     "reasons": {
+      "stop": 158,
+      "target": 57,
+      "timeout": 0
+     },
+     "median_hold_h": 11.816666666666666
+    },
+    "b_bullish/ALL": {
+     "trades": 355,
+     "win_rate": 0.4535211267605634,
+     "mean": 0.002171927199525412,
+     "sum": 0.7710341558315212,
+     "profit_factor": 1.1425713511417552,
+     "giveback_rate": 0.07605633802816901,
+     "giveback_of_reached": 0.16666666666666666,
+     "reasons": {
+      "stop": 282,
+      "target": 73,
+      "timeout": 0
+     },
+     "median_hold_h": 15.45,
+     "mean_lb95": -0.001930457105922622
+    }
+   }
+  },
+  "R4_trail_0.50_k2": {
+   "rule": {
+    "name": "R4_trail_0.50_k2",
+    "target": true,
+    "be_at": null,
+    "lock_at": null,
+    "lock_frac": 0.5,
+    "trail_at": 0.5,
+    "trail_k": 2
+   },
+   "selection_mean": 0.0015747855964196257,
+   "selection_giveback": 0.029407933532243725,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 295,
+     "win_rate": 0.535593220338983,
+     "mean": 0.002213082723123171,
+     "sum": 0.6528594033213355,
+     "profit_factor": 1.1299276292590275,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 265,
+      "target": 28,
+      "timeout": 2
+     },
+     "median_hold_h": 38.6
+    },
+    "a_all/ETHUSDT": {
+     "trades": 399,
+     "win_rate": 0.5137844611528822,
+     "mean": -0.00045889812550765506,
+     "sum": -0.18310035207755437,
+     "profit_factor": 0.9743609138740843,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 360,
+      "target": 37,
+      "timeout": 2
+     },
+     "median_hold_h": 25.816666666666666
+    },
+    "a_all/SOLUSDT": {
+     "trades": 871,
+     "win_rate": 0.46498277841561425,
+     "mean": -0.00032740664673850496,
+     "sum": -0.2851711893092378,
+     "profit_factor": 0.9824310369507506,
+     "giveback_rate": 0.04133180252583238,
+     "giveback_of_reached": 0.08163265306122448,
+     "reasons": {
+      "stop": 701,
+      "target": 169,
+      "timeout": 1
+     },
+     "median_hold_h": 12.2
+    },
+    "a_all/ALL": {
+     "trades": 1565,
+     "win_rate": 0.4907348242811502,
+     "mean": 0.00011794751561312667,
+     "sum": 0.18458786193454324,
+     "profit_factor": 1.0065000809800733,
+     "giveback_rate": 0.023003194888178913,
+     "giveback_of_reached": 0.04477611940298507,
+     "reasons": {
+      "stop": 1326,
+      "target": 234,
+      "timeout": 5
+     },
+     "median_hold_h": 18.183333333333334,
+     "mean_lb95": -0.0018354938102265784
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 63,
+     "win_rate": 0.5873015873015873,
+     "mean": 0.006182154065032983,
+     "sum": 0.38947570609707793,
+     "profit_factor": 1.40416278285129,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 55,
+      "target": 8,
+      "timeout": 0
+     },
+     "median_hold_h": 26.7
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 68,
+     "win_rate": 0.5588235294117647,
+     "mean": 0.001562216443194212,
+     "sum": 0.10623071813720641,
+     "profit_factor": 1.0955384423946581,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 63,
+      "target": 5,
+      "timeout": 0
+     },
+     "median_hold_h": 22.083333333333332
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 232,
+     "win_rate": 0.47413793103448276,
+     "mean": 0.0002775651194135468,
+     "sum": 0.06439510770394286,
+     "profit_factor": 1.0154483875899223,
+     "giveback_rate": 0.05603448275862069,
+     "giveback_of_reached": 0.10569105691056911,
+     "reasons": {
+      "stop": 186,
+      "target": 46,
+      "timeout": 0
+     },
+     "median_hold_h": 8.716666666666667
+    },
+    "b_bullish/ALL": {
+     "trades": 363,
+     "win_rate": 0.509641873278237,
+     "mean": 0.0015429794268270723,
+     "sum": 0.5601015319382272,
+     "profit_factor": 1.0897026523364652,
+     "giveback_rate": 0.03581267217630854,
+     "giveback_of_reached": 0.06565656565656566,
+     "reasons": {
+      "stop": 304,
+      "target": 59,
+      "timeout": 0
+     },
+     "median_hold_h": 13.6,
+     "mean_lb95": -0.0025067303993381
+    }
+   }
+  },
+  "R4_trail_0.50_k3": {
+   "rule": {
+    "name": "R4_trail_0.50_k3",
+    "target": true,
+    "be_at": null,
+    "lock_at": null,
+    "lock_frac": 0.5,
+    "trail_at": 0.5,
+    "trail_k": 3
+   },
+   "selection_mean": 0.002281181255800724,
+   "selection_giveback": 0.07276652678951528,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 280,
+     "win_rate": 0.5357142857142857,
+     "mean": 0.0029365461769674285,
+     "sum": 0.82223292955088,
+     "profit_factor": 1.1738488834219793,
+     "giveback_rate": 0.0035714285714285713,
+     "giveback_of_reached": 0.006622516556291391,
+     "reasons": {
+      "stop": 230,
+      "target": 48,
+      "timeout": 2
+     },
+     "median_hold_h": 41.208333333333336
+    },
+    "a_all/ETHUSDT": {
+     "trades": 372,
+     "win_rate": 0.4946236559139785,
+     "mean": -0.00017766088188838285,
+     "sum": -0.06608984806247842,
+     "profit_factor": 0.9902592713046945,
+     "giveback_rate": 0.010752688172043012,
+     "giveback_of_reached": 0.02127659574468085,
+     "reasons": {
+      "stop": 314,
+      "target": 56,
+      "timeout": 2
+     },
+     "median_hold_h": 29.125
+    },
+    "a_all/SOLUSDT": {
+     "trades": 769,
+     "win_rate": 0.41612483745123535,
+     "mean": 0.000560022680593967,
+     "sum": 0.43065744137676065,
+     "profit_factor": 1.029031367843736,
+     "giveback_rate": 0.10273081924577374,
+     "giveback_of_reached": 0.19799498746867167,
+     "reasons": {
+      "stop": 572,
+      "target": 197,
+      "timeout": 0
+     },
+     "median_hold_h": 15.75
+    },
+    "a_all/ALL": {
+     "trades": 1421,
+     "win_rate": 0.46023926812104154,
+     "mean": 0.000835186856344238,
+     "sum": 1.1868005228651621,
+     "profit_factor": 1.0450421020302687,
+     "giveback_rate": 0.059113300492610835,
+     "giveback_of_reached": 0.11382113821138211,
+     "reasons": {
+      "stop": 1116,
+      "target": 301,
+      "timeout": 4
+     },
+     "median_hold_h": 21.416666666666668,
+     "mean_lb95": -0.0012824286407534884
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 58,
+     "win_rate": 0.603448275862069,
+     "mean": 0.007021356176669102,
+     "sum": 0.40723865824680794,
+     "profit_factor": 1.5191725482075253,
+     "giveback_rate": 0.034482758620689655,
+     "giveback_of_reached": 0.05405405405405406,
+     "reasons": {
+      "stop": 48,
+      "target": 10,
+      "timeout": 0
+     },
+     "median_hold_h": 31.991666666666667
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 63,
+     "win_rate": 0.5238095238095238,
+     "mean": 0.0012481313175180732,
+     "sum": 0.07863227300363862,
+     "profit_factor": 1.077778460535056,
+     "giveback_rate": 0.047619047619047616,
+     "giveback_of_reached": 0.08333333333333333,
+     "reasons": {
+      "stop": 55,
+      "target": 8,
+      "timeout": 0
+     },
+     "median_hold_h": 26.816666666666666
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 203,
+     "win_rate": 0.41379310344827586,
+     "mean": 0.0020986920649441573,
+     "sum": 0.42603448918366393,
+     "profit_factor": 1.107425209960751,
+     "giveback_rate": 0.11330049261083744,
+     "giveback_of_reached": 0.21495327102803738,
+     "reasons": {
+      "stop": 143,
+      "target": 60,
+      "timeout": 0
+     },
+     "median_hold_h": 11.633333333333333
+    },
+    "b_bullish/ALL": {
+     "trades": 324,
+     "win_rate": 0.4691358024691358,
+     "mean": 0.0028145229025744152,
+     "sum": 0.9119054204341105,
+     "profit_factor": 1.158282629563734,
+     "giveback_rate": 0.08641975308641975,
+     "giveback_of_reached": 0.15555555555555556,
+     "reasons": {
+      "stop": 246,
+      "target": 78,
+      "timeout": 0
+     },
+     "median_hold_h": 17.341666666666665,
+     "mean_lb95": -0.0018270838053972224
+    }
+   }
+  },
+  "R5_chandelier_k2": {
+   "rule": {
+    "name": "R5_chandelier_k2",
+    "target": false,
+    "be_at": null,
+    "lock_at": null,
+    "lock_frac": 0.5,
+    "trail_at": 0.0,
+    "trail_k": 2
+   },
+   "selection_mean": -0.0003646880364774995,
+   "selection_giveback": 0.012309518098147891,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 1530,
+     "win_rate": 0.32941176470588235,
+     "mean": -0.0010964684334987553,
+     "sum": -1.6775967032530956,
+     "profit_factor": 0.8113576451935927,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 1529,
+      "target": 0,
+      "timeout": 1
+     },
+     "median_hold_h": 7.458333333333333
+    },
+    "a_all/ETHUSDT": {
+     "trades": 1540,
+     "win_rate": 0.33311688311688314,
+     "mean": -0.001664782638736401,
+     "sum": -2.5637652636540578,
+     "profit_factor": 0.7574419627584655,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 1539,
+      "target": 0,
+      "timeout": 1
+     },
+     "median_hold_h": 7.608333333333333
+    },
+    "a_all/SOLUSDT": {
+     "trades": 1544,
+     "win_rate": 0.33549222797927464,
+     "mean": -0.0011953066502364991,
+     "sum": -1.8455534679651546,
+     "profit_factor": 0.8920578904422388,
+     "giveback_rate": 0.015544041450777202,
+     "giveback_of_reached": 0.059113300492610835,
+     "reasons": {
+      "stop": 1544,
+      "target": 0,
+      "timeout": 0
+     },
+     "median_hold_h": 7.541666666666667
+    },
+    "a_all/ALL": {
+     "trades": 4614,
+     "win_rate": 0.33268313827481577,
+     "mean": -0.0013192274457894035,
+     "sum": -6.086915434872307,
+     "profit_factor": 0.8335103452684122,
+     "giveback_rate": 0.005201560468140442,
+     "giveback_of_reached": 0.034236804564907276,
+     "reasons": {
+      "stop": 4612,
+      "target": 0,
+      "timeout": 2
+     },
+     "median_hold_h": 7.533333333333333,
+     "mean_lb95": -0.0019376152437889631
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 118,
+     "win_rate": 0.4067796610169492,
+     "mean": 0.0012792654443865147,
+     "sum": 0.15095332243760873,
+     "profit_factor": 1.1782973621984734,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 118,
+      "target": 0,
+      "timeout": 0
+     },
+     "median_hold_h": 8.025
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 128,
+     "win_rate": 0.3984375,
+     "mean": 0.0005812322317636448,
+     "sum": 0.07439772566574654,
+     "profit_factor": 1.074675347008286,
+     "giveback_rate": 0.0,
+     "giveback_of_reached": 0.0,
+     "reasons": {
+      "stop": 128,
+      "target": 0,
+      "timeout": 0
+     },
+     "median_hold_h": 8.391666666666667
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 269,
+     "win_rate": 0.3828996282527881,
+     "mean": -9.206817254350043e-05,
+     "sum": -0.024766338414201616,
+     "profit_factor": 0.9929428781044787,
+     "giveback_rate": 0.03717472118959108,
+     "giveback_of_reached": 0.10416666666666667,
+     "reasons": {
+      "stop": 269,
+      "target": 0,
+      "timeout": 0
+     },
+     "median_hold_h": 7.416666666666667
+    },
+    "b_bullish/ALL": {
+     "trades": 515,
+     "win_rate": 0.39223300970873787,
+     "mean": 0.0003894848731828226,
+     "sum": 0.20058470968915365,
+     "profit_factor": 1.0374761414467553,
+     "giveback_rate": 0.019417475728155338,
+     "giveback_of_reached": 0.0684931506849315,
+     "reasons": {
+      "stop": 515,
+      "target": 0,
+      "timeout": 0
+     },
+     "median_hold_h": 7.566666666666666,
+     "mean_lb95": -0.002164075127051048
+    }
+   }
+  },
+  "R5_chandelier_k3": {
+   "rule": {
+    "name": "R5_chandelier_k3",
+    "target": false,
+    "be_at": null,
+    "lock_at": null,
+    "lock_frac": 0.5,
+    "trail_at": 0.0,
+    "trail_k": 3
+   },
+   "selection_mean": 0.0010497708590074377,
+   "selection_giveback": 0.048423988967195755,
+   "cells": {
+    "a_all/BTCUSDT": {
+     "trades": 870,
+     "win_rate": 0.35172413793103446,
+     "mean": -0.0002957362754502984,
+     "sum": -0.2572905596417596,
+     "profit_factor": 0.9612697759177633,
+     "giveback_rate": 0.0011494252873563218,
+     "giveback_of_reached": 0.006944444444444444,
+     "reasons": {
+      "stop": 869,
+      "target": 0,
+      "timeout": 1
+     },
+     "median_hold_h": 14.966666666666667
+    },
+    "a_all/ETHUSDT": {
+     "trades": 903,
+     "win_rate": 0.3344407530454042,
+     "mean": -0.0017774225245694815,
+     "sum": -1.6050125396862418,
+     "profit_factor": 0.8137510069452982,
+     "giveback_rate": 0.004429678848283499,
+     "giveback_of_reached": 0.023391812865497075,
+     "reasons": {
+      "stop": 902,
+      "target": 0,
+      "timeout": 1
+     },
+     "median_hold_h": 14.616666666666667
+    },
+    "a_all/SOLUSDT": {
+     "trades": 880,
+     "win_rate": 0.3397727272727273,
+     "mean": -0.0001658041480880307,
+     "sum": -0.145907650317467,
+     "profit_factor": 0.9888330572728755,
+     "giveback_rate": 0.0715909090909091,
+     "giveback_of_reached": 0.19384615384615383,
+     "reasons": {
+      "stop": 880,
+      "target": 0,
+      "timeout": 0
+     },
+     "median_hold_h": 14.775
+    },
+    "a_all/ALL": {
+     "trades": 2653,
+     "win_rate": 0.34187712024123634,
+     "mean": -0.0007569584431381336,
+     "sum": -2.0082107496454684,
+     "profit_factor": 0.9291054859632472,
+     "giveback_rate": 0.025631360723709008,
+     "giveback_of_reached": 0.10625,
+     "reasons": {
+      "stop": 2651,
+      "target": 0,
+      "timeout": 2
+     },
+     "median_hold_h": 14.816666666666666,
+     "mean_lb95": -0.0020174502835234747
+    },
+    "b_bullish/BTCUSDT": {
+     "trades": 76,
+     "win_rate": 0.4342105263157895,
+     "mean": 0.004736956574697347,
+     "sum": 0.36000869967699833,
+     "profit_factor": 1.614562665117379,
+     "giveback_rate": 0.013157894736842105,
+     "giveback_of_reached": 0.043478260869565216,
+     "reasons": {
+      "stop": 76,
+      "target": 0,
+      "timeout": 0
+     },
+     "median_hold_h": 18.858333333333334
+    },
+    "b_bullish/ETHUSDT": {
+     "trades": 83,
+     "win_rate": 0.37349397590361444,
+     "mean": 0.002017260912367565,
+     "sum": 0.1674326557265079,
+     "profit_factor": 1.2019114363923327,
+     "giveback_rate": 0.024096385542168676,
+     "giveback_of_reached": 0.06896551724137931,
+     "reasons": {
+      "stop": 83,
+      "target": 0,
+      "timeout": 0
+     },
+     "median_hold_h": 15.9
+    },
+    "b_bullish/SOLUSDT": {
+     "trades": 178,
+     "win_rate": 0.398876404494382,
+     "mean": 0.0017833706150875252,
+     "sum": 0.3174399694855795,
+     "profit_factor": 1.1160021771129514,
+     "giveback_rate": 0.11797752808988764,
+     "giveback_of_reached": 0.24705882352941178,
+     "reasons": {
+      "stop": 178,
+      "target": 0,
+      "timeout": 0
+     },
+     "median_hold_h": 15.625
+    },
+    "b_bullish/ALL": {
+     "trades": 337,
+     "win_rate": 0.40059347181008903,
+     "mean": 0.0025070662459616786,
+     "sum": 0.8448813248890857,
+     "profit_factor": 1.2035105983700976,
+     "giveback_rate": 0.0712166172106825,
+     "giveback_of_reached": 0.17518248175182483,
+     "reasons": {
+      "stop": 337,
+      "target": 0,
+      "timeout": 0
+     },
+     "median_hold_h": 16.216666666666665,
+     "mean_lb95": -0.0017989347401918736
+    }
+   }
+  }
+ }
+}

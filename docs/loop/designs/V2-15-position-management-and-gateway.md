@@ -114,7 +114,7 @@ Entry is at the next 1m open after the decision. Stop 3.5% and target 7% (approv
   * (a) every decision point;
   * (b) only when the features-v1 regime trend is bullish.
 * Maximum holding time is 14 days for every rule, so the comparison is bounded.
-* Grid (13 rules):
+* Grid (12 rules):
   * R0: stop only. This is today's code.
   * R1: bracket, stop plus target.
   * R2(b): bracket, plus the stop moves to entry plus round-trip costs once MFE ≥ b × target,
@@ -151,7 +151,7 @@ Entry is at the next 1m open after the decision. Stop 3.5% and target 7% (approv
 * *"The ratchet turns winners into scratches."* Yes, it can. Breakeven stops are known to cut both ways.
   That is why the rule is chosen by the study, and R1 and R0 stay in the grid. If no ratchet beats R1
   out of sample, the shipped default is R1, the plain bracket, and the doc says so.
-* *Overfitting the grid.* There are 13 rules, a 2-year train, and a 21-month test that is touched once.
+* *Overfitting the grid.* There are 12 rules, a 2-year train, and a 21-month test that is touched once.
   The selection is averaged over 3 symbols × 2 entry sets.
 * *Overlapping trades inflate significance.* One position per symbol, so trades are sequential.
   Bootstrap over trades is approximate, and that is stated.
