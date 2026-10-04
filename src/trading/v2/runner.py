@@ -35,6 +35,7 @@ from trading.v2.contracts import StrategyRef
 from trading.v2.fallback import GatedSource
 from trading.v2.features import N_1H, N_1M
 from trading.v2.killswitch import KillController, KillLimits, Observation
+from trading.v2.gateway import Gateway
 from trading.v2.position import RatchetRule
 from trading.v2.paper import PaperBook
 from trading.v2.policy import ExitParams, PolicyConfig
@@ -102,7 +103,8 @@ class Runner:
             daily_loss_budget_usd=cfg.daily_loss_budget_usd, exchange_health=self._health, kill_switch=self._kill,
             legacy_action=self._legacy, paused=lambda: self.ctl.paused_scopes)
         self.client = jev_client or TypeSafeJevClient(workflow)
-        self.adapter = JevAdapter(self.client, workflow, GatedSource(self.stances), timeout_s=cfg.jev_timeout_s)
+        self.adapter = JevAdapter(self.client, workflow, GatedSource(self.stances), timeout_s=cfg.jev_timeout_s,
+                                  gateway=Gateway(max_spread_bps=cfg.risk_limits.max_spread_bps))
         self.pipeline = ShadowPipeline(
             adapter=self.adapter, provider=self.provider, sink=ShadowChain(out, "v2cycle", "pipeline", self.start_ms),
             book=LiveBook(feed), policy=PolicyConfig(), limits=cfg.risk_limits, cadence_minutes=cfg.cadence_minutes,

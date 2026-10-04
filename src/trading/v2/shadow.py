@@ -174,6 +174,20 @@ class ShadowPipeline:
             return
         stage[0] = "decision"
         decision = self.adapter.evaluate(state, snap)
+        dual = None
+        gw = getattr(self.adapter, "gateway", None)
+        if gw is not None and decision.source == "jev":
+            # V2-15 dual-run: the gateway answers EVERY cycle, so "does it rival Jev" is measured, not asserted.
+            # Log-only: it never changes what this cycle does. Its failure must not break the cycle.
+            try:
+                g = gw.decide(state, snap, workflow_tag=self.adapter.workflow.tag, reason="dual_run (jev answered)")
+                same = ("INACTIVE" if g.action in INACTIVE else g.action) == \
+                       ("INACTIVE" if decision.action in INACTIVE else decision.action)
+                self.stats["dual:agree" if same else "dual:disagree"] += 1
+                dual = {"decision": g.to_dict(), "agrees_with_jev": same}
+            except Exception as exc:
+                self.stats["dual:gateway_error"] += 1
+                dual = {"error": type(exc).__name__}
         stage[0] = "policy"
         pres = evaluate_policy(decision, self.policy)
         prop = propose_trade(decision, pres, state, ctx.exit_params)
@@ -207,7 +221,7 @@ class ShadowPipeline:
             proposal=prop.proposal.to_dict() if prop.proposal else None, proposal_reason=prop.reason,
             risk=risk.to_dict() if risk else None,
             execution_preview=preview.to_dict() if preview else None,
-            paper_submit=paper_submit, comparison=cmp,
+            paper_submit=paper_submit, comparison=cmp, gateway_dual_run=dual,
             versions={"feature": snap.feature_version, "workflow": self.adapter.workflow.tag,
                       "policy": self.policy.policy_version, "risk": self.limits.risk_version,
                       "model": decision.model})

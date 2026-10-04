@@ -77,7 +77,9 @@ Tier = Literal["IGNORE", "WATCH", "STRATEGY_CHECK", "EXECUTE"]
 Action = Literal["LONG", "SHORT", "HOLD", "EXIT", "REDUCE", "NO_TRADE"]
 RiskLevel = Literal["LOW", "MEDIUM", "HIGH", "EXTREME"]
 FALLBACK_STRATEGIES = ("trend_follower", "donchian_ensemble", "tsmom", "ctrend")
-FallbackStrategy = Literal["trend_follower", "donchian_ensemble", "tsmom", "ctrend"]
+# V2-15: the System One gateway answers the SAME questions as Jev when Jev is down. It is not a voter.
+GATEWAY_STRATEGY = "system_one_gateway"
+FallbackStrategy = Literal["trend_follower", "donchian_ensemble", "tsmom", "ctrend", "system_one_gateway"]
 
 # A fallback decision's confidence must stay strictly below this. It equals the
 # policy's execute_at_or_above (0.90): defence in depth so a fallback can never
@@ -361,11 +363,18 @@ class Decision(_Contract):
                 raise ValueError("fallback decision requires a fallback_reason")
             if self.fallback_strategy is None:
                 raise ValueError(
-                    f"fallback decision requires fallback_strategy in {FALLBACK_STRATEGIES}"
+                    f"fallback decision requires fallback_strategy in {FALLBACK_STRATEGIES + (GATEWAY_STRATEGY,)}"
                 )
-            present = [f for f in jev_only if getattr(self, f) is not None]
-            if present:
-                raise ValueError(f"fallback decision must not carry Jev fields {present}")
+            if self.fallback_strategy == GATEWAY_STRATEGY:
+                # the gateway travels the same road as Jev: every answer present, so the policy's demotions
+                # (entry_quality, risk_level) apply to it exactly as they do to Jev
+                missing = [f for f in jev_only if getattr(self, f) is None]
+                if missing:
+                    raise ValueError(f"gateway decision requires {missing}")
+            else:
+                present = [f for f in jev_only if getattr(self, f) is not None]
+                if present:
+                    raise ValueError(f"fallback decision must not carry Jev fields {present}")
             if self.confidence >= FALLBACK_CONFIDENCE_CEILING:
                 raise ValueError(
                     f"fallback confidence {self.confidence} must be < "

@@ -185,11 +185,13 @@ def _locs(exc: ValidationError) -> str:
 
 class JevAdapter:
     def __init__(self, client: JevClient, workflow: JevWorkflow, fallback: FallbackSource, *,
-                 timeout_s: float = 3.0, clock: Callable[[], float] = time.monotonic):
+                 timeout_s: float = 3.0, clock: Callable[[], float] = time.monotonic, gateway=None):
         if not timeout_s > 0:
             raise ValueError("timeout_s must be > 0")
         self.client, self.workflow, self.fallback = client, workflow, fallback
         self.timeout_s, self._clock = timeout_s, clock
+        # V2-15: the System One gateway answers Jev's questions when Jev fails; the strategy vote is the last resort
+        self.gateway = gateway
         self.stats: Counter = Counter()
 
     def _call(self, request: dict) -> object:
@@ -225,12 +227,23 @@ class JevAdapter:
         except Exception as exc:  # never crash the hot path
             category, detail = "client_error", type(exc).__name__
         latency_ms = (self._clock() - t0) * 1000.0
-        return self._fallback_decision(state, state_hash, category, detail, latency_ms)
+        return self._fallback_decision(state, state_hash, category, detail, latency_ms, features)
 
     def _fallback_decision(self, state: DecisionState, state_hash: str, category: str,
-                           detail: str, latency_ms: float) -> Decision:
+                           detail: str, latency_ms: float, features: Optional[FeatureSnapshot] = None) -> Decision:
         self.stats["fallback"] += 1
         self.stats[f"fallback:{category}"] += 1
+        if self.gateway is not None and features is not None:
+            try:
+                d = self.gateway.decide(state, features, workflow_tag=self.workflow.tag,
+                                        reason=f"{category}: {detail}; gateway", latency_ms=latency_ms)
+                self.stats["fallback_gateway"] += 1
+                log.warning("decision source=fallback(gateway) id=%s action=%s conf=%.3f reason=%s",
+                            d.decision_id, d.action, d.confidence, category)
+                return d
+            except Exception as exc:          # the gateway failed: the strategy vote still answers
+                self.stats["gateway_failed"] += 1
+                detail = f"{detail}; gateway_failed:{type(exc).__name__}"
         try:
             verdict = aggregate(self.fallback.stances(state), state.position.side)
             action, conf, strategy, note = verdict.action, verdict.confidence, verdict.strategy, verdict.reason
