@@ -329,3 +329,9 @@ def test_the_internal_request_carries_the_values_and_stays_credential_free():
     assert not any(w in blob for w in ("api_key", "secret", "password", "token", "bearer", KEY.lower()))
     with pytest.raises(ValueError, match="do not belong"):
         build_request(STATE, WF2, STATE.state_hash(), FeatureSnapshot.from_dict(dict(feature_snapshot(), snapshot_id="feat_X")))
+
+
+def test_probe_reports_a_network_failure_cleanly_instead_of_crashing_and_never_leaks_the_key():
+    r = probe(Fake(exc=JevTransportError("URLError")), WF2, True)
+    assert not r["ok"] and "did not reach the API" in r["error"] and "URLError" in r["error"]
+    assert KEY not in json.dumps(r) and "status" not in r

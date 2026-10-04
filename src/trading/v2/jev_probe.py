@@ -15,8 +15,8 @@ import time
 from pathlib import Path
 
 from trading.v2.adapter import JevProtocolError
-from trading.v2.typesafe_client import (KEY_ENV, TypeSafeJevClient, UrllibTransport, build_wire_request,
-                                        translate_response)
+from trading.v2.typesafe_client import (KEY_ENV, JevTransportError, TypeSafeJevClient, UrllibTransport,
+                                        build_wire_request, translate_response)
 from trading.v2.workflow import WORKFLOW_DIR, load_workflow
 
 TOY_FEATURES = {"snapshot_id": "feat_PROBE", "feature_version": "probe", "symbol": "BTCUSDT",
@@ -41,7 +41,12 @@ def probe(transport, workflow, key_present: bool, out_path: Path | None = None) 
     body = json.dumps(build_wire_request(workflow, {"state": TOY_STATE, "features": TOY_FEATURES}), separators=(",", ":")).encode()
     headers = {"Authorization": "Bearer " + os.environ[KEY_ENV].strip(), "Content-Type": "application/json"}
     t0 = time.monotonic()
-    status, raw = transport.post(client.url, headers, body, 10.0)
+    try:
+        status, raw = transport.post(client.url, headers, body, 10.0)
+    except JevTransportError as e:   # the call never completed: say so plainly (class name only, never text)
+        report["error"] = (f"transport failure ({e}): the request did not reach the API. In a cloud sandbox this "
+                           f"usually means the network policy denies the host; nothing was sent to or judged by Jev")
+        return report
     report.update(status=status, latency_ms=round((time.monotonic() - t0) * 1000), bytes=len(raw))
     if out_path is not None:
         out_path.write_bytes(raw)
