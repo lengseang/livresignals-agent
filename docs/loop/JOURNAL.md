@@ -197,3 +197,13 @@ results), and what was learned or blocked.
 - **Evidence:** docs only; no code changed.
 - **Known baseline:** CI is red on `main` (check-books hardcoded path; `trading.data` untracked).
   The loop's own tests go in `tests/loop/`.
+
+## 2026-10-04 · V2-2 Jev workflow + policy engine
+- **Need check:** data none. Facts: the owner's Notion note (read in full; it differs from `docs/v2/contracts.md`,
+  decisions recorded in `docs/v2/STAGE1-DECISIONS.md`). `api.typesafe.ai` is blocked from this sandbox by the egress
+  proxy, so the adapter (V2-3) is built against an injected client; the real wire format is escalated (E4).
+- **Done:** `src/trading/v2/{ids,workflow,policy}.py`, `workflows/crypto_trading_v1.json`, 46 tests (+183 in V2-1).
+- **Evidence:** `pytest tests/loop/test_v2_contracts.py tests/loop/test_v2_policy.py`: 229 passed.
+  7 deliberate mutations of the policy rules each made a test fail, then were reverted.
+- **Learned:** the contract validator ties tier to `adjusted_confidence`, so "demotion" had to be expressed as a
+  lowered adjusted confidence plus a returned reason; the reason list is not part of Contract E (no field for it).

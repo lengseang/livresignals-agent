@@ -79,3 +79,17 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 |---|---|---|---|
 | T8.1 | Implement F1–F4 fixes from the approved designs | T0.3–T0.6 + owner | owner |
 | T8.2 | Paper→real promotion criteria and a flagged real router | T4.3 + owner | owner |
+
+## Phase V2: the Jev/Policy/Risk architecture (owner's "HER" note; spec in `docs/v2/`)
+Branches `v2/*`, stacked. Shadow and paper only. Nothing here places an order or touches `LIVE_ENABLED`.
+| ID | Task | Deps | Status |
+|---|---|---|---|
+| V2-1 | Contracts A-I as strict pure models (`src/trading/v2/contracts.py`), 183 tests | none | review (branch `v2/contracts`) |
+| V2-2 | Jev workflow definition (versioned data) + policy engine + policy->TradeProposal | V2-1 | review (branch `v2/policy`) |
+| V2-3 | Jev adapter with timeout/validation and the deterministic fallback (`trend_follower`, `donchian_ensemble`, `tsmom`, `ctrend`) | V2-2 | todo |
+| V2-4 | Risk engine v2: wraps `src/trading/risk/` (never replaces), emits Contract G with every check | V2-2 | todo |
+| V2-5 | Feature engine (deterministic, from bars) + state builder (Contract B -> C) | V2-1 | todo |
+| V2-6 | Shadow pipeline: market -> features -> state -> adapter -> policy -> risk -> hash-chained decision log; compare with the current system. No execution | V2-3, V2-4, V2-5 | todo |
+| V2-7 | Paper execution of approved commands into a SEPARATE paper book | V2-6 | todo |
+| V2-8 | Real TypeSafe client (wire format -> internal raw shape) | owner: API docs, egress, key | owner (E4) |
+

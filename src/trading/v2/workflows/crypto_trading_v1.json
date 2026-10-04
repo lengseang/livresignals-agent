@@ -1,0 +1,16 @@
+{
+  "workflow_id": "crypto_trading",
+  "version": "v1",
+  "model": "jev-latest",
+  "questions": {
+    "market_regime":        {"type": "choice", "options": ["TREND_UP", "TREND_DOWN", "RANGE", "BREAKOUT", "HIGH_VOLATILITY", "LOW_LIQUIDITY"]},
+    "trend_quality":        {"type": "score"},
+    "breakout_probability": {"type": "score"},
+    "reversal_probability": {"type": "score"},
+    "entry_quality":        {"type": "score"},
+    "expected_edge":        {"type": "score"},
+    "timing_quality":       {"type": "score"},
+    "risk_level":           {"type": "choice", "options": ["LOW", "MEDIUM", "HIGH", "EXTREME"]},
+    "action":               {"type": "choice", "options": ["LONG", "SHORT", "HOLD", "EXIT", "REDUCE", "NO_TRADE"]}
+  }
+}
