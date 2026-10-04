@@ -380,3 +380,47 @@ def test_an_edited_snapshot_fails_verification_and_changes_the_state_hash():
                                          strategy=STRAT, max_stale_ms=1000)
     other = run(make_store(m1_seed=9, h1_seed=11))[0].snapshot
     assert st(snap).state_hash() != st(other).state_hash() and st(snap).features != st(other).features
+
+
+# ------------------------------------------------------------ gaps are missing data, never a shifted return
+
+def test_a_missing_minute_makes_the_snapshot_missing_not_wrong():
+    s = make_store()
+    del s.d["1m"][-100]                                           # one minute vanishes from the feed
+    res = run(s)[0]
+    assert not res.ok and res.snapshot is None
+    assert any(m.startswith("bars.1m(gap before") for m in res.missing), res.missing
+
+
+def test_a_gap_older_than_the_window_does_not_matter():
+    s = make_store(n1=400)
+    del s.d["1m"][10]                                             # far outside the last 241 bars
+    assert run(s)[0].ok
+
+
+def test_a_missing_hour_makes_the_technicals_missing():
+    s = make_store()
+    del s.d["1h"][-30]
+    res = run(s)[0]
+    assert not res.ok and any(m.startswith("bars.1h(gap before") for m in res.missing), res.missing
+
+
+def test_gap_in_the_newest_bar_chain_is_caught_too():
+    s = make_store()
+    s.d["1m"].pop(-5)
+    assert any("gap" in m for m in run(s)[0].missing)
+
+
+# ------------------------------------------------------------ a live book is fetched AFTER "now" (found by the first live run)
+
+def test_a_book_slightly_after_now_is_look_ahead_in_replay_but_allowed_live_within_the_tolerance():
+    s = make_store()
+    end = s.d["1m"][-1].end_ms
+    now = end + 120
+    late = Book(now + 800, 100000.0, 100000.5, 12.8, 9.7)               # fetched 0.8 s after `now` was taken
+    strict = compute_features(SYM, s, Bk(late), now)
+    assert not strict.ok and any("look-ahead" in m for m in strict.missing)
+    live = compute_features(SYM, s, Bk(late), now, book_lead_tolerance_ms=2000)
+    assert live.ok and live.snapshot.orderbook.bid_depth == 12.8
+    far = Book(now + 3000, 100000.0, 100000.5, 12.8, 9.7)
+    assert not compute_features(SYM, s, Bk(far), now, book_lead_tolerance_ms=2000).ok     # beyond the tolerance: refused

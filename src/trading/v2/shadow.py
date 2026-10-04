@@ -84,13 +84,14 @@ class ShadowPipeline:
                  book: Optional[BookSource], policy: PolicyConfig = PolicyConfig(),
                  limits: RiskLimits, cadence_minutes: int = 15, max_stale_ms: int = 10_000,
                  source: str = "ws", venue: str = "binance", store: Optional[BarStore] = None,
-                 paper: Optional[PaperBook] = None):
+                 paper: Optional[PaperBook] = None, book_lead_tolerance_ms: int = 0):
         if cadence_minutes < 1:
             raise ValueError("cadence_minutes must be >= 1")
         self.adapter, self.provider, self.sink, self.book = adapter, provider, sink, book
         self.policy, self.limits = policy, limits
         self.cadence_ms = cadence_minutes * 60_000
         self.max_stale_ms, self.source, self.venue = max_stale_ms, source, venue
+        self.book_lead_tolerance_ms = book_lead_tolerance_ms
         self.paper = paper     # V2.1: approved commands go to this SEPARATE simulated book. None = pure shadow.
         self.store = store or BarStore()
         self.stats: Counter = Counter()
@@ -149,7 +150,8 @@ class ShadowPipeline:
         return self._emit(rec)          # outside the try: a sink failure propagates
 
     def _fill(self, rec: dict, bar: Bar, received_ms: int, stage: list) -> None:
-        res = compute_features(bar.symbol, self.store, self.book, received_ms)
+        res = compute_features(bar.symbol, self.store, self.book, received_ms,
+                               book_lead_tolerance_ms=self.book_lead_tolerance_ms)
         if not res.ok:
             rec.update(outcome="no_snapshot", missing=list(res.missing))
             return

@@ -139,3 +139,21 @@ halts. I will not guess them. Also: (a) should a Hermes halt need more than a co
 evidence)? (b) is a rate limit on accepted halts wanted, so Hermes cannot starve trading?
 **Answer:**
 
+## E11 · Closing inventory: what is NOT built, and who must decide (V2 as of v2/live-runner)
+**Built and tested:** contracts A-J; policy; Jev adapter + real TypeSafe client (verified live); deterministic fallback with the evidence
+gate and real stances; risk engine (wraps the legacy layer); feature engine (no synthetic numbers, gap-safe); state builder; paper book;
+kill controller + Hermes halt requests; whole-chain invariant test; public-data feed; paper runner (verified live).
+**Needs YOU (not buildable by me):**
+1. Deploy the runner as a resident process on the VPS (RAM ~2.4 GB free, supervision, restart policy): your approval.
+2. The numbers I will not guess: daily loss cap, kill thresholds, exit params, daily-loss budget definition, real fees/slippage (E7, E8, E10).
+3. Question text of workflow v2 is my draft; then flip `active.json` (E4).
+4. `src/trading/data/` is still missing from git (E2); it blocks 10 old test files, not V2.
+5. Whether fallback exits may execute during a Jev outage (E5); whether to enable all four fallback strategies (E9).
+6. Real money: nothing in V2 can place an order and nothing should until paper evidence exists. That is a separate, later decision.
+**Deliberately NOT built:** a websocket feed (resident connection); Redis/Postgres (memory, per the guide); Jev decision-tree / conditional
+questions (the Decision contract needs every signal); Hermes research/promotion contracts and a promotion-gate evaluator (nothing consumes them
+yet); order/position event and execution-result contracts (the paper book logs its own events; they belong with a real execution engine);
+the frontend (you said not yet); a rule on P(risk=HIGH|EXTREME) instead of argmax (needs a threshold from shadow data).
+**Known limits:** runs measured in minutes, not days; paper results flatter reality by the unknown cost gap; trend stance is a reconstruction.
+**Answer:**
+

@@ -129,8 +129,19 @@ def _clean(bars: Sequence[Bar], symbol: str, interval: str, as_of_ms: Optional[i
     return out[-n:]
 
 
+def _gap_at(bars: Sequence[Bar], step_ms: int) -> Optional[int]:
+    """end_ms of the first bar that does not follow its predecessor by exactly one period, else None."""
+    for a, b in zip(bars, bars[1:]):
+        if b.end_ms - a.end_ms != step_ms:
+            return b.end_ms
+    return None
+
+
 def compute_features(symbol: str, bars: BarSource, book: Optional[BookSource], now_ms: int,
-                     *, max_book_age_ms: int = MAX_BOOK_AGE_MS) -> FeatureResult:
+                     *, max_book_age_ms: int = MAX_BOOK_AGE_MS, book_lead_tolerance_ms: int = 0) -> FeatureResult:
+    """`book_lead_tolerance_ms`: how far AFTER `now_ms` a book's timestamp may be. 0 (strict) for replays, where a book
+    from the future is look-ahead. A live feed fetches the book after `now_ms` was taken, so the live runner allows the
+    fetch latency (a few seconds); a book further in the future than that is still rejected."""
     missing: list[str] = []
     m1 = _clean(bars.tail(symbol, "1m", N_1M + OVERFETCH), symbol, "1m", None, N_1M)
     if not m1:
@@ -139,9 +150,21 @@ def compute_features(symbol: str, bars: BarSource, book: Optional[BookSource], n
     h1 = _clean(bars.tail(symbol, "1h", N_1H + OVERFETCH), symbol, "1h", as_of_ms, N_1H)
     last_close = m1[-1].close
 
+    # bars are indexed by position ("5 bars ago"), so a hole in the series would silently shift every return:
+    # a gap is MISSING data, never a wrong number
+    gap1 = _gap_at(m1, 60_000)
+    if gap1 is not None:
+        missing.append(f"bars.1m(gap before {gap1})")
+    gap_h = _gap_at(h1, 3_600_000)
+    if gap_h is not None:
+        missing.append(f"bars.1h(gap before {gap_h})")
+        h1 = []
+
     # --- returns
     returns: dict[str, float] = {}
-    if len(m1) < N_1M:
+    if gap1 is not None:
+        pass
+    elif len(m1) < N_1M:
         missing.append(f"returns(need {N_1M} 1m bars, have {len(m1)})")
     else:
         c = [b.close for b in m1]
@@ -152,7 +175,9 @@ def compute_features(symbol: str, bars: BarSource, book: Optional[BookSource], n
 
     # --- 1m volume features
     volume_1m = zscore = vwap_dist = None
-    if len(m1) < VOL_WINDOW + 1:
+    if gap1 is not None:
+        pass
+    elif len(m1) < VOL_WINDOW + 1:
         missing.append(f"volume(need {VOL_WINDOW + 1} 1m bars, have {len(m1)})")
     else:
         vols = [b.volume for b in m1]
@@ -176,7 +201,9 @@ def compute_features(symbol: str, bars: BarSource, book: Optional[BookSource], n
     # --- 1h technical + regime
     rsi = atr_rel = slope_f = slope_s = None
     trend = vol_regime = None
-    if len(h1) < MIN_1H:
+    if gap_h is not None:
+        pass
+    elif len(h1) < MIN_1H:
         missing.append(f"technical/regime(need {MIN_1H} 1h bars, have {len(h1)})")
     else:
         closes = [b.close for b in h1]
@@ -203,7 +230,7 @@ def compute_features(symbol: str, bars: BarSource, book: Optional[BookSource], n
     bk = book.latest(symbol) if book is not None else None
     if bk is None:
         missing.append("orderbook(none)")
-    elif bk.ts_ms > now_ms:
+    elif bk.ts_ms > now_ms + book_lead_tolerance_ms:
         missing.append("orderbook(timestamp after now: look-ahead)")
     elif now_ms - bk.ts_ms > max_book_age_ms:
         missing.append(f"orderbook(stale {now_ms - bk.ts_ms}ms)")

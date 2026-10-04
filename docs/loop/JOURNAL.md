@@ -295,3 +295,13 @@ results), and what was learned or blocked.
   as assumed; error body shape differs from the write-ups (status-only mapping made that harmless).
 - **Learned:** my chars/4 token estimate was low by ~2x; measure usage, do not estimate it. The real risk_level answer had LOW 0.39 vs EXTREME
   0.37: argmax-only policy rules can hide probability mass on the worst case.
+
+## 2026-10-04 · V2-9 live feed, stances, runner: first live end-to-end
+- **Need check:** real data needed -> public market data via data-api.binance.vision (read-only); real Jev (test key). No production files.
+- **Done:** `binance_public.py`, `stances.py`, `runner.py`, gap-safe features, live-book tolerance, 48 new tests.
+- **Evidence:** `pytest tests/` (continue-on-collection-errors): 1112 passed, 6 skipped, 10 errors = 444/6/10 + 662 V2. Live: 5 min, 5 real Jev
+  decisions, 0 fallbacks, ~1,800 tokens/call. 40+ mutations across the new modules; every real one caught (T2 and the long-sleep test needed
+  tightening). `git diff origin/main -- src/trading/risk scripts tests/test_risk.py`: empty. The key is in no file.
+- **Bugs only live data found:** history() off by one + paging; order-book timestamp after `now` rejected as look-ahead (4/4 live cycles lost).
+- **Bug found by thinking about live data:** a missing minute silently shifted every return (index-based windows): now MISSING data.
+- **Learned:** all-LONG stances looked like a bug; checking raw prices (BTC +18.6% over SMA200, all coins above SMA50) showed it was true.

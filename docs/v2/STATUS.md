@@ -1,8 +1,8 @@
 # V2 status: what is built, what is wired, what is not
 
 Branches (stacked, each reviewable alone; none merged, nothing on `main`):
-`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller` -> `v2/invariants` -> `v2/jev-client`.
-Tests: 613 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 1057 passed, 6 skipped, 10 collection errors
+`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller` -> `v2/invariants` -> `v2/jev-client` -> `v2/live-runner`.
+Tests: 662 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 1112 passed, 6 skipped, 10 collection errors
 (the same 10 files that fail on `main` for lack of `src/trading/data/`).
 
 ```
@@ -45,3 +45,9 @@ the crontab, pm2 and `livr-shadow` untouched; no secrets; no network (the loop h
 - Still unmodelled from the note: order/position events and an execution-result contract (the paper book logs its own events),
   Hermes research/promotion requests, the Jev decision tree (conditional questions), the versioned-workflow `active` symlink
   beyond the JSON pointer, and Postgres/Redis (deliberately not added: memory).
+
+## Update: the live paper runner exists (V2-9)
+`python -m trading.v2.runner --demo --symbols BTCUSDT --cadence 15 --out data/local/v2` runs the whole V2 chain on live public
+data with the real Jev API against the paper book. Verified live (5 minutes, 5 real decisions, 0 fallbacks). NOT deployed; a resident
+process on the VPS needs your approval. `<out>/STOP` stops it, `<out>/V2_KILL` engages the kill switch, `<out>/heartbeat.json` is the
+health view. Still genuinely unbuilt: see the closing inventory in `docs/loop/ESCALATIONS.md` E11.
