@@ -212,3 +212,101 @@ def test_the_random_runs_actually_exercised_the_dangerous_paths():
               "risk_reject:max_position_size": 5}
     short = {k: (c[k], need) for k, need in floors.items() if c[k] < need}
     assert not short, f"under-exercised (got, needed): {short}; coverage={dict(c)}"
+
+
+# ================================================================== V2-15: position management under the same chaos
+
+from trading.v2.advisor import PositionAdvisor                                   # noqa: E402
+from trading.v2.contracts import PositionAdjustment                              # noqa: E402
+from trading.v2.gateway import Gateway                                           # noqa: E402
+from trading.v2.position import RatchetRule                                      # noqa: E402
+from trading.v2.workflow import load_position_workflow                           # noqa: E402
+
+PWF = load_position_workflow()
+PACTS = ("HOLD", "TIGHTEN_STOP", "REDUCE", "EXIT")
+COVER2: Counter = Counter()
+OUTCOMES2 = OUTCOMES | {"position_hold", "position_tighten", "position_tighten_refused", "position_exit",
+                        "position_reduce", "position_risk_rejected"}
+
+
+class RandomPositionClient:
+    def __init__(self, rng):
+        self.rng = rng
+
+    def evaluate(self, request, timeout_s):
+        r = self.rng.random()
+        if r < 0.15:
+            raise JevHttpError("x")
+        if r < 0.20:
+            return self.rng.choice(["junk", {}, {"model": "m", "answers": {}}])
+        a = self.rng.choices(PACTS, weights=[40, 25, 15, 20])[0]
+        conf = self.rng.choice([0.3, 0.55, 0.65, 0.75, 0.9])
+        rest = [self.rng.random() for _ in range(3)]
+        dist = dict(zip([x for x in PACTS if x != a], [x * (1 - conf) / sum(rest) for x in rest]))
+        dist[a] = conf
+        if self.rng.random() < 0.05:
+            a = "LONG"                                    # hostile: an entry smuggled into position advice
+        return {"model": "jev-1.13.0", "answers": {
+            "position_action": {"value": a, "probability": None, "distribution": dist},
+            **{k: {"value": self.rng.random()} for k in ("momentum_fading", "reversal_risk", "target_reachable")}}}
+
+
+def build2(tmp, seed):
+    p, book, ctl, rng = build(tmp, 1000 + seed)
+    book.ratchet = RatchetRule(activate_frac=rng.choice([0.25, 0.5]), lock_frac=0.5)
+    p.provider.exit_params = ExitParams(0.01, rng.choice([0.015, 0.02]))
+    gw = Gateway()
+    p.adapter.gateway = gw
+    p.advisor = PositionAdvisor(RandomPositionClient(rng), PWF, gw, timeout_s=1.0, clock=lambda: 0.0)
+    return p, book, ctl, rng
+
+
+@pytest.mark.parametrize("seed", range(60))
+def test_position_management_invariants_under_random_advice_and_shocks(tmp_path, seed):
+    p, book, ctl, rng = build2(tmp_path, seed)
+    recs = p.run(shocked_bars(rng))
+    ctx = f"seed={seed}"
+    COVER2["seeds"] += 1
+    assert p.stats["cycle_error"] == 0, (ctx, [r.get("error") for r in recs if r["outcome"] == "cycle_error"])
+    assert {r["outcome"] for r in recs} <= OUTCOMES2, ctx
+    assert verify(tmp_path / "v2paper" / "book")["ok"], ctx
+    for r in recs:
+        COVER2["outcome:" + r["outcome"]] += 1
+        if r.get("advice"):
+            COVER2["advice:" + r["advice"]["source"]] += 1
+            assert r["advice"]["action"] in PACTS, ctx                      # never an entry, whatever Jev said
+            if r["execution_preview"] is not None:
+                assert r["execution_preview"]["reduce_only"] is True, ctx  # advice can only reduce
+            if r["outcome"] in ("position_exit", "position_reduce"):
+                assert RiskDecision.from_dict(r["risk"]).approved, ctx
+        if r.get("decision") and r["decision"]["source"] == "fallback":
+            COVER2["fallback:" + r["decision"]["fallback_strategy"]] += 1
+            assert r["outcome"] != "would_execute", ctx                     # the gateway never opens a trade
+        if r.get("gateway_dual_run"):
+            COVER2["dual_run"] += 1
+    # every stop amendment tightened, per position the stops only moved one way
+    last: dict = {}
+    for a in book.adjustments:
+        PositionAdjustment.from_dict(a.to_dict())
+        COVER2["tightened:" + a.source] += 1
+        k = (a.symbol, a.position_side)
+        if k in last and a.old_stop == last[k]:
+            assert (a.new_stop > a.old_stop) if a.position_side == "LONG" else (a.new_stop < a.old_stop), ctx
+        last[k] = a.new_stop
+    for t in book.trades:
+        COVER2["exit:" + t["reason"]] += 1
+        assert t["mfe"] >= 0 >= t["mae"], ctx
+    if not book.positions:
+        assert book.cash == pytest.approx(10_000.0 + sum(t["pnl"] for t in book.trades), abs=1e-6), ctx
+    assert len(book.positions) <= 1 and book.stats["rejected:insufficient_cash"] == 0, ctx
+
+
+def test_the_position_runs_exercised_every_new_path():
+    c = COVER2
+    assert c["seeds"] == 60, "run the whole file"
+    floors = {"advice:jev": 30, "advice:gateway": 10, "tightened:ratchet": 5, "tightened:jev": 5,
+              "exit:target": 3, "exit:exit": 3, "exit:stop": 3, "exit:reduce": 3, "outcome:position_exit": 3,
+              "outcome:position_hold": 30, "outcome:position_tighten": 5, "fallback:system_one_gateway": 50,
+              "dual_run": 100}
+    short = {k: (c[k], need) for k, need in floors.items() if c[k] < need}
+    assert not short, f"under-exercised (got, needed): {short}; coverage={dict(c)}"

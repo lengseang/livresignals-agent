@@ -234,7 +234,8 @@ class PaperBook:
         if pos is None or pos.side != cmd.position_side:                  # --- reduce-only
             self._reject(cmd, t, "no_matching_position")
             return
-        self._close(sym, pos, min(cmd.size, pos.qty), px, t, "exit", cmd.idempotency_key)
+        qty = min(cmd.size, pos.qty)
+        self._close(sym, pos, qty, px, t, "exit" if qty >= pos.qty else "reduce", cmd.idempotency_key)
 
     def _close(self, sym: str, pos: PaperPosition, qty: float, px: float, t: int, reason: str,
                key: Optional[str] = None) -> None:
