@@ -171,7 +171,7 @@ class ShadowPipeline:
             rec.update(outcome="snapshot_unusable", reason=str(exc), features=snap.to_dict())
             return
         stage[0] = "decision"
-        decision = self.adapter.evaluate(state)
+        decision = self.adapter.evaluate(state, snap)
         stage[0] = "policy"
         pres = evaluate_policy(decision, self.policy)
         prop = propose_trade(decision, pres, state, ctx.exit_params)
@@ -199,7 +199,7 @@ class ShadowPipeline:
         self.stats[f"compare:{cmp['kind']}"] += 1
         rec.update(
             outcome=self._outcome(pres.policy.tier, prop.proposal, prop.reason, risk),
-            features={"snapshot_id": snap.snapshot_id, "feature_version": snap.feature_version},
+            features=snap.to_dict(),     # the FULL snapshot: a record must reconstruct what Jev saw
             state=state.to_dict(), state_hash=state.state_hash(), decision=decision.to_dict(),
             policy=pres.policy.to_dict(), policy_reasons=list(pres.reasons),
             proposal=prop.proposal.to_dict() if prop.proposal else None, proposal_reason=prop.reason,

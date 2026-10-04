@@ -1,8 +1,8 @@
 # V2 status: what is built, what is wired, what is not
 
 Branches (stacked, each reviewable alone; none merged, nothing on `main`):
-`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller` -> `v2/invariants`.
-Tests: 551 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 995 passed, 6 skipped, 10 collection errors
+`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller` -> `v2/invariants` -> `v2/jev-client`.
+Tests: 613 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 1057 passed, 6 skipped, 10 collection errors
 (the same 10 files that fail on `main` for lack of `src/trading/data/`).
 
 ```
@@ -18,8 +18,8 @@ labelled fallback; risk wrapper (every check listed, fail closed); feature engin
 state builder; shadow pipeline; hash-chained decision log.
 
 ## NOT done, and why (in the order they block a real shadow run)
-1. **Real Jev client (V2-8).** `api.typesafe.ai` is unreachable from the build sandbox and the wire format is unknown;
-   the adapter takes an injected client. Needs E4 (docs, egress, key supplied by you in the environment).
+1. **Real Jev client (V2-8): BUILT, unverified.** Written against third-party-documented wire format (see E4); run
+   `python -m trading.v2.jev_probe` once with your key to verify, then review workflow v2's question text.
 2. **Context inputs.** `PaperContextProvider` covers position/equity/day-week/HWM from the paper book. Still to wire: a real
    exchange-health probe, the kill-switch file, `data/exit-params.json` values (all injected; unknown fails closed).
 3. **Fallback source.** (Note E9: three of the four named strategies FAILED the repo's own gate; `GatedSource` now keeps them out by default.)

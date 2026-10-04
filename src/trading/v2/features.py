@@ -23,6 +23,8 @@ exactly what is missing. A feature is never zero-filled. No look-ahead: bars tha
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from dataclasses import dataclass
 from typing import Optional, Protocol, Sequence
@@ -73,6 +75,21 @@ class FeatureResult:
     @property
     def ok(self) -> bool:
         return self.snapshot is not None
+
+
+def snapshot_content_id(snapshot_dict: dict) -> str:
+    """The id of a snapshot, DERIVED FROM ITS CONTENT: symbol, as-of, definition version and a hash of every
+    value. Two snapshots with the same id have the same numbers, so DecisionState.state_hash() (which includes
+    the id) pins exactly what the decision saw. `snapshot_dict` is a snapshot's dict form; its own id is ignored."""
+    body = {k: v for k, v in snapshot_dict.items() if k != "snapshot_id"}
+    h = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
+    return derive_id("feat", snapshot_dict["symbol"], snapshot_dict["as_of_utc"],
+                     snapshot_dict["feature_version"], h)
+
+
+def verify_snapshot(snapshot: FeatureSnapshot) -> bool:
+    """True iff the snapshot's id matches its own content (it has not been edited or mislabelled)."""
+    return snapshot.snapshot_id == snapshot_content_id(snapshot.to_dict())
 
 
 def rsi_wilder(closes: Sequence[float], period: int = RSI_PERIOD) -> Optional[float]:
@@ -202,9 +219,8 @@ def compute_features(symbol: str, bars: BarSource, book: Optional[BookSource], n
         return FeatureResult(None, tuple(missing), spread_bps, last_close)
 
     liquidity = "thin" if spread_bps > LIQUIDITY_THIN_SPREAD_BPS else "normal"
-    snap = FeatureSnapshot(
-        contract="feature_snapshot", version="1.0",
-        snapshot_id=derive_id("feat", symbol, as_of_ms, FEATURE_VERSION),
+    values = dict(
+        contract="feature_snapshot", version="1.0", snapshot_id="feat_PLACEHOLDER",
         feature_version=FEATURE_VERSION, symbol=symbol, as_of_utc=iso_ms(as_of_ms),
         returns=returns,
         technical={"rsi": rsi, "atr": atr_rel, "ema_fast_slope": slope_f,
@@ -214,4 +230,6 @@ def compute_features(symbol: str, bars: BarSource, book: Optional[BookSource], n
         regime={"trend": trend, "volatility": vol_regime, "liquidity": liquidity},
         data_quality={"complete": True, "missing_fields": [], "stale_ms": max(0, now_ms - as_of_ms)},
     )
+    values["snapshot_id"] = snapshot_content_id(FeatureSnapshot(**values).to_dict())
+    snap = FeatureSnapshot(**values)
     return FeatureResult(snap, (), spread_bps, last_close)

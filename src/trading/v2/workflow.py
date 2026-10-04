@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -34,17 +34,23 @@ class ChoiceQuestion(BaseModel):
     model_config = _STRICT
     type: Literal["choice"]
     options: Annotated[list[str], Field(min_length=2)]
+    instructions: Optional[str] = None          # what is asked; required to talk to the real API
+    criteria: Optional[dict[str, str]] = None   # option -> what it means; keys must equal `options`
 
     @model_validator(mode="after")
     def _unique(self):
         if len(set(self.options)) != len(self.options):
             raise ValueError("duplicate options")
+        if self.criteria is not None and set(self.criteria) != set(self.options):
+            raise ValueError("criteria keys must equal options")
         return self
 
 
 class ScoreQuestion(BaseModel):
+    """A 0-1 score. On the wire it is a yes/no ("noul") question: the score is the probability of YES."""
     model_config = _STRICT
     type: Literal["score"]
+    instructions: Optional[str] = None
 
 
 Question = Union[ChoiceQuestion, ScoreQuestion]
@@ -70,6 +76,14 @@ class JevWorkflow(BaseModel):
         if tuple(sorted(self.questions["risk_level"].options)) != tuple(sorted(RISK_LEVELS)):
             raise ValueError(f"risk_level options must be exactly {RISK_LEVELS}")
         return self
+
+    def require_wire_ready(self) -> None:
+        """The real API needs the question text. A workflow without it cannot be sent (workflow v1 cannot)."""
+        for name, q in self.questions.items():
+            if not (q.instructions or "").strip():
+                raise ValueError(f"question {name!r} has no instructions: not usable against the real API")
+            if q.type == "choice" and not q.criteria:
+                raise ValueError(f"choice question {name!r} has no criteria: not usable against the real API")
 
     @property
     def tag(self) -> str:

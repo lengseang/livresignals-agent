@@ -129,6 +129,12 @@ def test_a_would_execute_record_contains_the_whole_reconstructable_chain(tmp_pat
                                "risk": "risk-v2.0", "model": "jev-latest"}
     assert rec["event"]["kind"] == "kline_closed" and rec["event"]["timeframe"] == "1m"
     assert rec["features"]["snapshot_id"].startswith("feat_") and rec["comparison"]["kind"] == "no_legacy"
+    # the record is SELF-SUFFICIENT: the full snapshot is in it, it matches the state's reference and its own content
+    from trading.v2.contracts import FeatureSnapshot
+    from trading.v2.features import verify_snapshot
+    snap = FeatureSnapshot.from_dict(rec["features"])
+    assert snap.snapshot_id == state.features and verify_snapshot(snap) and snap.technical.rsi > 0
+    assert snap.data_quality.complete and set(snap.returns) == {"1m", "5m", "15m", "1h", "4h"}
 
 
 def test_two_identical_runs_produce_identical_chains(tmp_path):
@@ -321,3 +327,18 @@ def test_shadow_module_has_no_execution_path():
 def test_every_cycle_is_labelled_shadow_and_never_real(tmp_path):
     for r in build(tmp_path).run(make_bars()):
         assert r["mode"] == "shadow" and r["real"] is False and "SHADOW" in r["label"]
+
+
+def test_jev_is_given_the_feature_values_not_just_the_snapshot_id(tmp_path):
+    seen = []
+
+    class Spy(Client):
+        def evaluate(self, request, timeout_s):
+            seen.append(request)
+            return super().evaluate(request, timeout_s)
+    p = build(tmp_path)
+    p.adapter.client = Spy(LONG_RAW)
+    p.run(make_bars())
+    assert seen and all(isinstance(r["features"], dict) and r["features"]["snapshot_id"] == r["state"]["features"]
+                        for r in seen)
+    assert all("rsi" in r["features"]["technical"] and "4h" in r["features"]["returns"] for r in seen)

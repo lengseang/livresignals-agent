@@ -22,6 +22,26 @@ the **entire free balance** of coins the live trend book also holds (same wallet
 cron line (crontab = your action) and keep the code marked retired. Yes/no?
 **Answer:**
 
+## E4 · Jev API: what I found, and what I still need (V2-8)
+**Found** (web search only; the vendor docs are blocked from the sandbox; see `docs/loop/designs/V2-8-jev-client.md`):
+`POST https://api.typesafe.ai/v1/systemone`, `Authorization: Bearer <key>`, body `{state, model:"jev-latest", questions:{...}}`,
+questions are `choice` (instructions + criteria) or `noul` (yes/no), replies carry `probabilities` and `confidence`, errors
+401/402/422/429/529. I built the client against that. It is UNVERIFIED against the live API.
+**Still needed from you, once, on a machine that can reach the API:**
+1. `TYPESAFE_API_KEY=<your key> python -m trading.v2.jev_probe jev_probe_response.json` (one call, a fraction of a cent, synthetic
+   state; never prints or saves the key). Paste me the printed report and the saved JSON.
+2. If I am ever to run it from the cloud sandbox: the egress policy must allow `api.typesafe.ai`, and the key must be set as an
+   environment secret. Do not paste it in chat.
+3. Your per-million-token price (sources say $0.042 to $0.42) and your cadence, so cost is a number, not a range.
+4. Review the question text in `src/trading/v2/workflows/crypto_trading_v2.json` (it is the strategy), then flip `active.json`.
+**Answer:**
+
+## E5 · Retire `live_executor manage` from cron? (T0.6, PR #6)
+It runs every 10 min (`config/crontab.trade`). If `config/LIVE_ENABLED` ever comes back, its exit path sells
+the **entire free balance** of coins the live trend book also holds (same wallet). Recommendation: remove that
+cron line (crontab = your action) and keep the code marked retired. Yes/no?
+**Answer:**
+
 ## E4 · Review the F1–F4 fix designs (PRs #3, #4, #5, #6)
 `docs/loop/designs/T0.3.md` and `T0.4.md`. F2 is High: a failed sell currently leaves a real position with **no hard stop**. Both need your approval before T8.1 can implement it, plus two facts:
 (a) the dust threshold for "this coin is held" (proposed $1); (b) the output of

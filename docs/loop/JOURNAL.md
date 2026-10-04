@@ -275,3 +275,15 @@ results), and what was learned or blocked.
   and given coverage floors. Only then did it find the real bug.
 - **Learned:** sizing at a reference price and filling at a later one is a risk-multiplication hazard that a fixed stop price
   makes worse; per-component tests cannot see it.
+
+## 2026-10-04 · V2-8 Jev client (+ a blind-decision bug)
+- **Need check:** the Jev API wire format is a fact that can go out of date, so it was researched, not recalled. Vendor domains are
+  blocked; web search works. ~10 independent write-ups agree; recorded as UNVERIFIED with provenance (E4).
+- **Done:** `typesafe_client.py`, `jev_probe.py`, workflow v2 (question text), conservative-confidence rule, 62 tests.
+- **Evidence:** `pytest tests/` (continue-on-collection-errors): 1057 passed, 6 skipped, 10 errors = 444/6/10 + 613 V2. 25 mutations of
+  the client / confidence / feature-values rules: all caught (one survivor, `criteria` keys unchecked, got a test; one invalid
+  mutation was an AttributeError, not a real result). `git diff origin/main -- src/trading/risk scripts tests/test_risk.py`: empty.
+- **Found while costing the call:** the state sent to Jev contained only a snapshot ID, none of the feature numbers; records also
+  stored only the id, so decisions were not reconstructable and the id was not content-derived. Fixed everywhere.
+- **Learned:** I wrote a tautological assertion (`... or True`) again while rushing; caught on review. Cost numbers come from the
+  real serialized request, not an estimate of one.

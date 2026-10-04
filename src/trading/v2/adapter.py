@@ -28,7 +28,7 @@ from typing import Callable, Optional, Protocol, Union
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from trading.v2.contracts import Decision, DecisionState
+from trading.v2.contracts import Decision, DecisionState, FeatureSnapshot
 from trading.v2.fallback import FALLBACK_MAX_CONFIDENCE, FallbackSource, aggregate
 from trading.v2.ids import derive_id
 from trading.v2.workflow import ACTIONS, JevWorkflow
@@ -87,11 +87,16 @@ class RawJevResponse(BaseModel):
     answers: dict[str, RawAnswer]
 
 
-def build_request(state: DecisionState, workflow: JevWorkflow, state_hash: str) -> dict:
-    """Our internal request. The state cannot hold credentials (contract forbids extras)."""
+def build_request(state: DecisionState, workflow: JevWorkflow, state_hash: str,
+                  features: Optional[FeatureSnapshot] = None) -> dict:
+    """Our internal request. The state cannot hold credentials (contract forbids extras). `state.features` is only
+    an id, so the feature VALUES travel beside it: Jev must see the numbers it is deciding on."""
+    if features is not None and features.snapshot_id != state.features:
+        raise ValueError("features do not belong to this state (snapshot id mismatch)")
     return {
         "workflow": workflow.tag, "model": workflow.model, "state_hash": state_hash,
         "state": state.to_dict(),
+        "features": features.to_dict() if features is not None else None,
         "questions": {n: q.model_dump() for n, q in workflow.questions.items()},
     }
 
@@ -157,7 +162,10 @@ def normalise(reply: object, wf: JevWorkflow, state: DecisionState, state_hash: 
             decision_id=derive_id("dec", state_hash, wf.tag, "jev"),
             state_id=state.state_id, state_hash=state_hash, source="jev",
             model=raw.model, workflow_version=wf.tag, action=action,
-            confidence=dist[action],  # the probability Jev assigns to its chosen action
+            # the probability Jev assigns to its chosen action, lowered (never raised) by Jev's own
+            # `confidence` when it reports one: the more conservative of the two drives policy
+            confidence=(dist[action] if raw.answers["action"].probability is None
+                        else min(dist[action], raw.answers["action"].probability)),
             probabilities=dist,
             signals={k: scores[k] for k in ("trend_quality", "entry_quality", "expected_edge", "timing_quality")},
             risk_level=risk,
@@ -194,13 +202,13 @@ class JevAdapter:
         finally:
             pool.shutdown(wait=False)  # a hung call finishes on its own thread; we never wait for it
 
-    def evaluate(self, state: DecisionState) -> Decision:
+    def evaluate(self, state: DecisionState, features: Optional[FeatureSnapshot] = None) -> Decision:
         self.stats["calls"] += 1
         state_hash = state.state_hash()
         t0 = self._clock()
         category, detail = None, ""
         try:
-            reply = self._call(build_request(state, self.workflow, state_hash))
+            reply = self._call(build_request(state, self.workflow, state_hash, features))
             latency_ms = (self._clock() - t0) * 1000.0
             if latency_ms > self.timeout_s * 1000.0:  # client ignored its own timeout
                 raise JevProtocolError("timeout", f"reply took {latency_ms:.0f}ms")

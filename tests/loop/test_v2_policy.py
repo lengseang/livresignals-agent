@@ -223,3 +223,19 @@ def test_mismatched_inputs_refuse_to_propose():
     other_dec = jev(confidence=0.95, decision_id="dec_OTHER")
     r = propose_trade(d, evaluate_policy(other_dec), state(), EP)
     assert r.reason == "mismatched_decision_policy_state"
+
+
+def test_choice_criteria_must_describe_exactly_the_options_and_wire_readiness_is_checked():
+    base = json.loads((WORKFLOW_DIR / "crypto_trading_v2.json").read_text())
+    JevWorkflow.model_validate(base).require_wire_ready()
+    for mutate in (lambda w: w["questions"]["risk_level"]["criteria"].pop("EXTREME"),
+                   lambda w: w["questions"]["risk_level"]["criteria"].__setitem__("CATASTROPHIC", "x")):
+        w = copy.deepcopy(base); mutate(w)
+        with pytest.raises(ValidationError, match="criteria keys must equal options"):
+            JevWorkflow.model_validate(w)
+    w = copy.deepcopy(base); w["questions"]["entry_quality"]["instructions"] = "   "
+    with pytest.raises(ValueError, match="no instructions"):
+        JevWorkflow.model_validate(w).require_wire_ready()
+    w = copy.deepcopy(base); del w["questions"]["action"]["criteria"]
+    with pytest.raises(ValueError, match="no criteria"):
+        JevWorkflow.model_validate(w).require_wire_ready()

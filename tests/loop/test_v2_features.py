@@ -10,7 +10,8 @@ from trading.replay.bars import INTERVAL_MS, Bar
 from trading.v2.contracts import (DecisionState, FeatureSnapshot, MarketEvent, PositionState, RiskState,
                                   StrategyRef, UnusableSnapshot)
 from trading.v2.events import iso_ms, kline_closed_event
-from trading.v2.features import (Book, FeatureResult, compute_features, rsi_wilder, FEATURE_VERSION)
+from trading.v2.features import (Book, FeatureResult, compute_features, rsi_wilder, FEATURE_VERSION,
+                                 snapshot_content_id, verify_snapshot)
 from trading.v2.state import build_decision_state
 
 from test_v2_contracts import feature_snapshot
@@ -350,3 +351,32 @@ def test_modules_are_pure_no_clock_no_io():
                 names.add((n.module or "").split(".")[0])
         assert names.isdisjoint({"time", "random", "socket", "requests", "os", "sqlite3", "subprocess", "logging"}), mod
         assert ".now(" not in src and "utcnow" not in src and "time.time" not in src, mod
+
+
+# ------------------------------------------------------------ the snapshot id pins the content
+
+def test_snapshot_id_is_derived_from_content_and_verifiable():
+    a = run()[0].snapshot
+    assert verify_snapshot(a) and a.snapshot_id == snapshot_content_id(a.to_dict())
+    assert a.snapshot_id == run()[0].snapshot.snapshot_id                       # same inputs, same id
+    store = make_store()
+    store.d["1m"][-1] = Bar(SYM, "1m", store.d["1m"][-1].open_ms, store.d["1m"][-1].end_ms, *(
+        v * 1.0001 for v in (store.d["1m"][-1].open, store.d["1m"][-1].high, store.d["1m"][-1].low,
+                             store.d["1m"][-1].close)), store.d["1m"][-1].volume, store.d["1m"][-1].quote_volume,
+        5, 5.0)
+    b = run(store)[0].snapshot
+    assert b.as_of_utc == a.as_of_utc and b.snapshot_id != a.snapshot_id        # same time, different numbers
+    assert verify_snapshot(b)
+
+
+def test_an_edited_snapshot_fails_verification_and_changes_the_state_hash():
+    snap = run()[0].snapshot
+    forged = snap.model_copy(update={"technical": snap.technical.model_copy(update={"rsi": 99.0})})
+    assert not verify_snapshot(forged)
+    from trading.v2.contracts import FeatureSnapshot as FS
+    d = snap.to_dict(); d["technical"]["rsi"] = 12.5
+    assert not verify_snapshot(FS.from_dict(d))
+    st = lambda sn: build_decision_state(sn, price=100000.0, spread_bps=0.5, position=POS, risk=RISK,   # noqa: E731
+                                         strategy=STRAT, max_stale_ms=1000)
+    other = run(make_store(m1_seed=9, h1_seed=11))[0].snapshot
+    assert st(snap).state_hash() != st(other).state_hash() and st(snap).features != st(other).features
