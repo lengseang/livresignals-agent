@@ -44,10 +44,21 @@ class RiskLimits:
     max_spread_bps: float = 5.0          # the value in contracts.md Contract G's example
     allow_short: bool = False            # GUARDS: spot only, no margin
     reduce_fraction: float = 0.5         # share of the position a "reduce" intent closes
-    # Fraction of notional held back from free cash for the entry fee and slippage, so an approved order
-    # can actually be funded. 0.002 = 2x the repo CostModel's 0.10% fee. UNVALIDATED: measure real costs.
-    cost_buffer_frac: float = 0.002
+    # Fraction of notional held back from free cash so an approved order can ALWAYS be funded at the worst
+    # price it is allowed to fill at: it must cover the entry fee and the worst entry slippage COMPOUNDED,
+    # (1 + fee) * (1 + slippage) - 1. Enforced in __post_init__, not left to a comment. UNVALIDATED defaults:
+    # fee_rate is the repo CostModel's 0.10% (the account's real rate is UNKNOWN); slippage is the note's ~8-10 bps.
+    fee_rate: float = 0.001
+    max_entry_slippage_bps: float = 10.0
+    cost_buffer_frac: float = 0.0025
     risk_version: str = "risk-v2.0"
+
+
+    def __post_init__(self):
+        need = (1.0 + self.fee_rate) * (1.0 + self.max_entry_slippage_bps / 1e4) - 1.0
+        if self.cost_buffer_frac < need:
+            raise ValueError(f"cost_buffer_frac {self.cost_buffer_frac} cannot cover fee + worst slippage "
+                             f"compounded ({need:.6f}): an approved order could be unfundable")
 
 
 @dataclass(frozen=True)
@@ -249,4 +260,5 @@ def _evaluate(p: TradeProposal, ctx: RiskContext, score_pct: Optional[float],
         risk_version=limits.risk_version, proposal_id=p.proposal_id, approved=approved,
         checks=ordered, size=size if approved else None,
         stop_price=stop_price if approved and entry else None,
+        max_slippage_bps=limits.max_entry_slippage_bps if approved and entry else None,
         reject_reason=None if approved else failed[0])

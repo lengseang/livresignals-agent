@@ -129,14 +129,15 @@ def risk_decision_approved():
     return {
         "contract": "risk_decision", "version": "1.0", "risk_decision_id": f"rd_{ULID}",
         "risk_version": "risk-v7", "proposal_id": f"tp_{ULID}", "approved": True,
-        "checks": checks(), "size": 0.00092, "stop_price": 106900.0, "reject_reason": None,
+        "checks": checks(), "size": 0.00092, "stop_price": 106900.0, "max_slippage_bps": 10.0,
+        "reject_reason": None,
     }
 
 
 def risk_decision_rejected():
     d = risk_decision_approved()
     d.update(approved=False, checks=checks(failed=("daily_loss_limit",)), size=None,
-             stop_price=None, reject_reason="daily_loss_limit")
+             stop_price=None, max_slippage_bps=None, reject_reason="daily_loss_limit")
     return d
 
 
@@ -145,8 +146,8 @@ def execution_command():
         "contract": "execution_command", "version": "1.0", "command_id": f"ex_{ULID}",
         "proposal_id": f"tp_{ULID}", "risk_decision_id": f"rd_{ULID}", "venue": "binance",
         "symbol": "BTCUSDT", "side": "BUY", "type": "MARKET", "limit_price": None,
-        "size": 0.00092, "stop_price": 106900.0, "position_side": "LONG",
-        "reduce_only": False, "idempotency_key": f"tp_{ULID}-v1",
+        "size": 0.00092, "stop_price": 106900.0, "worst_price": 108528.92,
+        "position_side": "LONG", "reduce_only": False, "idempotency_key": f"tp_{ULID}-v1",
     }
 
 
@@ -580,13 +581,26 @@ def test_h_opening_requires_stop_and_hedge_mode_position_side():
 
 def test_h_reduce_only_mapping_and_no_stop():
     close_long = mutated(execution_command, side="SELL", position_side="LONG",
-                         reduce_only=True, stop_price=None)
+                         reduce_only=True, stop_price=None, worst_price=None)
     assert ExecutionCommand.from_dict(close_long).reduce_only
     close_short = mutated(execution_command, side="BUY", position_side="SHORT",
-                          reduce_only=True, stop_price=None)
+                          reduce_only=True, stop_price=None, worst_price=None)
     assert ExecutionCommand.from_dict(close_short).reduce_only
     rejects(ExecutionCommand, mutated(lambda: close_long, stop_price=1.0), "stop_price")
     rejects(ExecutionCommand, mutated(lambda: close_long, side="BUY"), "position_side")
+
+
+def test_h_slippage_protection_rules():
+    rejects(ExecutionCommand, mutated(execution_command, worst_price=None), "worst_price")        # opening needs it
+    close = mutated(execution_command, side="SELL", position_side="LONG", reduce_only=True, stop_price=None)
+    rejects(ExecutionCommand, close, "worst_price")                  # a reduce-only order must not carry one
+    rejects(ExecutionCommand, mutated(execution_command, worst_price=0), "worst_price")
+
+
+def test_g_max_slippage_bps_is_carried_only_by_approvals():
+    assert RiskDecision.from_dict(risk_decision_approved()).max_slippage_bps == 10.0
+    rejects(RiskDecision, mutated(risk_decision_rejected, max_slippage_bps=10.0), "max_slippage_bps")
+    rejects(RiskDecision, mutated(risk_decision_approved, max_slippage_bps=0), "max_slippage_bps")
 
 
 def test_h_limit_needs_price_and_market_forbids_it():
@@ -616,6 +630,7 @@ def test_h_from_approved_copies_size_and_stop_from_risk_not_proposal():
         risk_decision=RiskDecision.from_dict(risk_decision_approved()),
         command_id=f"ex_{ULID}", venue="binance")
     assert (cmd.size, cmd.stop_price) == (0.00092, 106900.0)
+    assert cmd.worst_price == pytest.approx(108420.5 * (1 + 10.0 / 1e4))        # BUY: ceiling above reference
     assert (cmd.side, cmd.position_side, cmd.reduce_only) == ("BUY", "LONG", False)
     assert cmd.risk_decision_id == f"rd_{ULID}" and cmd.idempotency_key == f"tp_{ULID}-v1"
 
@@ -626,6 +641,7 @@ def test_h_from_approved_short_entry_and_exits():
         proposal=TradeProposal.from_dict(p), risk_decision=RiskDecision.from_dict(risk_decision_approved()),
         command_id=f"ex_{ULID}", venue="binance")
     assert (cmd.side, cmd.position_side) == ("SELL", "SHORT")
+    assert cmd.worst_price == pytest.approx(108420.5 * (1 - 10.0 / 1e4))        # SELL: floor below reference
     for pos_side, order_side in (("LONG", "SELL"), ("SHORT", "BUY")):
         p = mutated(trade_proposal, intent="flatten", side=pos_side, stop_pct=None, target_pct=None)
         p["rationale"]["policy_tier"] = "WATCH"
@@ -646,6 +662,9 @@ def test_h_from_approved_refuses_unapproved_mismatched_or_unprotected():
     other = mutated(risk_decision_approved, proposal_id="tp_DIFFERENT")
     with pytest.raises(ExecutionRefused, match="different proposal"):
         ExecutionCommand.from_approved(proposal=prop, risk_decision=RiskDecision.from_dict(other), **kw)
+    no_slip = mutated(risk_decision_approved, max_slippage_bps=None)
+    with pytest.raises(ExecutionRefused, match="max_slippage_bps"):
+        ExecutionCommand.from_approved(proposal=prop, risk_decision=RiskDecision.from_dict(no_slip), **kw)
     unprotected = mutated(risk_decision_approved, stop_price=None)
     with pytest.raises(ExecutionRefused, match="stop_price"):
         ExecutionCommand.from_approved(

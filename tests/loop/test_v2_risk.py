@@ -81,7 +81,7 @@ def test_sizing_is_the_legacy_engines_sizing_in_base_units():
 def test_partial_exposure_shrinks_the_size_never_grows_it():
     free = run().size
     half = run(c=ctx(open_notional=6000.0)).size
-    assert 0 < half < free and half * 108420.5 == pytest.approx(4000.0 / 1.002, abs=1e-3)
+    assert 0 < half < free and half * 108420.5 == pytest.approx(4000.0 / (1 + LIMITS.cost_buffer_frac), abs=1e-3)
 
 
 def test_an_approved_order_is_always_fundable_from_free_cash_including_costs():
@@ -97,15 +97,36 @@ def test_an_approved_order_is_always_fundable_from_free_cash_including_costs():
     assert "funds the order" in next(x.detail for x in small.checks if x.name == "buying_power")
 
 
-def test_cost_buffer_is_configurable_and_zero_removes_the_cap():
-    r = run(limits=RiskLimits(daily_loss_cap_usd=100.0, cost_buffer_frac=0.0))
-    assert r.size == pytest.approx(10000.0 / 108420.5, abs=1e-8)
+def test_cost_buffer_must_cover_fee_and_worst_slippage_compounded():
+    need = 1.001 * 1.001 - 1                                       # 0.002001: NOT 0.002 (they compound)
+    assert LIMITS.cost_buffer_frac >= need
+    RiskLimits(daily_loss_cap_usd=1.0, cost_buffer_frac=need)      # exactly enough is accepted
+    for bad in (0.002, 0.0, 0.001):
+        with pytest.raises(ValueError, match="cannot cover fee"):
+            RiskLimits(daily_loss_cap_usd=1.0, cost_buffer_frac=bad)
+    with pytest.raises(ValueError):                                # wider slippage needs a wider buffer
+        RiskLimits(daily_loss_cap_usd=1.0, max_entry_slippage_bps=50.0)
+    RiskLimits(daily_loss_cap_usd=1.0, max_entry_slippage_bps=50.0, cost_buffer_frac=0.007)
+    r = run(limits=RiskLimits(daily_loss_cap_usd=100.0, cost_buffer_frac=need))
+    assert r.approved and r.size == pytest.approx(10000.0 / (1 + need) / 108420.5, abs=1e-7)
 
 
 def test_full_exposure_rejects_via_the_legacy_engine():
     r = run(c=ctx(open_notional=10000.0))
     assert not r.approved and r.reject_reason == "max_position_size" and r.size is None
     assert "exposure full" in next(x.detail for x in r.checks if x.name == "max_position_size")
+
+
+def test_approved_entries_carry_slippage_protection_and_exits_do_not():
+    r = run()
+    assert r.max_slippage_bps == 10.0
+    assert run(limits=RiskLimits(daily_loss_cap_usd=100.0, max_entry_slippage_bps=8.0)).max_slippage_bps == 8.0
+    assert run(p=exit_proposal("exit"), c=ctx(state=state(**LONG_POS))).max_slippage_bps is None
+    assert veto_is_clean(run(c=ctx(kill_switch_engaged=True)))
+
+
+def veto_is_clean(r):
+    return r.max_slippage_bps is None and r.size is None and r.stop_price is None and not r.approved
 
 
 def test_deterministic_1000x():

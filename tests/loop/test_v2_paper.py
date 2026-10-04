@@ -37,17 +37,19 @@ def b(i, o, h=None, l=None, c=None, t0=T0):
 
 
 def cmd(key="1", **over):
-    d = mutated(execution_command, size=1.0, stop_price=95.0, idempotency_key=f"tp_01J8ZABCDEFGH-v{key}")
+    d = mutated(execution_command, size=1.0, stop_price=95.0, worst_price=1e9,
+                idempotency_key=f"tp_01J8ZABCDEFGH-v{key}")
     d.update(over)
     return ExecutionCommand.from_dict(d)
 
 
 def close_cmd(size=1.0, key="9", side="SELL", position_side="LONG"):
-    return cmd(key=key, side=side, position_side=position_side, reduce_only=True, stop_price=None, size=size)
+    return cmd(key=key, side=side, position_side=position_side, reduce_only=True, stop_price=None,
+               worst_price=None, size=size)
 
 
 def short_cmd(key="3", stop=105.0, size=1.0):
-    return cmd(key=key, side="SELL", position_side="SHORT", stop_price=stop, size=size)
+    return cmd(key=key, side="SELL", position_side="SHORT", stop_price=stop, size=size, worst_price=0.01)
 
 
 def book(costs=ZERO, equity=1000.0, sink=None):
@@ -419,3 +421,64 @@ def test_a_crash_through_the_stop_closes_at_the_gap_price_and_the_loss_cap_block
     assert [r["outcome"] for r in recs] == ["would_execute", "risk_rejected", "risk_rejected", "risk_rejected"]
     assert all(r["risk"]["reject_reason"] == "daily_loss_limit" for r in recs[1:])
     assert all(r["paper_submit"] is None for r in recs[1:])
+
+
+# ------------------------------------------------------------ slippage protection (found by the invariant test)
+
+def test_an_entry_that_gaps_past_its_worst_price_is_refused_not_filled_at_the_worse_price():
+    bk = book(CostModel(0.001, 0.0, 0.0), equity=1000.0)
+    bk.submit(cmd(size=5.0, worst_price=100.10), T0)                    # reference 100, 10 bps of room
+    bk.on_bar(b(0, 106.0))                                              # gapped +6%
+    assert not bk.positions and bk.cash == 1000.0 and bk.stats["rejected:slippage_exceeded"] == 1
+    bk2 = book(CostModel(0.001, 0.0, 0.0), equity=1000.0)
+    bk2.submit(cmd(size=5.0, worst_price=100.10), T0); bk2.on_bar(b(0, 100.10))
+    assert SYM in bk2.positions                                         # exactly at the limit: filled
+
+
+def test_a_short_entry_is_protected_on_the_other_side():
+    bk = book()
+    bk.submit(short_cmd(size=1.0, stop=105.0) .model_copy(update={"worst_price": 99.90}), T0)
+    bk.on_bar(b(0, 94.0))                                               # gapped DOWN through the floor
+    assert not bk.positions and bk.stats["rejected:slippage_exceeded"] == 1
+    bk.submit(short_cmd(key="4", size=1.0, stop=105.0).model_copy(update={"worst_price": 99.90}), T0 + M)
+    bk.on_bar(b(1, 99.95))
+    assert bk.positions[SYM].side == "SHORT"
+
+
+def test_slippage_protection_never_refuses_an_exit():
+    bk = book()
+    bk.submit(cmd(size=1.0, stop_price=1.0), T0); bk.on_bar(b(0, 100.0))
+    bk.submit(close_cmd(1.0), T0 + M); bk.on_bar(b(1, 50.0))           # a 50% gap against us
+    assert not bk.positions and bk.trades[0]["exit"] == 50.0 and bk.stats["rejected:slippage_exceeded"] == 0
+
+
+def test_with_protection_an_approved_order_is_always_fundable_even_after_a_gap():
+    lim = RiskLimits(daily_loss_cap_usd=1.0)                             # default buffer, validated at construction
+    notional_at_ref = 1000.0 / (1 + lim.cost_buffer_frac)                # what risk sizes to at reference 100
+    worst = 100.0 * (1 + lim.max_entry_slippage_bps / 1e4)
+    for open_px in (100.0, 100.05, worst, worst + 1e-9, 103.0, 120.0):
+        bk = book(CostModel(lim.fee_rate, 0.0, 0.0), equity=1000.0)
+        bk.submit(cmd(size=notional_at_ref / 100.0, worst_price=worst), T0)
+        bk.on_bar(b(0, open_px))
+        assert bk.stats["rejected:insufficient_cash"] == 0 and bk.cash >= 0.0, open_px
+        assert (SYM in bk.positions) == (open_px <= worst), open_px
+
+
+def test_random_fee_slippage_and_gap_combinations_never_produce_an_unfundable_approved_order():
+    x = 99
+    for _ in range(400):
+        x = (1103515245 * x + 12345) % 2 ** 31
+        fee = 0.0005 + (x % 1000) / 1e6                                   # 0.05% .. 0.15%
+        x = (1103515245 * x + 12345) % 2 ** 31
+        slip = 1.0 + (x % 4000) / 100.0                                   # 1 .. 41 bps
+        need = (1 + fee) * (1 + slip / 1e4) - 1
+        lim = RiskLimits(daily_loss_cap_usd=1.0, fee_rate=fee, max_entry_slippage_bps=slip,
+                         cost_buffer_frac=need + 1e-9)
+        x = (1103515245 * x + 12345) % 2 ** 31
+        gap = (x % 8000) / 1e5                                            # 0 .. 8% gap
+        ref = 100.0
+        worst = ref * (1 + slip / 1e4)
+        bk = book(CostModel(fee, 0.0, 0.0), equity=1000.0)
+        bk.submit(cmd(size=1000.0 / (1 + lim.cost_buffer_frac) / ref, worst_price=worst), T0)
+        bk.on_bar(b(0, ref * (1 + gap)))
+        assert bk.stats["rejected:insufficient_cash"] == 0, (fee, slip, gap)

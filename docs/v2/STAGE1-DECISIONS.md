@@ -57,3 +57,9 @@ owner chose the note's version for the four items below.
 - `src/trading/data/*.py` (referenced by the guide) is not in the repository: it is
   swallowed by the unanchored `data/` rule in `.gitignore`. Contract A's overlap with
   `store.py` could not be reviewed.
+
+## Later amendments (see docs/loop/designs/V2-12-slippage-and-invariants.md)
+- `RiskDecision.max_slippage_bps` and `ExecutionCommand.worst_price` (from the note's Risk Decision), found necessary by a
+  whole-chain randomised test: without them a gap between decision and fill silently multiplies risk and can make an
+  approved order unfundable.
+- Contract J `halt_request` (from the note's Level 5), see V2-10.

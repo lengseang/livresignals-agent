@@ -264,3 +264,14 @@ results), and what was learned or blocked.
 - **Found by integration:** the cycle read the context before cancelling resting orders, so the audit named `duplicate_order`
   before `kill_switch`. Fixed (re-read after cancel).
 - **Learned:** the spec's fallback premise was never checked against the repo's own results; checking took five minutes.
+
+## 2026-10-04 · V2-12 whole-chain invariants, slippage protection
+- **Need check:** none external.
+- **Done:** `tests/loop/test_v2_invariants.py` (60 randomised seeds + coverage floors); `max_slippage_bps` / `worst_price`;
+  `RiskLimits` buffer invariant.
+- **Evidence:** `pytest tests/` (continue-on-collection-errors): see commit. 9 mutations of the new rules, all caught.
+  `git diff origin/main -- src/trading/risk scripts tests/test_risk.py`: empty.
+- **The first version of the invariant test was nearly vacuous** (4 would-executes in 60 seeds, 0 stop-outs): measured, retuned,
+  and given coverage floors. Only then did it find the real bug.
+- **Learned:** sizing at a reference price and filling at a later one is a risk-multiplication hazard that a fixed stop price
+  makes worse; per-component tests cannot see it.

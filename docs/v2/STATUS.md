@@ -1,8 +1,8 @@
 # V2 status: what is built, what is wired, what is not
 
 Branches (stacked, each reviewable alone; none merged, nothing on `main`):
-`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller`.
-Tests: 482 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 926 passed, 6 skipped, 10 collection errors
+`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller` -> `v2/invariants`.
+Tests: 551 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 995 passed, 6 skipped, 10 collection errors
 (the same 10 files that fail on `main` for lack of `src/trading/data/`).
 
 ```

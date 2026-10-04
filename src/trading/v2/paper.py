@@ -11,6 +11,7 @@ Rules (each has a test):
   * One position per symbol; a reduce-only order closes at most what is held.
   * The protective stop is checked on every bar after fills, including the entry bar; a gap through the
     stop fills at the open (worse), never at the stop.
+  * An opening order carries `worst_price`; a fill beyond it is refused (gap protection), never accepted.
   * LIMIT orders are rejected, not approximated. SHORT is a paper-only simulation (spot cannot short;
     no borrow cost or liquidation modelled).
   * Costs default to the replay CostModel (0.10% fee, no spread/slippage): the account's real figures are
@@ -164,6 +165,9 @@ class PaperBook:
         if not cmd.reduce_only:                                           # --- open
             if pos is not None:
                 self._reject(cmd, t, "position_exists")
+                return
+            if cmd.worst_price is not None and ((buy and px > cmd.worst_price) or (not buy and px < cmd.worst_price)):
+                self._reject(cmd, t, "slippage_exceeded")      # the market moved past the order's protection
                 return
             notional = cmd.size * px
             fee = self.costs.fee_rate * notional

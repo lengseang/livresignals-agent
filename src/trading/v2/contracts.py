@@ -502,6 +502,9 @@ class RiskDecision(_Contract):
     checks: list[RiskCheck]
     size: Optional[Pos] = None
     stop_price: Optional[Pos] = None
+    # Notion's Risk Decision carries max_slippage_bps; contracts.md dropped it. Without it a gap between the
+    # decision (reference price) and the fill silently inflates risk and can make an order unfundable.
+    max_slippage_bps: Optional[Pos] = None
     reject_reason: Optional[NonEmpty] = None
 
     @model_validator(mode="after")
@@ -525,8 +528,8 @@ class RiskDecision(_Contract):
                 raise ValueError("rejected decision must have at least one failed check")
             if self.reject_reason not in failed:
                 raise ValueError("reject_reason must name a failed check")
-            if self.size is not None or self.stop_price is not None:
-                raise ValueError("rejected decision must not carry size or stop_price")
+            if self.size is not None or self.stop_price is not None or self.max_slippage_bps is not None:
+                raise ValueError("rejected decision must not carry size, stop_price or max_slippage_bps")
         return self
 
 
@@ -550,6 +553,9 @@ class ExecutionCommand(_Contract):
     limit_price: Optional[Pos] = None  # addition: a LIMIT order is unplaceable without it
     size: Pos
     stop_price: Optional[Pos] = None  # addition (owner-approved): protective stop
+    # Worst acceptable fill price for an OPENING order (buy: fill must be <= it; sell: >= it): the order's
+    # slippage protection, derived from the reference price and the risk decision's max_slippage_bps.
+    worst_price: Optional[Pos] = None
     position_side: Literal["LONG", "SHORT"]  # Binance hedge mode: required
     reduce_only: bool
     idempotency_key: NonEmpty
@@ -574,6 +580,10 @@ class ExecutionCommand(_Contract):
             raise ValueError("an opening order requires a protective stop_price")
         if not opening and self.stop_price is not None:
             raise ValueError("a reduce-only order must not carry stop_price")
+        if opening and self.worst_price is None:
+            raise ValueError("an opening order requires worst_price (slippage protection)")
+        if not opening and self.worst_price is not None:
+            raise ValueError("a reduce-only order must not carry worst_price: exits must not be refused for price")
         if not re.fullmatch(rf"{re.escape(self.proposal_id)}-v\d+", self.idempotency_key):
             raise ValueError("idempotency_key must be '<proposal_id>-v<n>'")
         return self
@@ -603,6 +613,8 @@ class ExecutionCommand(_Contract):
         entry = proposal.intent == "entry"
         if entry and risk_decision.stop_price is None:
             raise ExecutionRefused("entry approved without a protective stop_price")
+        if entry and risk_decision.max_slippage_bps is None:
+            raise ExecutionRefused("entry approved without max_slippage_bps (slippage protection)")
         if entry:
             side = "BUY" if proposal.side == "LONG" else "SELL"
         else:
@@ -620,6 +632,9 @@ class ExecutionCommand(_Contract):
             limit_price=limit_price,
             size=risk_decision.size,
             stop_price=risk_decision.stop_price if entry else None,
+            worst_price=(proposal.reference_price * (1 + risk_decision.max_slippage_bps / 1e4 if side == "BUY"
+                                                      else 1 - risk_decision.max_slippage_bps / 1e4)
+                         if entry else None),
             position_side=proposal.side,
             reduce_only=not entry,
             idempotency_key=f"{proposal.proposal_id}-v{attempt}",
