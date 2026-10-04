@@ -42,11 +42,16 @@ Python    : 3.12, venv at ./venv
 |---|---|
 | `docs/v2/contracts.md` | **The spec. This is your primary source.** Nine contracts A–I |
 | `docs/adaptive-framework.md` | Existing architecture and the house reasoning style |
-| `AGENTS.md` | Repo rules — read this before writing any code |
+| `SYSTEM_MAP.md` | Repo map — the closest thing to a repo-level overview |
 | `scripts/unified_trader.py` | Today's decision path (what V2 replaces) |
+| `src/trading/data/` | Data layer: `ccxt_fetcher.py`, `normalize.py`, `store.py`, `health.py` |
+| `src/trading/risk/` | Existing risk code: `risk_engine.py`, `guards.py`, `breakers.py` — **V2 must not weaken it** |
 | `scripts/live_executor.py` | Live execution — **read-only unless told otherwise** |
 | `scripts/futures_executor.py` | Futures path, holds the hedge-mode quirk |
-| `scripts/risk*` / config | Existing risk limits — V2 must not weaken them |
+
+**There is no `AGENTS.md` in this repo.** An earlier draft of this guide cited one; it
+does not exist. The rules that matter are written out in §2 below. Do not go looking
+for it.
 
 ---
 
@@ -81,8 +86,10 @@ Python    : 3.12, venv at ./venv
 5. Report the branch and the test result
 ```
 
-**Read diffs line by line, not summaries.** The repo's own rule (AGENTS.md §3): never
-treat a diff as cosmetic without reading the lines.
+**Read diffs line by line, not summaries.** A diff that looks cosmetic can change
+behaviour; read the lines. (This is a standing rule on this project — stated here directly
+because the repo has no AGENTS.md file to cite; `SYSTEM_MAP.md` is the closest thing to
+a repo-level document.)
 
 ---
 
