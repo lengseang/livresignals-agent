@@ -149,7 +149,7 @@ def _evaluate(p: TradeProposal, ctx: RiskContext, score_pct: Optional[float],
         add("daily_loss_limit", True, "n/a: reduce-only is never blocked by loss limits; " + daily_detail)
 
     # --- sizing (entries) / closing size (exits)
-    size = stop_price = None
+    size = stop_price = target_price = None
     sizing_detail, sizing_ok = "", True
     stop_ok = True
     if entry:
@@ -176,6 +176,8 @@ def _evaluate(p: TradeProposal, ctx: RiskContext, score_pct: Optional[float],
                     size = qty
                     stop_price = round(p.reference_price * (1 - p.stop_pct if p.side == "LONG"
                                                               else 1 + p.stop_pct), SIZE_DECIMALS)
+                    target_price = round(p.reference_price * (1 + p.target_pct if p.side == "LONG"
+                                                              else 1 - p.target_pct), SIZE_DECIMALS)
                     sizing_detail = (f"notional ${notional:.2f} = "
                                      f"{notional / eq:.2%} of equity; risk "
                                      f"${pos['risk_amount']:.2f} ({pos['risk_fraction']:.4f}); "
@@ -261,4 +263,5 @@ def _evaluate(p: TradeProposal, ctx: RiskContext, score_pct: Optional[float],
         checks=ordered, size=size if approved else None,
         stop_price=stop_price if approved and entry else None,
         max_slippage_bps=limits.max_entry_slippage_bps if approved and entry else None,
+        target_price=target_price if approved and entry else None,
         reject_reason=None if approved else failed[0])

@@ -70,6 +70,7 @@ RiskDecisionId = _id("rd")
 CommandId = _id("ex")
 HermesProposalId = _id("prop")
 HaltRequestId = _id("hr")
+AdjustmentId = _id("padj")
 
 Venue = Literal["binance", "bybit"]
 Tier = Literal["IGNORE", "WATCH", "STRATEGY_CHECK", "EXECUTE"]
@@ -505,6 +506,9 @@ class RiskDecision(_Contract):
     # Notion's Risk Decision carries max_slippage_bps; contracts.md dropped it. Without it a gap between the
     # decision (reference price) and the fill silently inflates risk and can make an order unfundable.
     max_slippage_bps: Optional[Pos] = None
+    # V2-15: the take-profit level. propose_trade always computed target_pct, but nothing downstream carried it, so
+    # no position could ever take profit: a near-target trade could only end at its stop or on a Jev EXIT.
+    target_price: Optional[Pos] = None
     reject_reason: Optional[NonEmpty] = None
 
     @model_validator(mode="after")
@@ -528,8 +532,11 @@ class RiskDecision(_Contract):
                 raise ValueError("rejected decision must have at least one failed check")
             if self.reject_reason not in failed:
                 raise ValueError("reject_reason must name a failed check")
-            if self.size is not None or self.stop_price is not None or self.max_slippage_bps is not None:
-                raise ValueError("rejected decision must not carry size, stop_price or max_slippage_bps")
+            if (self.size is not None or self.stop_price is not None or self.max_slippage_bps is not None
+                    or self.target_price is not None):
+                raise ValueError("rejected decision must not carry size, stop_price, max_slippage_bps or target_price")
+        if self.target_price is not None and self.stop_price is None:
+            raise ValueError("target_price without a stop_price: a target is only valid on a protected entry")
         return self
 
 
@@ -556,6 +563,7 @@ class ExecutionCommand(_Contract):
     # Worst acceptable fill price for an OPENING order (buy: fill must be <= it; sell: >= it): the order's
     # slippage protection, derived from the reference price and the risk decision's max_slippage_bps.
     worst_price: Optional[Pos] = None
+    target_price: Optional[Pos] = None  # V2-15: take-profit level (opening orders only); from the risk decision
     position_side: Literal["LONG", "SHORT"]  # Binance hedge mode: required
     reduce_only: bool
     idempotency_key: NonEmpty
@@ -584,6 +592,12 @@ class ExecutionCommand(_Contract):
             raise ValueError("an opening order requires worst_price (slippage protection)")
         if not opening and self.worst_price is not None:
             raise ValueError("a reduce-only order must not carry worst_price: exits must not be refused for price")
+        if not opening and self.target_price is not None:
+            raise ValueError("a reduce-only order must not carry target_price")
+        if opening and self.target_price is not None:
+            long = self.position_side == "LONG"
+            if (long and not self.target_price > self.stop_price) or (not long and not self.target_price < self.stop_price):
+                raise ValueError("target_price must be on the profit side of stop_price")
         if not re.fullmatch(rf"{re.escape(self.proposal_id)}-v\d+", self.idempotency_key):
             raise ValueError("idempotency_key must be '<proposal_id>-v<n>'")
         return self
@@ -615,6 +629,8 @@ class ExecutionCommand(_Contract):
             raise ExecutionRefused("entry approved without a protective stop_price")
         if entry and risk_decision.max_slippage_bps is None:
             raise ExecutionRefused("entry approved without max_slippage_bps (slippage protection)")
+        if entry and risk_decision.target_price is None:
+            raise ExecutionRefused("entry approved without a target_price: the position could never take profit")
         if entry:
             side = "BUY" if proposal.side == "LONG" else "SELL"
         else:
@@ -632,6 +648,7 @@ class ExecutionCommand(_Contract):
             limit_price=limit_price,
             size=risk_decision.size,
             stop_price=risk_decision.stop_price if entry else None,
+            target_price=risk_decision.target_price if entry else None,
             worst_price=(proposal.reference_price * (1 + risk_decision.max_slippage_bps / 1e4 if side == "BUY"
                                                       else 1 - risk_decision.max_slippage_bps / 1e4)
                          if entry else None),
@@ -714,6 +731,43 @@ class HaltRequest(_Contract):
         return self
 
 
+# ---------------------------------------------------------------- Contract K (V2-15)
+
+
+class PositionAdjustment(_Contract):
+    """A protective-stop amendment on an OPEN position. It can only TIGHTEN (move toward profit): a long's stop
+    only rises, a short's only falls, and never to or beyond the last price (that would be an exit disguised as a
+    stop). It is not a new order, so the kill switch does not block it: it is how a position stays protected
+    while everything else is halted."""
+
+    contract: Literal["position_adjustment"]
+    version: Literal["1.0"]
+    adjustment_id: AdjustmentId
+    symbol: Symbol
+    position_side: Literal["LONG", "SHORT"]
+    kind: Literal["TIGHTEN_STOP"]
+    old_stop: Pos
+    new_stop: Pos
+    last_price: Pos
+    source: Literal["ratchet", "jev", "gateway"]
+    reason: Annotated[str, StringConstraints(min_length=1, max_length=300)]
+    ts_ms: Annotated[int, Field(gt=0)]
+
+    @model_validator(mode="after")
+    def _tightens(self):
+        if self.position_side == "LONG":
+            if not self.new_stop > self.old_stop:
+                raise ValueError("a LONG stop can only rise")
+            if not self.new_stop < self.last_price:
+                raise ValueError("a LONG stop must stay below the last price")
+        else:
+            if not self.new_stop < self.old_stop:
+                raise ValueError("a SHORT stop can only fall")
+            if not self.new_stop > self.last_price:
+                raise ValueError("a SHORT stop must stay above the last price")
+        return self
+
+
 ALL_CONTRACTS = {
     "market_event": MarketEvent,
     "feature_snapshot": FeatureSnapshot,
@@ -725,4 +779,5 @@ ALL_CONTRACTS = {
     "execution_command": ExecutionCommand,
     "hermes_proposal": HermesProposal,
     "halt_request": HaltRequest,
+    "position_adjustment": PositionAdjustment,
 }

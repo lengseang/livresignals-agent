@@ -130,14 +130,14 @@ def risk_decision_approved():
         "contract": "risk_decision", "version": "1.0", "risk_decision_id": f"rd_{ULID}",
         "risk_version": "risk-v7", "proposal_id": f"tp_{ULID}", "approved": True,
         "checks": checks(), "size": 0.00092, "stop_price": 106900.0, "max_slippage_bps": 10.0,
-        "reject_reason": None,
+        "target_price": 116100.0, "reject_reason": None,
     }
 
 
 def risk_decision_rejected():
     d = risk_decision_approved()
     d.update(approved=False, checks=checks(failed=("daily_loss_limit",)), size=None,
-             stop_price=None, max_slippage_bps=None, reject_reason="daily_loss_limit")
+             stop_price=None, max_slippage_bps=None, target_price=None, reject_reason="daily_loss_limit")
     return d
 
 
@@ -167,12 +167,20 @@ def halt_request():
             "reason": "Detected abnormal execution behavior", "confidence": 0.96}
 
 
+def position_adjustment():
+    return {"contract": "position_adjustment", "version": "1.0", "adjustment_id": f"padj_{ULID}",
+            "symbol": "BTCUSDT", "position_side": "LONG", "kind": "TIGHTEN_STOP", "old_stop": 106900.0,
+            "new_stop": 111000.0, "last_price": 113000.0, "source": "ratchet",
+            "reason": "lock 50% of MFE after reaching 50% of target", "ts_ms": 1759000000000}
+
+
 FIXTURES = {
     "market_event": market_event, "feature_snapshot": feature_snapshot,
     "decision_state": decision_state, "decision": jev_decision,
     "policy_decision": policy_decision, "trade_proposal": trade_proposal,
     "risk_decision": risk_decision_approved, "execution_command": execution_command,
     "hermes_proposal": hermes_proposal, "halt_request": halt_request,
+    "position_adjustment": position_adjustment,
 }
 
 
@@ -189,8 +197,8 @@ def rejects(model, data, match=None):
 
 # ------------------------------------------------- generic, all nine contracts
 
-def test_registry_covers_ten_contracts_and_fixtures():
-    assert len(ALL_CONTRACTS) == 10          # A-I from contracts.md + J (halt request, from the Notion note)
+def test_registry_covers_eleven_contracts_and_fixtures():
+    assert len(ALL_CONTRACTS) == 11          # A-I from contracts.md + J (halt request, Notion) + K (V2-15 adjustment)
     assert set(FIXTURES) == set(ALL_CONTRACTS)
 
 
@@ -638,14 +646,16 @@ def test_h_from_approved_copies_size_and_stop_from_risk_not_proposal():
 def test_h_from_approved_short_entry_and_exits():
     p = trade_proposal(); p["side"] = "SHORT"
     cmd = ExecutionCommand.from_approved(
-        proposal=TradeProposal.from_dict(p), risk_decision=RiskDecision.from_dict(risk_decision_approved()),
+        proposal=TradeProposal.from_dict(p),
+        risk_decision=RiskDecision.from_dict(mutated(risk_decision_approved, stop_price=110589.0, target_price=104083.0)),
         command_id=f"ex_{ULID}", venue="binance")
     assert (cmd.side, cmd.position_side) == ("SELL", "SHORT")
+    assert cmd.target_price == 104083.0 < cmd.stop_price
     assert cmd.worst_price == pytest.approx(108420.5 * (1 - 10.0 / 1e4))        # SELL: floor below reference
     for pos_side, order_side in (("LONG", "SELL"), ("SHORT", "BUY")):
         p = mutated(trade_proposal, intent="flatten", side=pos_side, stop_pct=None, target_pct=None)
         p["rationale"]["policy_tier"] = "WATCH"
-        rd = risk_decision_approved(); rd["stop_price"] = None
+        rd = risk_decision_approved(); rd["stop_price"] = None; rd["target_price"] = None
         cmd = ExecutionCommand.from_approved(
             proposal=TradeProposal.from_dict(p), risk_decision=RiskDecision.from_dict(rd),
             command_id=f"ex_{ULID}", venue="binance")
@@ -665,7 +675,7 @@ def test_h_from_approved_refuses_unapproved_mismatched_or_unprotected():
     no_slip = mutated(risk_decision_approved, max_slippage_bps=None)
     with pytest.raises(ExecutionRefused, match="max_slippage_bps"):
         ExecutionCommand.from_approved(proposal=prop, risk_decision=RiskDecision.from_dict(no_slip), **kw)
-    unprotected = mutated(risk_decision_approved, stop_price=None)
+    unprotected = mutated(risk_decision_approved, stop_price=None, target_price=None)
     with pytest.raises(ExecutionRefused, match="stop_price"):
         ExecutionCommand.from_approved(
             proposal=prop, risk_decision=RiskDecision.from_dict(unprotected), **kw)
@@ -730,3 +740,59 @@ def test_j_only_hermes_may_request_and_reason_and_confidence_are_validated():
     for bad in (-0.1, 1.1, "0.9", None):
         rejects(HaltRequest, mutated(halt_request, confidence=bad))
     rejects(HaltRequest, mutated(halt_request, request_id="prop_1"))
+
+
+# ------------------------------------------------- V2-15: take profit + stop amendments
+
+def test_rejected_risk_decision_cannot_carry_a_target():
+    rejects(RiskDecision, mutated(risk_decision_rejected, target_price=1.0), "target_price")
+
+
+def test_target_needs_a_stop():
+    rejects(RiskDecision, mutated(risk_decision_approved, stop_price=None), "target_price")
+
+
+def test_entry_without_target_is_refused_by_the_sanctioned_constructor():
+    from trading.v2.contracts import ExecutionRefused, TradeProposal
+    tp = TradeProposal.from_dict(trade_proposal())
+    rd = RiskDecision.from_dict(mutated(risk_decision_approved, target_price=None, proposal_id=tp.proposal_id))
+    with pytest.raises(ExecutionRefused, match="target_price"):
+        ExecutionCommand.from_approved(proposal=tp, risk_decision=rd, command_id=f"ex_{ULID}", venue="binance")
+
+
+def test_from_approved_carries_the_target():
+    from trading.v2.contracts import TradeProposal
+    tp = TradeProposal.from_dict(trade_proposal())
+    rd = RiskDecision.from_dict(mutated(risk_decision_approved, proposal_id=tp.proposal_id))
+    cmd = ExecutionCommand.from_approved(proposal=tp, risk_decision=rd, command_id=f"ex_{ULID}", venue="binance")
+    assert cmd.target_price == rd.target_price
+
+
+def test_command_target_must_be_on_the_profit_side():
+    rejects(ExecutionCommand, mutated(execution_command, target_price=100000.0), "profit side")
+    ExecutionCommand.from_dict(mutated(execution_command, target_price=116100.0))
+
+
+def test_reduce_only_command_cannot_carry_a_target():
+    rejects(ExecutionCommand, mutated(execution_command, side="SELL", position_side="LONG", reduce_only=True,
+                                      stop_price=None, worst_price=None, target_price=116100.0), "target_price")
+
+
+@pytest.mark.parametrize("change,match", [
+    (dict(new_stop=106000.0), "only rise"),
+    (dict(new_stop=106900.0), "only rise"),
+    (dict(new_stop=113000.0), "below the last price"),
+    (dict(position_side="SHORT"), "only fall"),
+    (dict(position_side="SHORT", old_stop=120000.0, new_stop=112000.0), "above the last price"),
+    (dict(kind="LOOSEN_STOP"), "kind"),
+    (dict(source="hermes"), "source"),
+])
+def test_position_adjustment_only_tightens(change, match):
+    from trading.v2.contracts import PositionAdjustment
+    rejects(PositionAdjustment, mutated(position_adjustment, **change), match)
+
+
+def test_short_adjustment_valid_when_it_falls():
+    from trading.v2.contracts import PositionAdjustment
+    PositionAdjustment.from_dict(mutated(position_adjustment, position_side="SHORT", old_stop=120000.0,
+                                         new_stop=115000.0, last_price=113000.0))

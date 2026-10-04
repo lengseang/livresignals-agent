@@ -13,6 +13,7 @@ from pathlib import Path
 from trading.replay.broker import CostModel
 from trading.v2.killswitch import KillLimits
 from trading.v2.policy import ExitParams
+from trading.v2.position import RatchetRule
 from trading.v2.risk import RiskLimits
 from trading.v2.runner import RunnerConfig
 
@@ -33,6 +34,9 @@ KILL_EXCHANGE_FAILURES = 3
 KILL_MAX_FEED_AGE_MS = 180_000
 KILL_MIN_REQUEST_CONFIDENCE = 0.8
 KILL_MAX_ABS_SLIPPAGE_BPS = 50.0
+# V2-15 (decided under the owner's delegation, evidence: docs/v2/evidence/exit_study_paired.json): once a trade has gone
+# half way to its target, keep the stop at entry + half the best excursion. Risk-REDUCING only: it never widens a stop.
+RATCHET = RatchetRule(activate_frac=0.5, lock_frac=0.5)
 
 
 def approved_config(symbols: tuple[str, ...], cadence_minutes: int, out_dir: Path) -> RunnerConfig:
@@ -47,4 +51,5 @@ def approved_config(symbols: tuple[str, ...], cadence_minutes: int, out_dir: Pat
                                min_request_confidence=KILL_MIN_REQUEST_CONFIDENCE),
         exit_params=ExitParams(stop_pct=STOP_PCT, target_pct=TARGET_PCT),
         daily_loss_budget_usd=DAILY_LOSS_BUDGET_USD,
-        costs=CostModel(fee_rate=FEE_RATE, spread_bps=PAPER_SPREAD_BPS, slippage_bps=PAPER_SLIPPAGE_BPS))
+        costs=CostModel(fee_rate=FEE_RATE, spread_bps=PAPER_SPREAD_BPS, slippage_bps=PAPER_SLIPPAGE_BPS),
+        ratchet=RATCHET)

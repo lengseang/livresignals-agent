@@ -48,3 +48,11 @@ def test_a_stop_out_at_the_approved_numbers_uses_about_the_daily_cap():
     """The cap was sized so one full stop-out is ~ the daily limit: 2% risk per trade on $1000 = $20."""
     risk_per_trade = GUARDS.max_risk_per_trade * A.PAPER_EQUITY_USD
     assert risk_per_trade == pytest.approx(A.DAILY_LOSS_CAP_USD) == pytest.approx(A.DAILY_LOSS_BUDGET_USD)
+
+
+def test_approved_config_enables_the_studied_ratchet():
+    from pathlib import Path
+    from trading.v2.approved import RATCHET, approved_config
+    from trading.v2.position import RatchetRule
+    assert RATCHET == RatchetRule(activate_frac=0.5, lock_frac=0.5)
+    assert approved_config(("BTCUSDT",), 15, Path("/tmp/x")).ratchet is RATCHET

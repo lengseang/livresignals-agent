@@ -35,6 +35,7 @@ from trading.v2.contracts import StrategyRef
 from trading.v2.fallback import GatedSource
 from trading.v2.features import N_1H, N_1M
 from trading.v2.killswitch import KillController, KillLimits, Observation
+from trading.v2.position import RatchetRule
 from trading.v2.paper import PaperBook
 from trading.v2.policy import ExitParams, PolicyConfig
 from trading.v2.risk import ExchangeHealth, RiskLimits
@@ -66,6 +67,7 @@ class RunnerConfig:
     jev_timeout_s: float = 8.0
     book_lead_tolerance_ms: int = 5_000     # a live book is fetched AFTER `now` was taken: allow the fetch latency
     stance_symbols: Optional[tuple[str, ...]] = None      # default: the traded symbols
+    ratchet: Optional[RatchetRule] = None                 # V2-15 L1 in-position stop ratchet (None = plain bracket)
 
 
 def demo_config(symbols: tuple[str, ...], cadence_minutes: int, out_dir: Path) -> RunnerConfig:
@@ -92,7 +94,8 @@ class Runner:
         out.mkdir(parents=True, exist_ok=True)
         self.start_ms = int(clock() * 1000)
         self.stances = ReplayStanceSource()
-        self.book = PaperBook(cfg.paper_equity, cfg.costs, ShadowChain(out, "v2paper", "book", self.start_ms))
+        self.book = PaperBook(cfg.paper_equity, cfg.costs, ShadowChain(out, "v2paper", "book", self.start_ms),
+                              ratchet=cfg.ratchet)
         self.ctl = KillController(cfg.kill_limits, ShadowChain(out, "v2kill", "controller", self.start_ms))
         self.provider = PaperContextProvider(
             self.book, cfg.strategy, cfg.risk_limits, exit_params=cfg.exit_params,
