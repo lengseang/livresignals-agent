@@ -316,3 +316,9 @@ results), and what was learned or blocked.
 - **Bug only multi-symbol live data showed:** one `now` per step; later symbols' books landed "after now" (the earlier single-symbol fix hid it).
 - **Mistakes in my own tests:** two wrong expectations (arithmetic); a simulated 2.5 s/call latency that was unrealistic (live is ~0.75 s).
 - **Learned:** a fix for one symbol is not a fix for N; every live defect now has a test that reproduces it when the fix is reverted.
+
+## 2026-10-04 · V2-14 owner approved the limits
+- **Done:** `approved.py` (constants + rule beside each), `--approved` flag (refuses neither/both), docs marked, escalations answered.
+- **Evidence:** `pytest tests/` (continue-on-collection-errors): see commit. 7 mutations of the preset and flag logic; 6 caught at once, the 7th
+  (`--approved` silently building the DEMO config) had no test and got one. Live smoke with `--approved`: 3 symbols, 9/9 real Jev decisions, 0 fallbacks.
+- **Learned:** a flag that selects limits is a safety control and needs a test that proves it selects the right ones.

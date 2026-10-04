@@ -1,8 +1,8 @@
 # V2 status: what is built, what is wired, what is not
 
 Branches (stacked, each reviewable alone; none merged, nothing on `main`):
-`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller` -> `v2/invariants` -> `v2/jev-client` -> `v2/live-runner` -> `v2/calibration`.
-Tests: 706 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 1151 passed, 6 skipped, 10 collection errors
+`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller` -> `v2/invariants` -> `v2/jev-client` -> `v2/live-runner` -> `v2/calibration` -> `v2/approved-limits`.
+Tests: 713 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 1158 passed, 6 skipped, 10 collection errors
 (the same 10 files that fail on `main` for lack of `src/trading/data/`).
 
 ```
@@ -55,3 +55,8 @@ health view. Still genuinely unbuilt: see the closing inventory in `docs/loop/ES
 ## Update: calibrated numbers (V2-13)
 `python -m trading.v2.calibrate --symbols BTCUSDT,ETHUSDT,SOLUSDT [--run --cadence 15 --minutes N]` derives the open limits from live public
 data and (with --run) starts a PAPER session with them. Proposals and evidence: `docs/v2/PROPOSED-LIMITS.md`. Awaiting your approval (E12).
+
+## Update: limits approved (2026-10-04)
+The owner approved all proposed limits for PAPER use. `python -m trading.v2.runner --approved --symbols BTCUSDT,ETHUSDT,SOLUSDT --cadence 15`
+runs with them (constants in `src/trading/v2/approved.py`, pinned by tests). `--demo` placeholders remain for experiments. Still needing the
+owner: VPS deployment of the runner, workflow v2 question text -> `active.json`, real-money questions (not started).

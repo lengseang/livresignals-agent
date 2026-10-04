@@ -145,7 +145,7 @@ gate and real stances; risk engine (wraps the legacy layer); feature engine (no 
 kill controller + Hermes halt requests; whole-chain invariant test; public-data feed; paper runner (verified live).
 **Needs YOU (not buildable by me):**
 1. Deploy the runner as a resident process on the VPS (RAM ~2.4 GB free, supervision, restart policy): your approval.
-2. The numbers I will not guess: daily loss cap, kill thresholds, exit params, daily-loss budget definition, real fees/slippage (E7, E8, E10).
+2. ~~The numbers~~ APPROVED 2026-10-04 (E12). Still unknown: real fees/slippage (need real fills).
 3. Question text of workflow v2 is my draft; then flip `active.json` (E4).
 4. `src/trading/data/` is still missing from git (E2); it blocks 10 old test files, not V2.
 5. Whether fallback exits may execute during a Jev outage (E5); whether to enable all four fallback strategies (E9).
@@ -157,9 +157,9 @@ the frontend (you said not yet); a rule on P(risk=HIGH|EXTREME) instead of argma
 **Known limits:** runs measured in minutes, not days; paper results flatter reality by the unknown cost gap; trend stance is a reconstruction.
 **Answer:**
 
-## E12 · Proposed numbers for E7 / E10 / E8 are ready for your approval (V2-13)
+## E12 · ANSWERED 2026-10-04: "approve all". Numbers for E7 / E10 / E8 are locked (V2-13, `v2/approved-limits`)
 See `docs/v2/PROPOSED-LIMITS.md`: stop 3.5% / target 7%, daily loss cap $20 (2%), kill cap $40, kill price-move 3%, spread cap 5 bps, paper
 spread 0.82 bps + 1 bp slippage, daily-loss budget $20. All derived from ~18,000 real 1-minute bars by a reproducible rule
-(`python -m trading.v2.calibrate`). Reply "approve all" or edit the table. Real fees/slippage stay UNKNOWN until real fills exist.
-**Answer:**
+(`python -m trading.v2.calibrate`). Real fees/slippage stay UNKNOWN until real fills exist.
+**Answer:** approve all (2026-10-04). Locked in `src/trading/v2/approved.py`; paper only; real money and VPS deployment are NOT covered.
 

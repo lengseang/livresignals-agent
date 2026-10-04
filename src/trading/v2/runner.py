@@ -3,7 +3,7 @@
 PAPER ONLY. It reads public market data, calls Jev (if a key is in the environment), and fills a simulated book. It imports
 no order client and has no path to one. Nothing here touches LIVE_ENABLED, cron, pm2 or any live script.
 
-Run it:  PYTHONPATH=src python -m trading.v2.runner --demo --symbols BTCUSDT --cadence 15 --out data/local/v2
+Run it:  PYTHONPATH=src python -m trading.v2.runner --approved --symbols BTCUSDT,ETHUSDT,SOLUSDT --cadence 15 --out data/local/v2
 It does NOT start itself and is not deployed: a resident process on the VPS needs the owner's approval (RAM, supervision).
 
 What a human can do while it runs:
@@ -252,7 +252,8 @@ class Runner:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description="V2 paper runner (public data, simulated book; no real orders)")
-    ap.add_argument("--demo", action="store_true", help="required: use the UNVALIDATED demo limits")
+    ap.add_argument("--approved", action="store_true", help="use the owner-APPROVED paper limits (trading.v2.approved)")
+    ap.add_argument("--demo", action="store_true", help="use the UNVALIDATED demo placeholders instead")
     ap.add_argument("--symbols", default="BTCUSDT")
     ap.add_argument("--cadence", type=int, default=15, help="minutes between decisions")
     ap.add_argument("--out", default="data/local/v2")
@@ -260,18 +261,23 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--minutes", type=float, default=None, help="stop after this many minutes")
     ap.add_argument("--workflow", default="crypto_trading_v2.json")
     a = ap.parse_args(argv[1:])
-    if not a.demo:
-        print("refusing to run without --demo: the risk, kill and exit limits are the owner's decisions (E7, E10);\n"
-              "--demo uses clearly UNVALIDATED placeholder values for a paper-only run.", file=sys.stderr)
+    if a.approved == a.demo:                                  # neither, or both
+        print("refusing to run: pass exactly one of --approved (the owner-approved paper limits) or --demo (UNVALIDATED\n"
+              "placeholders). The risk, kill and exit limits are the owner's decisions; nothing is defaulted.", file=sys.stderr)
         return 2
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    cfg = demo_config(tuple(s.strip().upper() for s in a.symbols.split(",") if s.strip()), a.cadence, Path(a.out))
+    syms = tuple(s.strip().upper() for s in a.symbols.split(",") if s.strip())
+    if a.approved:
+        from trading.v2.approved import approved_config
+        cfg = approved_config(syms, a.cadence, Path(a.out))
+    else:
+        cfg = demo_config(syms, a.cadence, Path(a.out))
     wf = load_workflow(WORKFLOW_DIR / a.workflow)
     wf.require_wire_ready()
     runner = Runner(cfg, BinancePublic(), wf)
     stop_at = int(time.time() * 1000 + a.minutes * MIN_MS) if a.minutes else None
-    log.warning("PAPER run with UNVALIDATED DEMO limits; symbols=%s cadence=%dmin; Jev key present: %s",
-                cfg.symbols, cfg.cadence_minutes, bool(__import__("os").environ.get("TYPESAFE_API_KEY", "").strip()))
+    log.warning("PAPER run with %s limits; symbols=%s cadence=%dmin; Jev key present: %s",
+                "owner-APPROVED" if a.approved else "UNVALIDATED DEMO", cfg.symbols, cfg.cadence_minutes, bool(__import__("os").environ.get("TYPESAFE_API_KEY", "").strip()))
     try:
         runner.run(max_steps=a.max_steps, stop_at_ms=stop_at)
     except KeyboardInterrupt:

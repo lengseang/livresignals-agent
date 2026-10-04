@@ -1,6 +1,6 @@
 # Proposed V2 limits (E7, E10): derived from measured market data, awaiting your approval
 
-**Status: PROPOSALS, not approvals.** Computed by `python -m trading.v2.calibrate` from ~18,000 real one-minute bars (6 pages x 3 symbols)
+**Status: APPROVED by the owner on 2026-10-04 ("approve all"), for PAPER use only.** Locked in `src/trading/v2/approved.py` (constants, not recomputed). Original text: proposals. Computed by `python -m trading.v2.calibrate` from ~18,000 real one-minute bars (6 pages x 3 symbols)
 plus 500 hourly bars and 15 live order-book samples per symbol, on 2026-10-04 (BTCUSDT, ETHUSDT, SOLUSDT). Re-run it any time; every
 number below is a rule applied to data, so you can accept the number, change the rule, or override it. The runner uses them via
 `python -m trading.v2.calibrate --run` (PAPER ONLY).
@@ -32,6 +32,11 @@ Volatility changes: re-calibrate regularly rather than treating these as constan
 opened, so the entry path was NOT exercised live (it is covered by the unit and invariant tests). Two live bugs were found and fixed on
 the way (a book stamped after "now"; a single "now" for a slow multi-symbol step).
 
-## How to approve
-Reply with: "approve all", or edit the table (e.g. "stop 2.5%, daily cap $30"). I will put the numbers in a named preset and keep the
+## How it was approved
+(Done: "approve all", 2026-10-04.) Original instructions: reply with: "approve all", or edit the table (e.g. "stop 2.5%, daily cap $30"). I will put the numbers in a named preset and keep the
 rule beside it. Real-money use is a separate decision and is not proposed here.
+
+## What approval covers, and what it does not
+Covers: the numbers above, as the limits of the PAPER runner (`python -m trading.v2.runner --approved ...`). Does NOT cover: real money
+(no real order path exists in V2 and none is approved), deploying the runner as a resident process on the VPS (still needs a separate
+approval), or the question text of workflow v2 (`active.json` still points at v1). Fees and slippage remain UNKNOWN placeholders.

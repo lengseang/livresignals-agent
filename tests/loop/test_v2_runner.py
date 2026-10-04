@@ -245,9 +245,11 @@ def test_without_a_key_every_decision_falls_back_and_says_so(tmp_path, monkeypat
 
 # ------------------------------------------------------------ configuration and safety
 
-def test_nothing_runs_without_the_demo_flag(capsys):
+def test_nothing_runs_without_exactly_one_limits_flag(capsys):
     assert main(["runner"]) == 2
     assert "refusing to run" in capsys.readouterr().err
+    assert main(["runner", "--demo", "--approved"]) == 2                  # ambiguous: refused too
+    assert "exactly one of" in capsys.readouterr().err
 
 
 def test_demo_limits_are_explicit_and_the_runner_config_has_no_hidden_defaults():
@@ -305,3 +307,25 @@ def test_every_symbol_in_a_slow_multi_symbol_step_gets_a_snapshot(tmp_path):
     recs = r.step()
     assert sorted(x["symbol"] for x in recs) == sorted(syms)
     assert {x["outcome"] for x in recs} <= {"would_execute", "no_proposal"}, [(x["symbol"], x["outcome"], x.get("missing")) for x in recs]
+
+
+def test_each_flag_selects_its_own_limits_and_nothing_else(tmp_path, monkeypatch):
+    import trading.v2.runner as R
+    seen = {}
+
+    class FakeRunner:
+        def __init__(self, cfg, feed, wf, **kw):
+            seen["cfg"] = cfg
+
+        def run(self, **kw):
+            (seen["cfg"].out_dir / "heartbeat.json").write_text("{}")
+
+    monkeypatch.setattr(R, "Runner", FakeRunner)
+    monkeypatch.setattr(R, "BinancePublic", lambda: object())
+    assert R.main(["runner", "--approved", "--symbols", "btcusdt, ethusdt", "--cadence", "7", "--out", str(tmp_path)]) == 0
+    a = seen["cfg"]
+    assert a.symbols == ("BTCUSDT", "ETHUSDT") and a.cadence_minutes == 7
+    assert (a.exit_params.stop_pct, a.risk_limits.daily_loss_cap_usd, a.kill_limits.max_price_move_frac) == (0.035, 20.0, 0.03)
+    assert R.main(["runner", "--demo", "--out", str(tmp_path)]) == 0
+    d = seen["cfg"]
+    assert (d.exit_params.stop_pct, d.risk_limits.daily_loss_cap_usd, d.kill_limits.max_price_move_frac) == (0.02, 100.0, 0.10)
