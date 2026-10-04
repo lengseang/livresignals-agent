@@ -66,3 +66,9 @@ Take-profit now exists (it was computed and dropped). A lock-half stop ratchet c
 half-way trades to ~0% at no measurable cost (3 years of 1m data, train/test). Jev is asked a position workflow while a trade is
 open; the System One gateway answers every question when Jev is down (its entry model shows no skill, so it cannot open trades).
 A restarted runner now rebuilds its paper book. Full results: `docs/v2/V2-15-RESULTS.md`. Open: E13, E14, E15.
+
+## Update: accuracy round 2 + production readiness (V2-16, `v2/production-readiness`, tag `v2.0.0-rc1`)
+No entry rule is admitted (pre-registered, 15 coins, 2020-2026 walk-forward). Multi-day context has real probability skill and
+now reaches Jev (features-v2, workflow v3, verified live). A scorecard grades every decision. The paper service is deployable:
+preflight, watchdog, Telegram alerts, an isolated worktree, a pm2 file of its own, the runbook and the VPS-agent prompt.
+End-to-end smoke test through the real start script: 12/12 Jev, 0 fallbacks. See `docs/v2/V2-16-RESULTS.md`.

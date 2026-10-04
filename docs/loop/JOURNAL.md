@@ -337,3 +337,13 @@ results), and what was learned or blocked.
   message claimed lock-half "removes every loss": on test it leaves 0.2% (gaps). Corrected in code and docs.
 - **Learned:** a selection metric over trades with different turnover measures drift and costs, not exit quality; pairing on
   the same entries is what isolates the question.
+
+## 2026-10-04 · V2-16 accuracy round 2 + production readiness
+- **Need check:** the accuracy lever is the entry side (no edge) and measurement (nothing graded decisions).
+- **Done:** pre-registered entry study v2 (6 candidates, Bonferroni, walk-forward); context-v1 features with live/study
+  parity; workflow v3; scorecard; preflight, notify, watchdog, deploy/v2, runbook, VPS prompt; smoke test through run-v2.sh.
+- **Results reported as they are:** nothing admitted; the context's skill is real on a volatility-scaled barrier, ~none on
+  the approved fixed one, so the gateway does not use it (the rule now needs AUC AND Brier skill).
+- **Mistakes:** committed with a failing test (pipe hid the exit code), fixed one commit later, pipefail since. The
+  watchdog forgot alerts it failed to deliver; found by running the ops job for real; fixed with tests.
+- **Learned:** run the deploy path itself, not only the units; the alert bug was invisible to unit tests that always succeeded.

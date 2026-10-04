@@ -187,3 +187,10 @@ unmeasured: it has said NO_TRADE in every live entry cycle. Exit management cann
 exit rule lost on test with naive entries). The next lever is the ENTRY signal: a different horizon/target, cross-sectional
 features, or Jev's own shadow record once it says LONG. Owner's call on direction.
 **Answer:**
+
+## E16 · Volatility-scaled stops/targets (V2-16)
+The same multi-day information predicts a volatility-scaled 7-day barrier (stop 1.5 x daily ATR, target 2 x stop) with
+OOS AUC 0.53-0.60 every year, but the approved fixed 3.5%/7%/14-day barrier at only 0.50-0.52 after 2023. Switching the live
+bracket to ATR-scaled levels is a risk-limit change (E12 approved the fixed numbers), so it was not made. Proposal: run it as a
+SECOND paper lane beside the approved one and let the scorecard compare after 30 days.
+**Answer:**
