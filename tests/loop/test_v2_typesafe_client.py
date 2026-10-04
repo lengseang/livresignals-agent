@@ -4,6 +4,7 @@ PROVENANCE: the wire shapes below are from third-party write-ups of the TypeSafe
 unreachable from the build sandbox). They are UNVERIFIED against the live API until jev_probe is run with a key.
 """
 import json
+import pathlib
 import logging
 import urllib.error
 import urllib.request
@@ -356,3 +357,50 @@ def test_the_apis_own_score_answers_are_rejected_because_they_are_not_0_to_1():
 def test_a_pinned_model_is_what_goes_on_the_wire():
     pinned = WF2.model_copy(update={"model": "jev-1.13.0"})
     assert build_wire_request(pinned, {"state": STATE.to_dict(), "features": FEAT.to_dict()})["model"] == "jev-1.13.0"
+
+
+# ------------------------------------------------------------ RECORDED REAL API behaviour (2026-10-04, jev-1.13.0)
+# Captured by running trading.v2.jev_probe against the live API with a test key. These are no longer third-party claims.
+
+REAL_REPLY = pathlib.Path(__file__).parent / "fixtures" / "jev_real_reply_2026-10-04.json"
+REAL_ERRORS = {   # status -> body, captured from the live API
+    401: {"detail": {"error_type": "authentication_error",
+                     "message": "Cannot authenticate with the server. Please check your API key and try again."}},
+    403: {"detail": {"error_type": "authentication_error", "message": "Must supply an API key! Check your request and try again."}},
+    400: {"detail": {"error_type": "api_usage_error", "message": "Invalid request."}},
+    422: {"detail": [{"type": "missing", "loc": ["body", "model"], "msg": "Field required", "input": {}}]},
+}
+
+
+def test_the_real_recorded_reply_translates_and_becomes_a_typed_decision():
+    wire = json.loads(REAL_REPLY.read_text())
+    assert wire["model"] == "jev-1.13.0" and set(wire["answers"]) == set(WF2.questions)
+    t = translate_response(wire, WF2)
+    assert t["answers"]["action"]["value"] == "NO_TRADE" and t["answers"]["trend_quality"] == {"value": 0.25}
+    assert t["answers"]["market_regime"]["probability"] == 0.68          # Jev's own confidence
+    d = adapter(Fake(raw=REAL_REPLY.read_bytes())).evaluate(STATE, FEAT)
+    assert d.source == "jev" and d.action == "NO_TRADE" and d.model == "jev-1.13.0"
+    assert d.confidence == 0.99 and d.risk_level == "LOW" and d.signals.entry_quality == 0.39
+
+
+def test_real_reply_has_the_properties_the_adapter_relies_on():
+    wire = json.loads(REAL_REPLY.read_text())
+    for name, a in wire["answers"].items():
+        if a["type"] == "choice":
+            assert abs(sum(a["probabilities"].values()) - 1.0) <= 0.05 and a["choice"] in a["probabilities"]
+            assert 0 <= a["confidence"] <= 1
+        else:
+            assert a["type"] == "noul" and 0 <= a["noul"] <= 1
+    # NOTE (a finding, not yet a rule): risk_level said LOW at 0.39 with EXTREME at 0.37 and confidence 0.18, so the
+    # argmax alone hides real probability mass on the worst bucket.
+    r = wire["answers"]["risk_level"]
+    assert r["choice"] == "LOW" and r["probabilities"]["EXTREME"] > 0.3 and r["confidence"] < 0.2
+    assert "KEY" not in json.dumps(wire).upper().replace("MONKEY", "")
+
+
+@pytest.mark.parametrize("status,cls", [(401, "JevAuthError"), (403, "JevAuthError"), (400, "JevBadRequest"),
+                                        (422, "JevBadRequest")])
+def test_real_error_bodies_are_ignored_and_the_status_alone_decides_the_class(status, cls):
+    d = adapter(Fake(status=status, body=REAL_ERRORS[status])).evaluate(STATE, FEAT)
+    assert d.source == "fallback" and d.fallback_reason.startswith(f"http_error: {cls}")
+    assert "authenticate" not in d.fallback_reason and "Field required" not in d.fallback_reason

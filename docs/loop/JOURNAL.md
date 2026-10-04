@@ -287,3 +287,11 @@ results), and what was learned or blocked.
   stored only the id, so decisions were not reconstructable and the id was not content-derived. Fixed everywhere.
 - **Learned:** I wrote a tautological assertion (`... or True`) again while rushing; caught on review. Cost numbers come from the
   real serialized request, not an estimate of one.
+
+## 2026-10-04 · V2-8 verified against the live Jev API
+- **Need check:** the owner supplied a test key and opened network access; ran the probe, then the full pipeline, then bad requests.
+- **Done:** recorded the real reply as a fixture, 6 regression tests from real behaviour, docs updated with VERIFIED facts.
+- **Evidence:** pipeline run: 4/4 Jev calls ok, 0 fallbacks, 268-570 ms, jev-1.13.0, ~1,800 input tokens/call. Errors: 401 / 403 / 400 / 422
+  as assumed; error body shape differs from the write-ups (status-only mapping made that harmless).
+- **Learned:** my chars/4 token estimate was low by ~2x; measure usage, do not estimate it. The real risk_level answer had LOW 0.39 vs EXTREME
+  0.37: argmax-only policy rules can hide probability mass on the worst case.

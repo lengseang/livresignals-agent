@@ -59,3 +59,20 @@ value, so V2 does not use it (our scored questions are sent as Noul) and rejects
 from how spread the probabilities are and is described as calibrated, so using the more conservative of it and the chosen
 option's probability is sound. `jev-latest` resolves to jev-1.13.0 today and can move: the answering build is now counted
 (`stats["model:<name>"]`), and the workflow `model` can be pinned for reproducible shadow comparisons.
+
+## VERIFIED against the live API (2026-10-04, test key, `jev-1.13.0`)
+Ran `python -m trading.v2.jev_probe`, then the whole pipeline (features -> state -> real Jev -> policy -> risk -> paper) on
+synthetic bars, then deliberately bad requests.
+- Reply shape is exactly the one assumed: `{"model","answers":{name:{"type":"choice","choice","confidence","probabilities"}
+  | {"type":"noul","noul"}},"usage":{"input_tokens","output_tokens"}}`. Probabilities come to 2 decimals and sum to 1. The recorded
+  reply is `tests/loop/fixtures/jev_real_reply_2026-10-04.json` and is now a regression test.
+- Pipeline: 4/4 calls OK, 0 fallbacks, latency 268-570 ms, `model: jev-1.13.0`; on noise Jev said NO_TRADE at 0.98-0.99.
+- Errors (status decides; V2 never parses the body): bad key 401, missing Authorization 403, bogus question type 400, missing
+  field / non-JSON 422. Error bodies are `{"detail": {"error_type","message"}}` (FastAPI style), NOT the `{"error":{...}}` the write-ups
+  described: harmless here, because the client maps by status only. NOT yet observed: 402 (balance), 429, 529.
+- **Real cost: ~1,800 input tokens per call** (7,206 over 4 calls), not the ~940 estimated from byte counts. At $0.042/M that is
+  $0.000076/call: 15 symbols every 15 min (1,440 calls/day) = $0.11/day ($5 lasts ~46 days); hourly = $0.027/day. At $0.42/M:
+  $1.09/day ($5 lasts ~4.6 days); hourly = $0.27/day (~18 days). The question text is most of it.
+- Finding for the policy: `risk_level` came back LOW at 0.39 with EXTREME at 0.37 and confidence 0.18: the argmax hides real mass
+  on the worst bucket. A rule on P(HIGH or EXTREME) would be safer than "argmax == EXTREME". Not implemented: it needs a
+  threshold, which should come from shadow data, not from me.

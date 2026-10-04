@@ -18,8 +18,8 @@ labelled fallback; risk wrapper (every check listed, fail closed); feature engin
 state builder; shadow pipeline; hash-chained decision log.
 
 ## NOT done, and why (in the order they block a real shadow run)
-1. **Real Jev client (V2-8): BUILT, unverified.** Written against third-party-documented wire format (see E4); run
-   `python -m trading.v2.jev_probe` once with your key to verify, then review workflow v2's question text.
+1. **Real Jev client (V2-8): BUILT and VERIFIED live** (2026-10-04, test key): reply shape, error statuses, and a full pipeline run
+   against the real API. Remaining: your price/cadence, review workflow v2's question text, then flip `active.json`.
 2. **Context inputs.** `PaperContextProvider` covers position/equity/day-week/HWM from the paper book. Still to wire: a real
    exchange-health probe, the kill-switch file, `data/exit-params.json` values (all injected; unknown fails closed).
 3. **Fallback source.** (Note E9: three of the four named strategies FAILED the repo's own gate; `GatedSource` now keeps them out by default.)

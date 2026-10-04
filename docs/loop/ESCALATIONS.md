@@ -22,6 +22,22 @@ the **entire free balance** of coins the live trend book also holds (same wallet
 cron line (crontab = your action) and keep the code marked retired. Yes/no?
 **Answer:**
 
+## E4 · Jev API: VERIFIED live (V2-8)  (partly answered, remaining items below)
+Ran against the live API on 2026-10-04 with the owner's test key: the client, the reply parsing and the status handling all
+work (see `docs/loop/designs/V2-8-jev-client.md`, "VERIFIED"). Still open:
+1. Real price per million input tokens and your cadence (real cost is ~1,800 tokens/call, so $0.11/day to $1.09/day at 15-min x 15
+   symbols depending on the price). Also: balance 402 / rate-limit 429 / overload 529 behaviour not yet observed.
+2. Review the question text in `src/trading/v2/workflows/crypto_trading_v2.json` (it is the strategy), then flip `active.json` to v2.
+3. Before production: rotate the key (you said you will); keep it in an environment secret, never in the repo.
+4. After testing: set the environment's network access back from Full to Custom.
+**Answer:**
+
+## E5 · Retire `live_executor manage` from cron? (T0.6, PR #6)
+It runs every 10 min (`config/crontab.trade`). If `config/LIVE_ENABLED` ever comes back, its exit path sells
+the **entire free balance** of coins the live trend book also holds (same wallet). Recommendation: remove that
+cron line (crontab = your action) and keep the code marked retired. Yes/no?
+**Answer:**
+
 ## E4 · Jev API: what I found, and what I still need (V2-8)
 **Found** (web search only; the vendor docs are blocked from the sandbox; see `docs/loop/designs/V2-8-jev-client.md`):
 `POST https://api.typesafe.ai/v1/systemone`, `Authorization: Bearer <key>`, body `{state, model:"jev-latest", questions:{...}}`,
