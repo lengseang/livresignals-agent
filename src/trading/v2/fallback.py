@@ -75,3 +75,33 @@ class StaticSource:
 
     def stances(self, state: DecisionState) -> Mapping[str, str]:
         return self._stances
+
+
+# --------------------------------------------------------------------------------------------------
+# Evidence gate. The spec calls the four fallback strategies "already OOS-validated". The repo's own
+# results do not support that (docs/loop/results/P1-2026-09-27.md; docs/research/strategy-inventory.md):
+VALIDATION_EVIDENCE = {
+    "donchian_ensemble": "A1: FAIL the gate on deflated Sharpe (0.817 < 0.95), but OOS Sharpe 0.77, +27%, "
+                         "max drawdown -9%, beats BTC hold and the basket",
+    "ctrend": "A2 (CTREND-lite): FAIL badly: OOS Sharpe -0.02, -65% return, -81% max drawdown, negative before costs",
+    "tsmom": "A3 (risk-managed TSMOM): FAIL: OOS Sharpe 0.29 vs BTC 0.42, loses to costs, -47% max drawdown",
+    "trend_follower": "no gate result: 'SMA50 beat 100/150/200 OOS' is a code comment, not a recorded test",
+}
+# Default: only strategies that did NOT lose money out of sample may vote. Excluded ones count as
+# UNAVAILABLE, which lowers confidence (missing votes count against). The owner can override (E9).
+DEFAULT_ENABLED = ("trend_follower", "donchian_ensemble")
+
+
+class GatedSource:
+    """Wraps a FallbackSource: strategies outside `enabled` are forced to UNAVAILABLE, whatever they say."""
+
+    def __init__(self, inner: FallbackSource, enabled: tuple[str, ...] = DEFAULT_ENABLED):
+        unknown = [n for n in enabled if n not in FALLBACK_STRATEGIES]
+        if unknown:
+            raise ValueError(f"unknown fallback strategies {unknown}; known: {FALLBACK_STRATEGIES}")
+        self.inner, self.enabled = inner, tuple(enabled)
+
+    def stances(self, state: DecisionState) -> Mapping[str, str]:
+        raw = self.inner.stances(state)
+        return {n: (raw.get(n, "UNAVAILABLE") if n in self.enabled else "UNAVAILABLE")
+                for n in FALLBACK_STRATEGIES}

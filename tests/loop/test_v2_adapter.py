@@ -331,3 +331,42 @@ def test_adapter_caps_fallback_confidence_even_if_the_aggregator_misbehaves(monk
     monkeypatch.setattr(mod, "aggregate",
                         lambda stances, position: FallbackVerdict("LONG", float("nan"), "tsmom", "forged", {}))
     assert adapter(JevHttpError()).evaluate(state()).confidence == 0.0
+
+
+# ------------------------------------------------------------ the evidence gate (E9)
+
+def test_gate_excludes_strategies_that_failed_the_repos_own_validation_by_default():
+    from trading.v2.fallback import DEFAULT_ENABLED, GatedSource, VALIDATION_EVIDENCE
+    assert DEFAULT_ENABLED == ("trend_follower", "donchian_ensemble")
+    assert set(VALIDATION_EVIDENCE) == set(FALLBACK_STRATEGIES)
+    g = GatedSource(ALL_LONG)
+    got = dict(g.stances(state()))
+    assert got == {"trend_follower": "LONG", "donchian_ensemble": "LONG", "tsmom": "UNAVAILABLE",
+                   "ctrend": "UNAVAILABLE"}
+    v = aggregate(got, "none")
+    assert v.action == "LONG" and v.confidence == 0.5          # 2 of 4: unvalidated strategies cost confidence
+
+
+def test_gated_fallback_decisions_are_only_logged_while_two_strategies_vote():
+    from trading.v2.fallback import GatedSource
+    d = adapter(JevHttpError(), fallback=GatedSource(ALL_LONG)).evaluate(state())
+    res = evaluate_policy(d)
+    assert d.confidence == 0.5 and res.policy.tier == "IGNORE" and res.policy.escalate_to is None   # 0.5 < 0.55
+    three = GatedSource(ALL_LONG, enabled=("trend_follower", "donchian_ensemble", "tsmom"))
+    d3 = adapter(JevHttpError(), fallback=three).evaluate(state())
+    assert d3.confidence == 0.75 and evaluate_policy(d3).policy.tier == "STRATEGY_CHECK"
+
+
+def test_owner_can_enable_all_four_and_unknown_names_are_refused():
+    from trading.v2.fallback import GatedSource
+    g = GatedSource(ALL_LONG, enabled=FALLBACK_STRATEGIES)
+    assert set(g.stances(state()).values()) == {"LONG"}
+    assert aggregate(g.stances(state()), "none").confidence == 0.89
+    with pytest.raises(ValueError, match="unknown fallback strategies"):
+        GatedSource(ALL_LONG, enabled=("my_new_idea",))
+
+
+def test_gate_overrides_whatever_an_excluded_strategy_claims_and_survives_missing_keys():
+    from trading.v2.fallback import GatedSource
+    g = GatedSource(StaticSource({"ctrend": "LONG", "tsmom": "LONG"}))
+    assert dict(g.stances(state())) == {n: "UNAVAILABLE" for n in FALLBACK_STRATEGIES}
