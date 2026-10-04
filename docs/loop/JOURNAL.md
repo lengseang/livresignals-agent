@@ -207,3 +207,12 @@ results), and what was learned or blocked.
   7 deliberate mutations of the policy rules each made a test fail, then were reverted.
 - **Learned:** the contract validator ties tier to `adjusted_confidence`, so "demotion" had to be expressed as a
   lowered adjusted confidence plus a returned reason; the reason list is not part of Contract E (no field for it).
+
+## 2026-10-04 · V2-3 Jev adapter + fallback
+- **Need check:** the TypeSafe wire format is a fact I cannot fetch (egress blocked), so it is NOT guessed:
+  the adapter takes an injected client that speaks our internal shape. Escalated as E4.
+- **Done:** `src/trading/v2/{adapter,fallback}.py`, 59 tests.
+- **Evidence:** `pytest tests/loop/test_v2_*.py`: all green; 11 mutations, 10 caught immediately, 1 (adapter's cap
+  masked by the aggregator's) caught after adding a test that forces the aggregator to misbehave.
+- **Bug found by the tests, not by reading:** a pydantic `Field(...)` constant used as a default made
+  `probability` required, so every good reply fell back. The failure was safe (fallback) and visible.
