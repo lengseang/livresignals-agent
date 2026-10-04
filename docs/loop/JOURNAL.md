@@ -299,7 +299,7 @@ results), and what was learned or blocked.
 ## 2026-10-04 · V2-9 live feed, stances, runner: first live end-to-end
 - **Need check:** real data needed -> public market data via data-api.binance.vision (read-only); real Jev (test key). No production files.
 - **Done:** `binance_public.py`, `stances.py`, `runner.py`, gap-safe features, live-book tolerance, 48 new tests.
-- **Evidence:** `pytest tests/` (continue-on-collection-errors): 1112 passed, 6 skipped, 10 errors = 444/6/10 + 662 V2. Live: 5 min, 5 real Jev
+- **Evidence:** `pytest tests/` (continue-on-collection-errors): 1109 passed, 6 skipped, 10 errors = 444/6/10 + 665 V2. Live: 5 min, 5 real Jev
   decisions, 0 fallbacks, ~1,800 tokens/call. 40+ mutations across the new modules; every real one caught (T2 and the long-sleep test needed
   tightening). `git diff origin/main -- src/trading/risk scripts tests/test_risk.py`: empty. The key is in no file.
 - **Bugs only live data found:** history() off by one + paging; order-book timestamp after `now` rejected as look-ahead (4/4 live cycles lost).
