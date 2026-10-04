@@ -85,3 +85,21 @@ if you give none, which leaves that one breaker input effectively off. Tell me t
 (e.g. N x per-trade risk, or a fixed USD amount).
 **Answer:**
 
+## E9 · The fallback strategies are NOT "already OOS-validated" (V2-3 / evidence gate)
+`docs/v2/contracts.md` and the guide say `trend_follower`, `donchian_ensemble`, `tsmom`, `ctrend` are "already OOS-validated".
+The repo's own gate (`docs/loop/results/P1-2026-09-27.md`) says: A1 donchian FAIL on deflated Sharpe (0.817 < 0.95) but
+OOS Sharpe 0.77, +27%, max drawdown -9%, beats BTC hold and the basket; A2 CTREND-lite FAIL badly (OOS Sharpe -0.02,
+-65%, -81% drawdown); A3 TSMOM FAIL (0.29 vs BTC 0.42, loses to costs). `trend_follower` has no gate result: "SMA50 beat
+100/150/200 OOS" is a code comment. I added `GatedSource`: by default only `trend_follower` and `donchian_ensemble` may vote,
+the other two count as UNAVAILABLE. Effect: a fallback with two voters caps at confidence 0.5, which is IGNORE, so during a
+Jev outage the fallback is only logged, never escalated. The fallback still can never execute either way.
+Decide: keep this default, enable all four, or replace the fallback strategies.
+**Answer:**
+
+## E10 · Kill controller thresholds are yours (V2-10)
+`KillLimits` has no defaults: `exchange_failures_to_engage`, `max_feed_age_ms`, `max_orders_per_minute`,
+`max_abs_slippage_bps`, `max_price_move_frac` (feed corruption), `daily_loss_cap_usd`, `min_request_confidence` for Hermes
+halts. I will not guess them. Also: (a) should a Hermes halt need more than a confidence number (e.g. corroborating
+evidence)? (b) is a rate limit on accepted halts wanted, so Hermes cannot starve trading?
+**Answer:**
+

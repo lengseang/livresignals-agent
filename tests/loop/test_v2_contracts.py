@@ -11,7 +11,7 @@ from trading.v2 import contracts as c
 from trading.v2.contracts import (
     ALL_CONTRACTS, Decision, DecisionState, ExecutionCommand, ExecutionRefused,
     FeatureSnapshot, HermesProposal, MarketEvent, PolicyDecision, RiskDecision,
-    TradeProposal, UnusableSnapshot,
+    TradeProposal, UnusableSnapshot, HaltRequest,
 )
 
 ULID = "01J8ZABCDEFGH"
@@ -160,12 +160,18 @@ def hermes_proposal():
     }
 
 
+def halt_request():
+    return {"contract": "halt_request", "version": "1.0", "request_id": f"hr_{ULID}", "requested_by": "hermes",
+            "action": "HALT_STRATEGY", "target": "btc_breakout_v3",
+            "reason": "Detected abnormal execution behavior", "confidence": 0.96}
+
+
 FIXTURES = {
     "market_event": market_event, "feature_snapshot": feature_snapshot,
     "decision_state": decision_state, "decision": jev_decision,
     "policy_decision": policy_decision, "trade_proposal": trade_proposal,
     "risk_decision": risk_decision_approved, "execution_command": execution_command,
-    "hermes_proposal": hermes_proposal,
+    "hermes_proposal": hermes_proposal, "halt_request": halt_request,
 }
 
 
@@ -182,8 +188,8 @@ def rejects(model, data, match=None):
 
 # ------------------------------------------------- generic, all nine contracts
 
-def test_registry_covers_nine_contracts_and_fixtures():
-    assert len(ALL_CONTRACTS) == 9
+def test_registry_covers_ten_contracts_and_fixtures():
+    assert len(ALL_CONTRACTS) == 10          # A-I from contracts.md + J (halt request, from the Notion note)
     assert set(FIXTURES) == set(ALL_CONTRACTS)
 
 
@@ -679,3 +685,29 @@ def test_i_cannot_target_risk_limits_or_secrets(key):
 def test_i_change_must_not_be_empty_and_id_prefix_enforced():
     rejects(HermesProposal, mutated(hermes_proposal, change={}), "change")
     rejects(HermesProposal, mutated(hermes_proposal, proposal_id="hp_0182"))
+
+
+# ------------------------------------------------------------------ Contract J
+
+@pytest.mark.parametrize("action,target,ok", [
+    ("HALT_ALL", None, True), ("HALT_ALL", "BTCUSDT", False),
+    ("HALT_SYMBOL", "BTCUSDT", True), ("HALT_SYMBOL", None, False), ("HALT_SYMBOL", "btc", False),
+    ("HALT_STRATEGY", "btc_breakout_v3", True), ("HALT_STRATEGY", None, False),
+    ("REDUCE_EXPOSURE", None, True), ("REDUCE_EXPOSURE", "BTCUSDT", True),
+    ("PLACE_ORDER", None, False), ("DISABLE_KILL_SWITCH", None, False), ("halt_all", None, False),
+])
+def test_j_halt_request_scope_rules_and_closed_action_vocabulary(action, target, ok):
+    d = mutated(halt_request, action=action, target=target)
+    if ok:
+        assert HaltRequest.from_dict(d).action == action
+    else:
+        rejects(HaltRequest, d)
+
+
+def test_j_only_hermes_may_request_and_reason_and_confidence_are_validated():
+    rejects(HaltRequest, mutated(halt_request, requested_by="jev"))
+    rejects(HaltRequest, mutated(halt_request, reason=""))
+    rejects(HaltRequest, mutated(halt_request, reason="x" * 501))
+    for bad in (-0.1, 1.1, "0.9", None):
+        rejects(HaltRequest, mutated(halt_request, confidence=bad))
+    rejects(HaltRequest, mutated(halt_request, request_id="prop_1"))

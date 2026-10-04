@@ -1,8 +1,8 @@
 # V2 status: what is built, what is wired, what is not
 
 Branches (stacked, each reviewable alone; none merged, nothing on `main`):
-`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper`.
-Tests: 416 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 860 passed, 6 skipped, 10 collection errors
+`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller`.
+Tests: 482 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 926 passed, 6 skipped, 10 collection errors
 (the same 10 files that fail on `main` for lack of `src/trading/data/`).
 
 ```
@@ -22,7 +22,8 @@ state builder; shadow pipeline; hash-chained decision log.
    the adapter takes an injected client. Needs E4 (docs, egress, key supplied by you in the environment).
 2. **Context inputs.** `PaperContextProvider` covers position/equity/day-week/HWM from the paper book. Still to wire: a real
    exchange-health probe, the kill-switch file, `data/exit-params.json` values (all injected; unknown fails closed).
-3. **Fallback source.** `FallbackSource` must read the stances of `trend_follower`, `donchian_ensemble`, `tsmom`,
+3. **Fallback source.** (Note E9: three of the four named strategies FAILED the repo's own gate; `GatedSource` now keeps them out by default.)
+   Still to build: `FallbackSource` must read the stances of `trend_follower`, `donchian_ensemble`, `tsmom`,
    `ctrend` (the replay plugins exist; `trend_follower` is a real-money script and must not be imported: use its replay
    twin `trend_real`/shadow signals).
 4. **Legacy comparison source.** Something must supply "what the current system would do" per cycle.
@@ -35,3 +36,12 @@ state builder; shadow pipeline; hash-chained decision log.
 ## Hard limits kept
 No order placed or previewed outside a pure data object; `config/LIVE_ENABLED.*`, `src/trading/risk/`, `scripts/`,
 the crontab, pm2 and `livr-shadow` untouched; no secrets; no network (the loop harness blocks sockets and real-money imports).
+
+## Added since the first status (all from the owner's Notion note, which `contracts.md` had dropped)
+- Contract J `halt_request` and `killswitch.KillController`: deterministic latch on exchange down / stale feed / order-rate
+  runaway / unexpected position / feed corruption / abnormal slippage / daily loss; unknown inputs fail closed; human-only
+  reset; Hermes can only pause new entries. Thresholds are the owner's (E10).
+- `risk` gained `buying_power` (orders must be fundable from free cash) and `halt_scope` checks.
+- Still unmodelled from the note: order/position events and an execution-result contract (the paper book logs its own events),
+  Hermes research/promotion requests, the Jev decision tree (conditional questions), the versioned-workflow `active` symlink
+  beyond the JSON pointer, and Postgres/Redis (deliberately not added: memory).

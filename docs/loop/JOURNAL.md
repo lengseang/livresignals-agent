@@ -253,3 +253,14 @@ results), and what was learned or blocked.
   wrapper only (cap to free cash / (1 + 0.2%)).
 - **Bug in my own tests:** integration assertions with `if ... is not None` escape hatches; replaced with exact ones
   (queue count, fill = next bar's open, 3x already_long, gap-fill price, daily-cap blocks re-entry).
+
+## 2026-10-04 · V2-11 evidence gate, V2-10 kill controller
+- **Need check:** read `docs/loop/results/P1-2026-09-27.md` and `docs/research/strategy-inventory.md` to check the spec's
+  claim that the fallback strategies are "already OOS-validated". It does not hold (E9).
+- **Done:** `GatedSource`; Contract J; `killswitch.py`; `halt_scope` risk check; `PaperBook.cancel_pending`; 66 new tests.
+- **Evidence:** `pytest tests/` (continue-on-collection-errors): 926 passed, 6 skipped, 10 errors = 444/6/10 + 482 V2.
+  17 mutations of the kill controller and its integrations; 16 caught at once; one was an invalid mutation (indentation) that
+  errored instead of testing, redone and caught. `git diff origin/main -- src/trading/risk scripts tests/test_risk.py`: empty.
+- **Found by integration:** the cycle read the context before cancelling resting orders, so the audit named `duplicate_order`
+  before `kill_switch`. Fixed (re-read after cancel).
+- **Learned:** the spec's fallback premise was never checked against the repo's own results; checking took five minutes.

@@ -59,6 +59,7 @@ class CycleContext:
     consecutive_losses: int = 0
     daily_loss_budget_used: float = 0.0
     leverage: float = 1.0
+    paused: tuple = ()
     legacy_action: Optional[str] = None     # what the CURRENT system would do now (None = unavailable)
 
 
@@ -155,6 +156,12 @@ class ShadowPipeline:
         snap = res.snapshot
         stage[0] = "context"
         ctx = self.provider.context(bar.symbol, bar.end_ms)
+        if ctx.kill_switch_engaged is True and self.paper is not None:     # Gate 6: CANCEL ORDERS, then block new ones
+            n = self.paper.cancel_pending(bar.end_ms, "kill_switch")
+            if n:
+                self.stats["paper_cancelled_by_kill_switch"] += n
+                rec["cancelled_pending"] = n
+                ctx = self.provider.context(bar.symbol, bar.end_ms)     # re-read: the cancelled orders are gone
         stage[0] = "state"
         try:
             state = build_decision_state(
@@ -177,7 +184,7 @@ class ShadowPipeline:
                 open_orders=ctx.open_orders, exchange=ctx.exchange,
                 kill_switch_engaged=ctx.kill_switch_engaged, strategy_loss_pct=ctx.strategy_loss_pct,
                 consecutive_losses=ctx.consecutive_losses,
-                daily_loss_budget_used=ctx.daily_loss_budget_used, leverage=ctx.leverage)
+                daily_loss_budget_used=ctx.daily_loss_budget_used, leverage=ctx.leverage, paused=ctx.paused)
             risk = evaluate_risk(prop.proposal, rctx, pres.policy.adjusted_confidence * 100.0, self.limits)
             if risk.approved:
                 preview = ExecutionCommand.from_approved(

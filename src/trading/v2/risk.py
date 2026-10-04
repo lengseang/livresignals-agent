@@ -78,6 +78,7 @@ class RiskContext:
     consecutive_losses: int
     daily_loss_budget_used: float
     leverage: float = 1.0
+    paused: tuple[tuple[str, str], ...] = ()      # (kind, value): ("all","*") | ("symbol","BTCUSDT") | ("strategy","name")
 
 
 def _chk(name: str, passed: bool, detail: str) -> dict:
@@ -197,6 +198,14 @@ def _evaluate(p: TradeProposal, ctx: RiskContext, score_pct: Optional[float],
             f"{s.market.spread_bps:.2f} bps vs {limits.max_spread_bps:.2f} cap")
     else:
         add("spread_ceiling", True, f"n/a: exits are not blocked by spread ({s.market.spread_bps:.2f} bps)")
+
+    # --- halt scope: a pause (e.g. from a Hermes halt request) blocks NEW entries only
+    if entry:
+        hit = [k for k in ctx.paused if k == ("all", "*") or k == ("symbol", p.symbol)
+               or k == ("strategy", s.strategy.name)]
+        add("halt_scope", not hit, f"paused by {hit}" if hit else "no pause applies")
+    else:
+        add("halt_scope", True, "n/a: reduce-only is never blocked by a pause")
 
     # --- duplicate order / duplicate position
     pos_side = p.side

@@ -24,10 +24,11 @@ class PaperContextProvider:
                  daily_loss_budget_usd: Optional[float],
                  exchange_health: Callable[[], Optional[ExchangeHealth]],
                  kill_switch: Callable[[], Optional[bool]],
-                 legacy_action: Optional[Callable[[str, int], Optional[str]]] = None):
+                 legacy_action: Optional[Callable[[str, int], Optional[str]]] = None,
+                 paused: Callable[[], tuple] = lambda: ()):
         self.book, self.strategy, self.limits = book, strategy, limits
         self.exit_params, self.budget = exit_params, daily_loss_budget_usd
-        self._health, self._kill, self._legacy = exchange_health, kill_switch, legacy_action
+        self._health, self._kill, self._legacy, self._paused = exchange_health, kill_switch, legacy_action, paused
 
     def context(self, symbol: str, as_of_ms: int) -> CycleContext:
         b = self.book
@@ -53,5 +54,5 @@ class PaperContextProvider:
             open_orders=tuple(OpenOrder(c.symbol, c.position_side, c.reduce_only) for c, _ in b.pending),
             exchange=self._health(), kill_switch_engaged=self._kill(),
             strategy_loss_pct=min(0.0, b.realized_pnl_pct()), consecutive_losses=b.consecutive_losses(),
-            daily_loss_budget_used=used, leverage=1.0,
+            daily_loss_budget_used=used, leverage=1.0, paused=tuple(self._paused()),
             legacy_action=self._legacy(symbol, as_of_ms) if self._legacy else None)

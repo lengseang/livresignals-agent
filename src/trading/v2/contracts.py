@@ -69,6 +69,7 @@ TradeProposalId = _id("tp")
 RiskDecisionId = _id("rd")
 CommandId = _id("ex")
 HermesProposalId = _id("prop")
+HaltRequestId = _id("hr")
 
 Venue = Literal["binance", "bybit"]
 Tier = Literal["IGNORE", "WATCH", "STRATEGY_CHECK", "EXECUTE"]
@@ -670,6 +671,34 @@ class HermesProposal(_Contract):
         return self
 
 
+# ---------------------------------------------------------------- Contract J (from the Notion note, Level 5)
+
+HALT_ACTIONS = ("HALT_ALL", "HALT_SYMBOL", "HALT_STRATEGY", "REDUCE_EXPOSURE")
+
+
+class HaltRequest(_Contract):
+    """Hermes may REQUEST a halt; it can never perform one. The deterministic controller decides."""
+
+    contract: Literal["halt_request"]
+    version: Literal["1.0"]
+    request_id: HaltRequestId
+    requested_by: Literal["hermes"]
+    action: Literal["HALT_ALL", "HALT_SYMBOL", "HALT_STRATEGY", "REDUCE_EXPOSURE"]
+    target: Optional[NonEmpty] = None
+    reason: Annotated[str, StringConstraints(min_length=1, max_length=500)]
+    confidence: Unit
+
+    @model_validator(mode="after")
+    def _scope(self):
+        if self.action == "HALT_ALL" and self.target is not None:
+            raise ValueError("HALT_ALL takes no target")
+        if self.action in ("HALT_SYMBOL", "HALT_STRATEGY") and self.target is None:
+            raise ValueError(f"{self.action} requires a target")
+        if self.action == "HALT_SYMBOL" and not re.fullmatch(r"[A-Z0-9]{5,20}", self.target):
+            raise ValueError("HALT_SYMBOL target must be a symbol like BTCUSDT")
+        return self
+
+
 ALL_CONTRACTS = {
     "market_event": MarketEvent,
     "feature_snapshot": FeatureSnapshot,
@@ -680,4 +709,5 @@ ALL_CONTRACTS = {
     "risk_decision": RiskDecision,
     "execution_command": ExecutionCommand,
     "hermes_proposal": HermesProposal,
+    "halt_request": HaltRequest,
 }

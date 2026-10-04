@@ -91,6 +91,8 @@ Branches `v2/*`, stacked. Shadow and paper only. Nothing here places an order or
 | V2-5 | Feature engine (deterministic, from bars) + state builder (Contract B -> C) | V2-1 | review (branch `v2/features`) |
 | V2-6 | Shadow pipeline: market -> features -> state -> adapter -> policy -> risk -> hash-chained decision log; compare with the current system. No execution | V2-3, V2-4, V2-5 | review (branch `v2/shadow`) |
 | V2-7 | Paper execution of approved commands into a SEPARATE paper book (gives shadow a position state) + paper-backed context provider | V2-6 | review (branch `v2/paper`) |
+| V2-10 | Deterministic kill controller + Contract J halt requests (Notion Gate 6) + `halt_scope` risk check + paper cancel | V2-7 | review (branch `v2/kill-controller`) |
+| V2-11 | Evidence gate on the fallback strategies (`GatedSource`, E9) | V2-3 | review (branch `v2/fallback-source`) |
 | V2-9 | Real context provider, fallback source over the replay twins, legacy comparison source, runner service (needs approval: resident process) | V2-6, E4 | todo |
 | V2-8 | Real TypeSafe client (wire format -> internal raw shape) | owner: API docs, egress, key | owner (E4) |
 
