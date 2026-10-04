@@ -43,6 +43,16 @@ TRACKING_MAX_HOURS = 72.0
 TP_MULT = 2.0       # TP = entry + 2x SL distance (matches EA InpTPRR)
 SL_BUFFER = 0.001   # 0.1% below dip low
 
+# 🛑 STALE-DATA GUARD (2026-10-04, autonomous improvement agent).
+# Yahoo's chart API frequently serves its last successful window with the most
+# recent bars nulled out. Observed 2026-10-04: the last 36 x 15m bars (9h) had
+# close=null. fetch_15m drops null bars, so the scan silently ran on ~9h-old
+# prices: open signals were resolved against a frozen last print and new
+# signals could fire on it. The status line still looked healthy, so nothing
+# surfaced the problem. 45m = 3 bars; tolerant of a couple of missing prints
+# but refuses to act on genuinely stale data.
+MAX_BAR_AGE_MIN = 45.0
+
 # 🔬 RESEARCH_ONLY (set 2026-10-02 by autonomous improvement agent).
 # Evidence the dip-buy action is NEGATIVE expectancy, robust across halves:
 #   * Live track record (gold-signals.json): 30 decisive signals, WR=33.3%,
@@ -126,6 +136,20 @@ def scan() -> dict | None:
     """Return current market state dict, or None if no data."""
     bars = fetch_15m()
     if len(bars) < 60:
+        return None
+    # STALE-DATA GUARD (2026-10-04, autonomous improvement agent). Yahoo
+    # regularly returns its last successful window with the most recent bars
+    # nulled out (observed: last 36 x 15m bars = 9h of close=None). fetch_15m
+    # correctly drops null bars, but the survivors are then OLD — so without
+    # this guard the scanner would (a) resolve open signals against a frozen
+    # price and (b) fire new signals on a stale print. That is a silent
+    # failure: the status line still looks healthy. Refuse to act on data
+    # whose newest bar is older than MAX_BAR_AGE_MIN.
+    newest = bars[-1]["t"]
+    age_min = (now_utc().timestamp() - newest) / 60.0
+    if age_min > MAX_BAR_AGE_MIN:
+        print(f"gold scan: STALE DATA — newest 15m bar is {age_min:.0f}m old "
+              f"(> {MAX_BAR_AGE_MIN:.0f}m); refusing to resolve/fire this run")
         return None
     closes = [b["c"] for b in bars]
     px = closes[-1]
