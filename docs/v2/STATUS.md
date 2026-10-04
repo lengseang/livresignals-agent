@@ -2,7 +2,7 @@
 
 Branches (stacked, each reviewable alone; none merged, nothing on `main`):
 `v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller` -> `v2/invariants` -> `v2/jev-client` -> `v2/live-runner` -> `v2/calibration` -> `v2/approved-limits`.
-Tests: 713 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 1158 passed, 6 skipped, 10 collection errors
+Tests: 713 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 1157 passed, 6 skipped, 10 collection errors
 (the same 10 files that fail on `main` for lack of `src/trading/data/`).
 
 ```
