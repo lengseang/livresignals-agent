@@ -137,7 +137,7 @@ def test_runner_primes_and_uses_the_context_universe(tmp_path):
     feed = FakeFeed(clock, symbols=syms, n1h=1400)
     c = RunnerConfig(**{**demo_config(("BTCUSDT",), 15, tmp_path).__dict__, "context_symbols": syms})
     r = Runner(c, feed, WF2, jev_client=Client(LONG_RAW), clock=clock.time, sleep=clock.sleep)
-    r.run(max_steps=20)
+    r.run(max_steps=75)                                   # long enough to cross an hour: the hourly refresh must run
     recs = r.pipeline.stats
     assert recs["context:ok"] >= 1
     assert all(len(r.ctx_bars[s]) >= N_CTX_1H for s in syms)
