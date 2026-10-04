@@ -219,4 +219,5 @@ def test_pipeline_gateway_takes_over_when_jev_is_down(tmp_path):
 def test_runner_wires_the_gateway():
     import inspect
     from trading.v2 import runner
-    assert "gateway=Gateway(" in inspect.getsource(runner.Runner)
+    src = inspect.getsource(runner.Runner)
+    assert "gateway=self.gateway" in src and "advisor=self.advisor" in src

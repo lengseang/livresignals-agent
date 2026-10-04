@@ -35,6 +35,7 @@ from trading.v2.contracts import StrategyRef
 from trading.v2.fallback import GatedSource
 from trading.v2.features import N_1H, N_1M
 from trading.v2.killswitch import KillController, KillLimits, Observation
+from trading.v2.advisor import PositionAdvisor
 from trading.v2.gateway import Gateway
 from trading.v2.position import RatchetRule
 from trading.v2.paper import PaperBook
@@ -43,7 +44,7 @@ from trading.v2.risk import ExchangeHealth, RiskLimits
 from trading.v2.shadow import ShadowPipeline
 from trading.v2.stances import ReplayStanceSource
 from trading.v2.typesafe_client import TypeSafeJevClient
-from trading.v2.workflow import WORKFLOW_DIR, JevWorkflow, load_workflow
+from trading.v2.workflow import WORKFLOW_DIR, JevWorkflow, load_position_workflow, load_workflow
 
 log = logging.getLogger("trading.v2.runner")
 MIN_MS = 60_000
@@ -88,7 +89,8 @@ def _day(ms: int) -> str:
 
 class Runner:
     def __init__(self, cfg: RunnerConfig, feed: BinancePublic, workflow: JevWorkflow, *,
-                 jev_client: Optional[JevClient] = None, clock: Callable[[], float] = time.time,
+                 jev_client: Optional[JevClient] = None, position_client: Optional[JevClient] = None,
+                 clock: Callable[[], float] = time.time,
                  sleep: Callable[[float], None] = time.sleep):
         self.cfg, self.feed, self.workflow, self._clock, self._sleep = cfg, feed, workflow, clock, sleep
         out = cfg.out_dir
@@ -103,13 +105,18 @@ class Runner:
             daily_loss_budget_usd=cfg.daily_loss_budget_usd, exchange_health=self._health, kill_switch=self._kill,
             legacy_action=self._legacy, paused=lambda: self.ctl.paused_scopes)
         self.client = jev_client or TypeSafeJevClient(workflow)
+        self.gateway = Gateway(max_spread_bps=cfg.risk_limits.max_spread_bps)
         self.adapter = JevAdapter(self.client, workflow, GatedSource(self.stances), timeout_s=cfg.jev_timeout_s,
-                                  gateway=Gateway(max_spread_bps=cfg.risk_limits.max_spread_bps))
+                                  gateway=self.gateway)
+        # V2-15 L2: while positioned, Jev's POSITION workflow is asked (gateway on failure)
+        pwf = load_position_workflow()
+        self.advisor = PositionAdvisor(position_client or TypeSafeJevClient(pwf), pwf, self.gateway,
+                                       timeout_s=cfg.jev_timeout_s)
         self.pipeline = ShadowPipeline(
             adapter=self.adapter, provider=self.provider, sink=ShadowChain(out, "v2cycle", "pipeline", self.start_ms),
             book=LiveBook(feed), policy=PolicyConfig(), limits=cfg.risk_limits, cadence_minutes=cfg.cadence_minutes,
             max_stale_ms=cfg.max_stale_ms, paper=self.book,
-            book_lead_tolerance_ms=cfg.book_lead_tolerance_ms)
+            book_lead_tolerance_ms=cfg.book_lead_tolerance_ms, advisor=self.advisor)
         self.last_end: dict[str, int] = {}
         self.last_1h_end: dict[str, int] = {}
         self.last_price: dict[str, float] = {}
@@ -229,7 +236,12 @@ class Runner:
               "jev_calls": self.adapter.stats["calls"], "jev_ok": self.adapter.stats["jev"],
               "jev_fallback": self.adapter.stats["fallback"], "jev_share": s.get("jev_share"),
               "outcomes": {k[8:]: v for k, v in s.items() if k.startswith("outcome:")},
-              "models": {k[6:]: v for k, v in self.adapter.stats.items() if k.startswith("model:")}}
+              "models": {k[6:]: v for k, v in self.adapter.stats.items() if k.startswith("model:")},
+              "fallback_gateway": self.adapter.stats["fallback_gateway"],
+              "dual_run": {k[5:]: v for k, v in s.items() if k.startswith("dual:")},
+              "advice": dict(self.advisor.stats),
+              "stops_tightened": {k[15:]: v for k, v in self.book.stats.items() if k.startswith("stop_tightened:")},
+              "exits": {k: self.book.stats[k] for k in ("stopped", "target_hit", "ratchet_exit")}}
         usage = getattr(self.client, "usage", None)
         if usage is not None:
             hb["jev_usage"] = dict(usage)

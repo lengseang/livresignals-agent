@@ -115,6 +115,8 @@ def build_wire_request(workflow: JevWorkflow, internal: dict, state_as_text: boo
         else:
             questions[name] = {"type": "noul", "instructions": q.instructions}
     state = {**internal["state"], "features": internal["features"]}     # the id is replaced by the values
+    if internal.get("position_detail") is not None:                     # V2-15: the position workflow sees the trade
+        state["position_detail"] = internal["position_detail"]
     return {"state": json.dumps(state, sort_keys=True) if state_as_text else state,
             "model": workflow.model, "questions": questions}
 

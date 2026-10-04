@@ -100,3 +100,39 @@ def load_active(directory: Path | str = WORKFLOW_DIR) -> JevWorkflow:
     directory = Path(directory)
     name = json.loads((directory / "active.json").read_text(encoding="utf-8"))["workflow"]
     return load_workflow(directory / f"{name}.json")
+
+
+# ---------------------------------------------------------------- V2-15: the POSITION workflow (asked while a trade is open)
+
+POSITION_ACTIONS = ("HOLD", "TIGHTEN_STOP", "REDUCE", "EXIT")
+REQUIRED_POSITION_QUESTIONS = {
+    "position_action": "choice", "momentum_fading": "score", "reversal_risk": "score", "target_reachable": "score",
+}
+POSITION_WORKFLOW = "crypto_position_v1"
+
+
+class PositionWorkflow(BaseModel):
+    """Same shape and wire rules as JevWorkflow; a different, smaller question set. Its actions can only reduce risk."""
+    model_config = _STRICT
+    workflow_id: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
+    version: VersionTag
+    model: Annotated[str, Field(min_length=1)]
+    questions: dict[str, Question]
+
+    @model_validator(mode="after")
+    def _complete(self):
+        if set(self.questions) != set(REQUIRED_POSITION_QUESTIONS):
+            raise ValueError(f"position workflow must ask exactly {sorted(REQUIRED_POSITION_QUESTIONS)}")
+        for name, kind in REQUIRED_POSITION_QUESTIONS.items():
+            if self.questions[name].type != kind:
+                raise ValueError(f"question {name!r} must be a {kind}")
+        if tuple(sorted(self.questions["position_action"].options)) != tuple(sorted(POSITION_ACTIONS)):
+            raise ValueError(f"position_action options must be exactly {POSITION_ACTIONS}")
+        return self
+
+    require_wire_ready = JevWorkflow.require_wire_ready
+    tag = JevWorkflow.tag
+
+
+def load_position_workflow(directory: Path | str = WORKFLOW_DIR) -> PositionWorkflow:
+    return PositionWorkflow.model_validate_json((Path(directory) / f"{POSITION_WORKFLOW}.json").read_text(encoding="utf-8"))

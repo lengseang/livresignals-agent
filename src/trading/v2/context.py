@@ -12,6 +12,7 @@ from typing import Callable, Optional
 
 from trading.risk.guards import GUARDS
 from trading.v2.contracts import PositionState, RiskState, StrategyRef
+from trading.v2.gateway import PositionView
 from trading.v2.paper import PaperBook
 from trading.v2.policy import ExitParams
 from trading.v2.risk import ExchangeHealth, OpenOrder, RiskLimits
@@ -55,4 +56,7 @@ class PaperContextProvider:
             exchange=self._health(), kill_switch_engaged=self._kill(),
             strategy_loss_pct=min(0.0, b.realized_pnl_pct()), consecutive_losses=b.consecutive_losses(),
             daily_loss_budget_used=used, leverage=1.0, paused=tuple(self._paused()),
-            legacy_action=self._legacy(symbol, as_of_ms) if self._legacy else None)
+            legacy_action=self._legacy(symbol, as_of_ms) if self._legacy else None,
+            position_view=None if pos is None else PositionView(
+                side=pos.side, entry=pos.entry, stop=pos.stop, target=pos.target, best=pos.best,
+                last=b.last.get(symbol, pos.entry), minutes_held=max(0, (as_of_ms - pos.opened_ms) // 60_000)))

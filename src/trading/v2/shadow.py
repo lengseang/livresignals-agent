@@ -25,10 +25,11 @@ from trading.replay.bars import Bar
 from trading.replay.context import BarStore
 from trading.v2.adapter import JevAdapter
 from trading.v2.contracts import (
-    ExecutionCommand, PositionState, RiskState, StrategyRef, UnusableSnapshot,
+    ExecutionCommand, PositionState, RiskState, StrategyRef, TradeProposal, UnusableSnapshot,
 )
 from trading.v2.events import iso_ms, kline_closed_event
 from trading.v2.features import BookSource, compute_features
+from trading.v2.advisor import PositionPolicy, plan as position_plan
 from trading.v2.paper import LABEL as PAPER_LABEL, PaperBook
 from trading.v2.ids import derive_id
 from trading.v2.policy import ExitParams, PolicyConfig, evaluate_policy, propose_trade
@@ -61,6 +62,7 @@ class CycleContext:
     leverage: float = 1.0
     paused: tuple = ()
     legacy_action: Optional[str] = None     # what the CURRENT system would do now (None = unavailable)
+    position_view: Optional[object] = None  # V2-15: gateway.PositionView of the open position (None = flat/unknown)
 
 
 class ContextProvider(Protocol):
@@ -84,7 +86,8 @@ class ShadowPipeline:
                  book: Optional[BookSource], policy: PolicyConfig = PolicyConfig(),
                  limits: RiskLimits, cadence_minutes: int = 15, max_stale_ms: int = 10_000,
                  source: str = "ws", venue: str = "binance", store: Optional[BarStore] = None,
-                 paper: Optional[PaperBook] = None, book_lead_tolerance_ms: int = 0):
+                 paper: Optional[PaperBook] = None, book_lead_tolerance_ms: int = 0,
+                 advisor=None, position_policy=None):
         if cadence_minutes < 1:
             raise ValueError("cadence_minutes must be >= 1")
         self.adapter, self.provider, self.sink, self.book = adapter, provider, sink, book
@@ -94,6 +97,9 @@ class ShadowPipeline:
         self.book_lead_tolerance_ms = book_lead_tolerance_ms
         self.paper = paper     # V2.1: approved commands go to this SEPARATE simulated book. None = pure shadow.
         self.store = store or BarStore()
+        # V2-15 L2: while a position is open, the POSITION workflow is asked instead of the entry one
+        self.advisor = advisor
+        self.position_policy = position_policy or PositionPolicy()
         self.stats: Counter = Counter()
         # After a restart, bars are replayed: skip cycles already in the chain (never log one twice).
         self.resume_after_ms: int = int(getattr(sink, "resumed_from_ms", None) or 0)
@@ -172,6 +178,9 @@ class ShadowPipeline:
         except UnusableSnapshot as exc:
             rec.update(outcome="snapshot_unusable", reason=str(exc), features=snap.to_dict())
             return
+        if self.advisor is not None and state.position.side != "none" and ctx.position_view is not None:
+            self._advise(rec, bar, state, snap, ctx, stage)
+            return
         stage[0] = "decision"
         decision = self.adapter.evaluate(state, snap)
         dual = None
@@ -225,6 +234,54 @@ class ShadowPipeline:
             versions={"feature": snap.feature_version, "workflow": self.adapter.workflow.tag,
                       "policy": self.policy.policy_version, "risk": self.limits.risk_version,
                       "model": decision.model})
+
+    def _advise(self, rec: dict, bar: Bar, state, snap, ctx: CycleContext, stage: list) -> None:
+        """L2: ask what to do with the open position; act only within the position policy's risk-reducing bounds."""
+        stage[0] = "advice"
+        view = ctx.position_view
+        adv = self.advisor.advise(state, snap, view)
+        p = position_plan(adv, view, snap.technical.atr, self.position_policy)
+        self.stats[f"advice:{adv.source}"] += 1
+        self.stats[f"advice_plan:{p.kind}"] += 1
+        taken, risk, preview, paper_submit, prop = None, None, None, None, None
+        if p.kind == "tighten":
+            stage[0] = "tighten"
+            if self.paper is not None:
+                adj = self.paper.amend_stop(state.symbol, p.new_stop, bar.end_ms, adv.source, p.reason)
+                taken = adj.to_dict() if adj is not None else None
+        elif p.kind in ("exit", "reduce"):
+            stage[0] = "risk"
+            prop = TradeProposal(
+                contract="trade_proposal", version="1.0",
+                proposal_id=derive_id("tp", adv.advice_id, self.position_policy.version),
+                symbol=state.symbol, side=state.position.side.upper(), strategy=state.strategy, intent=p.kind,
+                reference_price=state.market.price,
+                rationale={"decision_id": derive_id("dec", adv.advice_id), "policy_tier": "EXECUTE"})
+            rctx = RiskContext(
+                state=state, day_start_equity=ctx.day_start_equity, week_start_equity=ctx.week_start_equity,
+                high_water_mark=ctx.high_water_mark, open_notional=ctx.open_notional, open_orders=ctx.open_orders,
+                exchange=ctx.exchange, kill_switch_engaged=ctx.kill_switch_engaged,
+                strategy_loss_pct=ctx.strategy_loss_pct, consecutive_losses=ctx.consecutive_losses,
+                daily_loss_budget_used=ctx.daily_loss_budget_used, leverage=ctx.leverage, paused=ctx.paused)
+            risk = evaluate_risk(prop, rctx, adv.confidence * 100.0, self.limits)
+            if risk.approved:
+                preview = ExecutionCommand.from_approved(
+                    proposal=prop, risk_decision=risk, venue=self.venue,
+                    command_id=derive_id("ex", prop.proposal_id, risk.risk_decision_id))
+                if self.paper is not None:
+                    stage[0] = "paper"
+                    paper_submit = self.paper.submit(preview, bar.end_ms)
+        outcome = {"hold": "position_hold", "tighten": "position_tighten" if (taken or self.paper is None) else
+                   "position_tighten_refused", "exit": "position_exit", "reduce": "position_reduce"}[p.kind]
+        if p.kind in ("exit", "reduce") and not (risk is not None and risk.approved):
+            outcome = "position_risk_rejected"
+        rec.update(outcome=outcome, features=snap.to_dict(), state=state.to_dict(), state_hash=state.state_hash(),
+                   advice=adv.to_dict(), position_plan={"kind": p.kind, "reason": p.reason, "new_stop": p.new_stop},
+                   adjustment=taken, proposal=prop.to_dict() if prop else None,
+                   risk=risk.to_dict() if risk else None, execution_preview=preview.to_dict() if preview else None,
+                   paper_submit=paper_submit,
+                   versions={"feature": snap.feature_version, "workflow": adv.workflow, "model": adv.model,
+                             "position_policy": self.position_policy.version, "risk": self.limits.risk_version})
 
     @staticmethod
     def _outcome(tier: str, proposal, proposal_reason: str, risk) -> str:

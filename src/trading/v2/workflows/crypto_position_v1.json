@@ -1,0 +1,21 @@
+{
+  "workflow_id": "crypto_position",
+  "version": "v1",
+  "model": "jev-latest",
+  "questions": {
+    "position_action": {
+      "type": "choice",
+      "options": ["HOLD", "TIGHTEN_STOP", "REDUCE", "EXIT"],
+      "instructions": "A position in state.symbol is OPEN (state.position_detail: side, entry, stop, target, last price, unrealized_R, mfe_R = best excursion in units of the initial risk, minutes_held). Given state.features and state.market, what should be done with it now? The stop already ratchets automatically once the trade is halfway to its target. Prefer HOLD unless the evidence that the move is ending is clear.",
+      "criteria": {
+        "HOLD": "Keep the position and its current stop and target unchanged",
+        "TIGHTEN_STOP": "Keep the position but move the protective stop closer to the price, because momentum is fading and a giveback is likely",
+        "REDUCE": "Close half of the position to bank part of the gain or cut part of the risk",
+        "EXIT": "Close the whole position now: the reason for the trade is gone or a reversal has started"
+      }
+    },
+    "momentum_fading": {"type": "score", "instructions": "Is the move in the direction of the open position losing momentum (shrinking returns, falling volume, flattening slope)?"},
+    "reversal_risk": {"type": "score", "instructions": "Is price likely to reverse against the open position soon, for example overextended RSI against the position's side or price far from VWAP?"},
+    "target_reachable": {"type": "score", "instructions": "Is price likely to reach the position's target (state.position_detail.target) before its stop (state.position_detail.stop)?"}
+  }
+}

@@ -127,9 +127,13 @@ def test_a_run_decides_on_the_cadence_logs_everything_and_trades_paper_only(tmp_
     r, feed, clock = runner(tmp_path)
     r.run(max_steps=46)
     h = hb(tmp_path)
-    assert h["steps"] == 46 and h["cycles"] == 3 and h["jev_calls"] == 3 and h["jev_share"] == 1.0
-    assert h["outcomes"] == {"would_execute": 1, "no_proposal": 2} and h["positions"] == [SYM]
-    assert h["models"] == {"jev-latest": 3}
+    # V2-15: once the first cycle opened a position, the next two ask the POSITION workflow instead of the entry
+    # one; no position client is injected here (no key), so the gateway answers them, and it says HOLD
+    assert h["steps"] == 46 and h["cycles"] == 3 and h["jev_calls"] == 1 and h["jev_share"] == 1.0
+    assert h["outcomes"] == {"would_execute": 1, "position_hold": 2} and h["positions"] == [SYM]
+    assert h["models"] == {"jev-latest": 1}
+    assert h["advice"]["calls"] == 2 and h["advice"]["gateway"] == 2
+    assert h["dual_run"].get("agree", 0) + h["dual_run"].get("disagree", 0) == 1
     assert h["feed_failures"] == 0 and h["kill_engaged"] is False and h["paper_equity"] > 0
     for lane, strat in (("v2cycle", "pipeline"), ("v2paper", "book"), ("v2kill", "controller")):
         d = tmp_path / lane / strat
@@ -284,7 +288,7 @@ def test_a_live_book_stamped_after_the_step_started_still_yields_a_decision(tmp_
     r, feed, clock = runner(tmp_path)
     feed.book_lead_ms = 800                                 # what the first live run saw: fetch latency
     r.run(max_steps=46)
-    assert hb(tmp_path)["outcomes"] == {"would_execute": 1, "no_proposal": 2}
+    assert hb(tmp_path)["outcomes"] == {"would_execute": 1, "position_hold": 2}
 
 
 def test_a_book_from_far_in_the_future_is_still_refused_by_the_runner(tmp_path):
