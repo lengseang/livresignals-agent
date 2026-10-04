@@ -242,3 +242,14 @@ results), and what was learned or blocked.
   wrote by mistake was caught as meaningless and redone). `git diff origin/main -- src/trading/risk scripts tests/test_risk.py`: empty.
 - **Learned:** a late-received bar is first stopped by the stale ORDER BOOK check, not the stale snapshot check; both exist
   and both are tested separately.
+
+## 2026-10-04 · V2-7 paper book + paper context
+- **Need check:** read `replay/broker.py` (PaperAccount, CostModel). Did not reuse PaperAccount: it sizes positions itself.
+- **Done:** `src/trading/v2/{paper,context}.py`, optional `paper=` on `ShadowPipeline`, 36 new tests, `buying_power` check in risk v2.
+- **Evidence:** `pytest tests/` (continue-on-collection-errors): 860 passed, 6 skipped, 10 errors = 444/6/10 baseline + 416 V2.
+  18 mutations of paper/risk/context: 17 caught at once; the survivor (entry-fee mis-attribution on partial close) got a
+  per-trade assertion and is now caught. `git diff origin/main -- src/trading/risk scripts tests/test_risk.py`: empty.
+- **Found by integration:** risk v2 approved orders that cash could not fund (100%-of-equity sizing + fees). Fixed in the V2
+  wrapper only (cap to free cash / (1 + 0.2%)).
+- **Bug in my own tests:** integration assertions with `if ... is not None` escape hatches; replaced with exact ones
+  (queue count, fill = next bar's open, 3x already_long, gap-fill price, daily-cap blocks re-entry).

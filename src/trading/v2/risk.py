@@ -44,6 +44,9 @@ class RiskLimits:
     max_spread_bps: float = 5.0          # the value in contracts.md Contract G's example
     allow_short: bool = False            # GUARDS: spot only, no margin
     reduce_fraction: float = 0.5         # share of the position a "reduce" intent closes
+    # Fraction of notional held back from free cash for the entry fee and slippage, so an approved order
+    # can actually be funded. 0.002 = 2x the repo CostModel's 0.10% fee. UNVALIDATED: measure real costs.
+    cost_buffer_frac: float = 0.002
     risk_version: str = "risk-v2.0"
 
 
@@ -148,19 +151,25 @@ def _evaluate(p: TradeProposal, ctx: RiskContext, score_pct: Optional[float],
                 pos = compute_position(score=score_pct, risk_equity=eq, entry=p.reference_price,
                                        stop_distance=p.stop_pct, open_notional=ctx.open_notional,
                                        modifiers=None, macro_multiplier=1.0)
-                qty = _floor(pos["position_notional"] / p.reference_price)
+                free = eq - ctx.open_notional
+                notional = min(pos["position_notional"], free / (1.0 + limits.cost_buffer_frac))
+                capped = notional < pos["position_notional"]
+                add("buying_power", notional > 0,
+                    (f"capped by free cash: ${notional:.2f} (free ${free:.2f}, cost buffer "
+                     f"{limits.cost_buffer_frac:.2%})") if capped else f"free cash ${free:.2f} funds the order")
+                qty = _floor(notional / p.reference_price)
                 if qty <= 0:
                     sizing_ok, sizing_detail = False, "size rounds to zero"
                 else:
                     size = qty
                     stop_price = round(p.reference_price * (1 - p.stop_pct if p.side == "LONG"
                                                               else 1 + p.stop_pct), SIZE_DECIMALS)
-                    sizing_detail = (f"notional ${pos['position_notional']:.2f} = "
-                                     f"{pos['position_notional'] / eq:.2%} of equity; risk "
+                    sizing_detail = (f"notional ${notional:.2f} = "
+                                     f"{notional / eq:.2%} of equity; risk "
                                      f"${pos['risk_amount']:.2f} ({pos['risk_fraction']:.4f}); "
-                                     f"exposure after {pos['total_notional'] / eq:.2%}")
-                    add("exposure_cap", pos["total_notional"] <= GUARDS.max_exposure_fraction * eq + 1e-9,
-                        f"{pos['total_notional'] / eq:.2%} vs cap {GUARDS.max_exposure_fraction:.0%}")
+                                     f"exposure after {(ctx.open_notional + notional) / eq:.2%}")
+                    add("exposure_cap", ctx.open_notional + notional <= GUARDS.max_exposure_fraction * eq + 1e-9,
+                        f"{(ctx.open_notional + notional) / eq:.2%} vs cap {GUARDS.max_exposure_fraction:.0%}")
             except RiskRejected as exc:
                 sizing_ok, sizing_detail = False, f"legacy engine: {exc}"
         else:

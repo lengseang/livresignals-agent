@@ -77,3 +77,11 @@ guard layer ("do not edit without a human risk-approval"), so I did not touch it
 (d) Existing sizing (2% risk / stop distance) yields ~100% of equity notional at a 2% stop; confirm the exit
     params you intend, since stop_pct drives size.
 **Answer:**
+
+## E8 · The legacy "2x daily loss budget used" breaker has no written definition (V2-7)
+`check_strategy_breakers(daily_loss_budget_used=...)` suspends at >= 2.0 but nothing in the repo says what the
+"daily loss budget" is. V2's `PaperContextProvider` therefore requires `daily_loss_budget_usd` (no default) and reports 0.0
+if you give none, which leaves that one breaker input effectively off. Tell me the definition you intend
+(e.g. N x per-trade risk, or a fixed USD amount).
+**Answer:**
+

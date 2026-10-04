@@ -61,7 +61,7 @@ def test_clean_entry_is_approved_with_size_stop_and_every_check_listed():
     assert r.approved and r.reject_reason is None and failed(r) == []
     names = [x.name for x in r.checks]
     assert tuple(names[:7]) == REQUIRED_RISK_CHECKS
-    assert {"guards_intact", "stop_distance", "exposure_cap", "weekly_loss_halt", "drawdown_halt",
+    assert {"guards_intact", "stop_distance", "buying_power", "exposure_cap", "weekly_loss_halt", "drawdown_halt",
             "strategy_breaker", "short_allowed", "proposal_matches_state"} <= set(names)
     assert len(names) == len(set(names))
     assert r.stop_price == pytest.approx(108420.5 * 0.98)
@@ -71,16 +71,35 @@ def test_clean_entry_is_approved_with_size_stop_and_every_check_listed():
 def test_sizing_is_the_legacy_engines_sizing_in_base_units():
     r = run()
     legacy_pos = legacy.compute_position(score=82.0, risk_equity=10000.0, entry=108420.5, stop_distance=0.02)
-    assert r.size == pytest.approx(legacy_pos["position_notional"] / 108420.5, abs=1e-8)
+    # the legacy notional is 100% of equity here, so V2 holds back the cost buffer: smaller, never larger
+    expected = legacy_pos["position_notional"] / (1 + LIMITS.cost_buffer_frac) / 108420.5
+    assert r.size == pytest.approx(expected, abs=1e-8) and r.size <= legacy_pos["position_notional"] / 108420.5
     assert r.size * 108420.5 <= 10000.0 * GUARDS.max_exposure_fraction  # floored: never overshoots the cap
-    assert r.size == pytest.approx(legacy_pos["position_notional"] / 108420.5, abs=1e-8) and r.size <= legacy_pos["position_notional"] / 108420.5
     assert R.compute_position is legacy.compute_position and R.GUARDS is GUARDS  # wrapped, not copied
 
 
 def test_partial_exposure_shrinks_the_size_never_grows_it():
     free = run().size
     half = run(c=ctx(open_notional=6000.0)).size
-    assert 0 < half < free and half * 108420.5 == pytest.approx(4000.0, abs=1e-3)
+    assert 0 < half < free and half * 108420.5 == pytest.approx(4000.0 / 1.002, abs=1e-3)
+
+
+def test_an_approved_order_is_always_fundable_from_free_cash_including_costs():
+    for open_notional in (0.0, 1000.0, 5000.0, 9000.0):
+        r = run(c=ctx(open_notional=open_notional))
+        assert r.approved
+        notional = r.size * 108420.5
+        assert notional * (1 + LIMITS.cost_buffer_frac) <= 10000.0 - open_notional + 1e-6
+    r = run()
+    detail = next(x.detail for x in r.checks if x.name == "buying_power")
+    assert "capped by free cash" in detail
+    small = run(p=proposal(stop_pct=0.05))      # 2%/5% -> 40% of equity: no cap needed
+    assert "funds the order" in next(x.detail for x in small.checks if x.name == "buying_power")
+
+
+def test_cost_buffer_is_configurable_and_zero_removes_the_cap():
+    r = run(limits=RiskLimits(daily_loss_cap_usd=100.0, cost_buffer_frac=0.0))
+    assert r.size == pytest.approx(10000.0 / 108420.5, abs=1e-8)
 
 
 def test_full_exposure_rejects_via_the_legacy_engine():

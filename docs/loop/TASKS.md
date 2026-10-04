@@ -90,7 +90,7 @@ Branches `v2/*`, stacked. Shadow and paper only. Nothing here places an order or
 | V2-4 | Risk engine v2: wraps `src/trading/risk/` (never replaces), emits Contract G with every check | V2-2 | review (branch `v2/risk`) |
 | V2-5 | Feature engine (deterministic, from bars) + state builder (Contract B -> C) | V2-1 | review (branch `v2/features`) |
 | V2-6 | Shadow pipeline: market -> features -> state -> adapter -> policy -> risk -> hash-chained decision log; compare with the current system. No execution | V2-3, V2-4, V2-5 | review (branch `v2/shadow`) |
-| V2-7 | Paper execution of approved commands into a SEPARATE paper book (gives shadow a position state) | V2-6 | todo |
+| V2-7 | Paper execution of approved commands into a SEPARATE paper book (gives shadow a position state) + paper-backed context provider | V2-6 | review (branch `v2/paper`) |
 | V2-9 | Real context provider, fallback source over the replay twins, legacy comparison source, runner service (needs approval: resident process) | V2-6, E4 | todo |
 | V2-8 | Real TypeSafe client (wire format -> internal raw shape) | owner: API docs, egress, key | owner (E4) |
 

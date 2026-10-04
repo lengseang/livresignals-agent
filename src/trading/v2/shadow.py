@@ -1,6 +1,7 @@
 """Shadow pipeline (V2.0): market event -> features -> state -> Jev adapter -> policy -> risk -> LOG ONLY.
+(V2.1: with a `paper` book attached, approved commands are also filled in SIMULATION, in a separate book.)
 
-NOTHING EXECUTES. This module has no execution dependency: it imports no exchange client and no order
+NOTHING REAL EXECUTES. This module has no execution dependency: it imports no exchange client and no order
 path (tests/loop's import guard enforces it). Where the chain would have traded, it records an
 `execution_preview` (a Contract H object built from the approved risk decision) and nothing more.
 
@@ -28,6 +29,7 @@ from trading.v2.contracts import (
 )
 from trading.v2.events import iso_ms, kline_closed_event
 from trading.v2.features import BookSource, compute_features
+from trading.v2.paper import LABEL as PAPER_LABEL, PaperBook
 from trading.v2.ids import derive_id
 from trading.v2.policy import ExitParams, PolicyConfig, evaluate_policy, propose_trade
 from trading.v2.risk import ExchangeHealth, OpenOrder, RiskContext, RiskLimits, evaluate_risk
@@ -80,13 +82,15 @@ class ShadowPipeline:
     def __init__(self, *, adapter: JevAdapter, provider: ContextProvider, sink: Sink,
                  book: Optional[BookSource], policy: PolicyConfig = PolicyConfig(),
                  limits: RiskLimits, cadence_minutes: int = 15, max_stale_ms: int = 10_000,
-                 source: str = "ws", venue: str = "binance", store: Optional[BarStore] = None):
+                 source: str = "ws", venue: str = "binance", store: Optional[BarStore] = None,
+                 paper: Optional[PaperBook] = None):
         if cadence_minutes < 1:
             raise ValueError("cadence_minutes must be >= 1")
         self.adapter, self.provider, self.sink, self.book = adapter, provider, sink, book
         self.policy, self.limits = policy, limits
         self.cadence_ms = cadence_minutes * 60_000
         self.max_stale_ms, self.source, self.venue = max_stale_ms, source, venue
+        self.paper = paper     # V2.1: approved commands go to this SEPARATE simulated book. None = pure shadow.
         self.store = store or BarStore()
         self.stats: Counter = Counter()
         # After a restart, bars are replayed: skip cycles already in the chain (never log one twice).
@@ -103,6 +107,8 @@ class ShadowPipeline:
             log.warning("bar rejected %s %s end=%s: %s", bar.symbol, bar.interval, bar.end_ms, exc)
             return None
         self.stats["bars"] += 1
+        if self.paper is not None and bar.interval == "1m":
+            self.paper.on_bar(bar)      # fills at this bar's open, stop check, mark: BEFORE the next decision
         if bar.interval != "1m" or bar.end_ms % self.cadence_ms != 0:
             return None
         return self._cycle(bar, received_ms)
@@ -127,8 +133,9 @@ class ShadowPipeline:
         event = kline_closed_event(bar, received_ms, source=self.source, venue=self.venue)
         self.stats["cycles"] += 1
         rec: dict = {
-            "mode": "shadow", "type": "v2_decision_cycle", "real": False,
-            "label": "SHADOW (paper, not real money)", "ts_event_ms": bar.end_ms,
+            "mode": "paper" if self.paper is not None else "shadow", "type": "v2_decision_cycle", "real": False,
+            "label": PAPER_LABEL if self.paper is not None else "SHADOW (paper, not real money)",
+            "ts_event_ms": bar.end_ms,
             "ts_iso": iso_ms(bar.end_ms), "symbol": bar.symbol, "event": event.to_dict(),
         }
         stage = ["features"]
@@ -176,6 +183,10 @@ class ShadowPipeline:
                 preview = ExecutionCommand.from_approved(
                     proposal=prop.proposal, risk_decision=risk, venue=self.venue,
                     command_id=derive_id("ex", prop.proposal.proposal_id, risk.risk_decision_id))
+        paper_submit = None
+        if preview is not None and self.paper is not None:
+            stage[0] = "paper"
+            paper_submit = self.paper.submit(preview, bar.end_ms)
         cmp = compare_with_legacy(decision.action, ctx.legacy_action)
         self.stats[f"source:{decision.source}"] += 1
         self.stats[f"compare:{cmp['kind']}"] += 1
@@ -187,7 +198,7 @@ class ShadowPipeline:
             proposal=prop.proposal.to_dict() if prop.proposal else None, proposal_reason=prop.reason,
             risk=risk.to_dict() if risk else None,
             execution_preview=preview.to_dict() if preview else None,
-            comparison=cmp,
+            paper_submit=paper_submit, comparison=cmp,
             versions={"feature": snap.feature_version, "workflow": self.adapter.workflow.tag,
                       "policy": self.policy.policy_version, "risk": self.limits.risk_version,
                       "model": decision.model})
@@ -219,6 +230,9 @@ class ShadowPipeline:
     def summary(self) -> dict:
         """Heartbeat: proves the pipeline ran and what it did."""
         s = dict(self.stats)
+        if self.paper is not None:
+            s["paper"] = {**dict(self.paper.stats), "equity": self.paper.equity(),
+                          "open_positions": len(self.paper.positions), "closed_trades": len(self.paper.trades)}
         s["jev_share"] = (self.stats["source:jev"] / (self.stats["source:jev"] + self.stats["source:fallback"])
                           if (self.stats["source:jev"] + self.stats["source:fallback"]) else None)
         return s
