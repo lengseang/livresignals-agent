@@ -165,3 +165,50 @@ def test_mfe_mae_tracked():
     bk.on_bar(b(1, 100.0, 103.0, 98.0, 101.0))
     p = bk.positions["BTCUSDT"]
     assert p.mfe() == pytest.approx(0.03) and p.mae() == pytest.approx(-0.02)
+
+
+# ------------------------------------------------------------ audit #1: a restart rebuilds the book from its chain
+
+def test_restore_rebuilds_positions_cash_stops_and_trades(tmp_path):
+    from trading.shadow.chain import ShadowChain
+    from trading.replay.broker import CostModel
+    from trading.v2.paper import read_chain
+    costs = CostModel(fee_rate=0.001, spread_bps=1.0, slippage_bps=1.0)
+    bk = PaperBook(1000.0, costs, ShadowChain(tmp_path, "v2paper", "book", T0), ratchet=RULE)
+    bk.submit(cmd(key="1", size=1.0, stop_price=95.0, target_price=110.0), T0)
+    for i, p in enumerate([100, 102, 104, 106, 107, 106.5]):
+        bk.on_bar(b(i, p, p + 0.5, p - 0.5, p))
+    bk.submit(cmd(key="2", size=1.0, stop_price=95.0, target_price=110.0), T0 + 10 * M)   # queued, never filled
+    fresh = PaperBook(1000.0, costs, None, ratchet=RULE)
+    info = fresh.restore(read_chain(tmp_path / "v2paper" / "book"))
+    p0, p1 = bk.positions["BTCUSDT"], fresh.positions["BTCUSDT"]
+    assert (p1.qty, p1.entry, p1.stop, p1.target, p1.best) == (p0.qty, p0.entry, p0.stop, p0.target, p0.best)
+    assert fresh.cash == pytest.approx(bk.cash) and len(fresh.adjustments) == len(bk.adjustments) > 0
+    assert info["unfilled_orders_dropped"] == [["tp_01J8ZABCDEFGH-v2", "BTCUSDT"]]
+    assert fresh.submit(cmd(key="1", size=1.0, stop_price=95.0, target_price=110.0), T0) == "duplicate_ignored"
+
+
+def test_restore_after_a_closed_trade_reconciles_cash(tmp_path):
+    from trading.shadow.chain import ShadowChain
+    from trading.v2.paper import read_chain
+    bk = PaperBook(1000.0, ZERO, ShadowChain(tmp_path, "v2paper", "book", T0))
+    bk.submit(cmd(size=1.0, stop_price=95.0, target_price=110.0), T0)
+    bk.on_bar(b(0, 100.0)); bk.on_bar(b(1, 100.0, 111.0, 99.0, 108.0))
+    fresh = PaperBook(1000.0, ZERO, None)
+    fresh.restore(read_chain(tmp_path / "v2paper" / "book"))
+    assert fresh.cash == pytest.approx(1010.0) and not fresh.positions and fresh.trades[-1]["reason"] == "target"
+
+
+def test_restore_fails_closed_on_a_wrong_start_equity_or_a_broken_chain(tmp_path):
+    from trading.shadow.chain import ShadowChain
+    from trading.v2.paper import read_chain
+    bk = PaperBook(1000.0, ZERO, ShadowChain(tmp_path, "v2paper", "book", T0))
+    bk.submit(cmd(size=1.0, stop_price=95.0), T0)
+    bk.on_bar(b(0, 100.0)); bk.on_bar(b(1, 90.0))
+    recs = read_chain(tmp_path / "v2paper" / "book")
+    with pytest.raises(ValueError, match="recorded equity"):
+        PaperBook(5000.0, ZERO, None).restore(recs)
+    f = next((tmp_path / "v2paper" / "book").glob("*.jsonl"))
+    f.write_text(f.read_text().replace('"qty":1.0', '"qty":2.0', 1))
+    with pytest.raises(ValueError, match="does not verify"):
+        read_chain(tmp_path / "v2paper" / "book")

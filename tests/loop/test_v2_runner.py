@@ -333,3 +333,15 @@ def test_each_flag_selects_its_own_limits_and_nothing_else(tmp_path, monkeypatch
     assert R.main(["runner", "--demo", "--out", str(tmp_path)]) == 0
     d = seen["cfg"]
     assert (d.exit_params.stop_pct, d.risk_limits.daily_loss_cap_usd, d.kill_limits.max_price_move_frac) == (0.02, 100.0, 0.10)
+
+
+def test_a_restarted_runner_rebuilds_its_paper_book_instead_of_resetting_it(tmp_path):
+    # audit V2-15 #1: before, a restart started a FRESH book while the chain continued
+    r, feed, clock = runner(tmp_path)
+    r.run(max_steps=46)
+    assert r.book.positions
+    r2, _, _ = runner(tmp_path, start_after_min=200)
+    assert r2.restored is not None and r2.restored["positions"] == sorted(r.book.positions)
+    p, q = r.book.positions[SYM], r2.book.positions[SYM]
+    assert (q.qty, q.entry, q.stop, q.target) == (p.qty, p.entry, p.stop, p.target)
+    assert r2.book.cash == pytest.approx(r.book.cash)

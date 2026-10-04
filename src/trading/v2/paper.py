@@ -81,6 +81,21 @@ def _week(ms: int) -> str:
     return (d - timedelta(days=d.weekday())).isoformat()      # Monday of the UTC week
 
 
+def read_chain(chain_dir) -> list[dict]:
+    """Every record of a VERIFIED chain lane, in order. A broken chain raises: it is never restored from."""
+    import json
+    from pathlib import Path
+    from trading.shadow.chain import verify
+    v = verify(chain_dir)
+    if not v["ok"]:
+        raise ValueError(f"paper chain does not verify: {v['error']}")
+    out = []
+    for day in sorted(Path(chain_dir).glob("*.jsonl")):
+        with open(day, encoding="utf-8") as f:
+            out += [json.loads(line) for line in f if line.strip()]
+    return out
+
+
 class PaperBook:
     def __init__(self, start_equity: float, costs: CostModel = CostModel(), sink: Optional[Sink] = None,
                  ratchet: Optional[RatchetRule] = None):
@@ -309,7 +324,7 @@ class PaperBook:
         pos.stop = new_stop
         self.adjustments.append(adj)
         self.stats[f"stop_tightened:{source}"] += 1
-        self._emit("stop_tightened", ts_ms, symbol, adjustment=adj.to_dict())
+        self._emit("stop_tightened", ts_ms, symbol, adjustment=adj.to_dict(), best=pos.best, worst=pos.worst)
         return adj
 
     def queue_exit(self, symbol: str, reason: str) -> bool:
@@ -318,6 +333,73 @@ class PaperBook:
             return False
         self._exit_next[symbol] = reason
         return True
+
+    # ------------------------------------------------------------------ restart
+
+    def restore(self, records: list[dict]) -> dict:
+        """Rebuild the book from its own chain records after a restart (Audit V2-15 #1: a restarted runner used to
+        start a FRESH book while its chain continued, so open positions, cash and stops silently vanished).
+
+        Replays fills (open/close), stop tightenings and queued ratchet exits through the SAME accounting code, with
+        the sink detached so nothing is re-logged. Orders that were queued but never filled are NOT resurrected: they
+        are reported so the caller can log them cancelled. Fails closed: whenever the book is flat, the replayed cash
+        must equal the equity the chain recorded, else ValueError (a book that cannot be reconciled must not trade).
+        """
+        if self.trades or self.positions or self.pending or self._keys:
+            raise ValueError("restore only into a fresh book")
+        sink, self.sink = self.sink, None
+        open_keys: dict[str, str] = {}
+        n = 0
+        try:
+            for r in records:
+                if r.get("type") != "paper_event" or r.get("real") is not False:
+                    raise ValueError("not a paper-book record")
+                ev, sym, t = r["event"], r["symbol"], r["ts_event_ms"]
+                if t:
+                    self._roll(t)
+                n += 1
+                if ev == "queued":
+                    key = r["command"]["idempotency_key"]
+                    self._keys.add(key)
+                    open_keys[key] = sym
+                elif ev in ("rejected", "cancelled", "duplicate_ignored"):
+                    open_keys.pop(r.get("key"), None)
+                    if r.get("key"):
+                        self._keys.add(r["key"])
+                elif ev == "fill" and r["action"] == "open":
+                    open_keys.pop(r.get("key"), None)
+                    qty, px, fee = r["qty"], r["price"], r["fee"]
+                    long = r["side"] == "LONG"
+                    self.cash += (-qty * px if long else qty * px) - fee
+                    self.positions[sym] = PaperPosition(r["side"], qty, px, r.get("stop"), t, fee, target=r.get("target"))
+                    self.last[sym] = px
+                    self.stats["opened"] += 1
+                elif ev == "fill" and r["action"] == "close":
+                    open_keys.pop(r.get("key"), None)
+                    pos = self.positions.get(sym)
+                    if pos is None:
+                        raise ValueError(f"close without an open position at seq {r.get('seq')}")
+                    self._close(sym, pos, r["qty"], r["price"], t, r["reason"], r.get("key"))
+                    self.last[sym] = r["price"]
+                elif ev == "stop_tightened":
+                    adj = PositionAdjustment.from_dict(r["adjustment"])
+                    pos = self.positions.get(sym)
+                    if pos is None:
+                        raise ValueError(f"stop amendment without a position at seq {r.get('seq')}")
+                    pos.stop = adj.new_stop
+                    pos.best, pos.worst = r.get("best", pos.best), r.get("worst", pos.worst)
+                    self.adjustments.append(adj)
+                    self.last[sym] = adj.last_price
+                elif ev == "ratchet_exit_queued":
+                    self._exit_next[sym] = "ratchet_exit"
+                if not self.positions and abs(self.cash - r["equity"]) > 1e-6 * max(1.0, abs(self.cash)):
+                    raise ValueError(f"replayed cash {self.cash:.6f} != recorded equity {r['equity']:.6f} at seq {r.get('seq')}")
+                self.high_water_mark = max(self.high_water_mark, r["equity"])
+            self._exit_next = {k: v for k, v in self._exit_next.items() if k in self.positions}
+        finally:
+            self.sink = sink
+        self.stats["restored_events"] = n
+        return {"events": n, "positions": sorted(self.positions), "unfilled_orders_dropped": sorted([k, v] for k, v in open_keys.items())}
 
     # ------------------------------------------------------------------ log
 

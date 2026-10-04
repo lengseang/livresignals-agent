@@ -38,7 +38,7 @@ from trading.v2.killswitch import KillController, KillLimits, Observation
 from trading.v2.advisor import PositionAdvisor
 from trading.v2.gateway import Gateway
 from trading.v2.position import RatchetRule
-from trading.v2.paper import PaperBook
+from trading.v2.paper import PaperBook, read_chain
 from trading.v2.policy import ExitParams, PolicyConfig
 from trading.v2.risk import ExchangeHealth, RiskLimits
 from trading.v2.shadow import ShadowPipeline
@@ -97,8 +97,16 @@ class Runner:
         out.mkdir(parents=True, exist_ok=True)
         self.start_ms = int(clock() * 1000)
         self.stances = ReplayStanceSource()
-        self.book = PaperBook(cfg.paper_equity, cfg.costs, ShadowChain(out, "v2paper", "book", self.start_ms),
-                              ratchet=cfg.ratchet)
+        paper_chain = ShadowChain(out, "v2paper", "book", self.start_ms)
+        self.book = PaperBook(cfg.paper_equity, cfg.costs, paper_chain, ratchet=cfg.ratchet)
+        self.restored = None
+        if paper_chain.seq > 0:            # a restart: the book is REBUILT from its own verified chain, never reset
+            self.restored = self.book.restore(read_chain(paper_chain.dir))
+            for key, sym in self.restored["unfilled_orders_dropped"]:     # logged, never silently resurrected
+                self.book.stats["cancelled:restart"] += 1
+                self.book._emit("cancelled", self.start_ms, sym, reason="restart", key=key)
+            log.warning("paper book restored from %d chain events: positions=%s",
+                        self.restored["events"], self.restored["positions"])
         self.ctl = KillController(cfg.kill_limits, ShadowChain(out, "v2kill", "controller", self.start_ms))
         self.provider = PaperContextProvider(
             self.book, cfg.strategy, cfg.risk_limits, exit_params=cfg.exit_params,
@@ -241,7 +249,8 @@ class Runner:
               "dual_run": {k[5:]: v for k, v in s.items() if k.startswith("dual:")},
               "advice": dict(self.advisor.stats),
               "stops_tightened": {k[15:]: v for k, v in self.book.stats.items() if k.startswith("stop_tightened:")},
-              "exits": {k: self.book.stats[k] for k in ("stopped", "target_hit", "ratchet_exit")}}
+              "exits": {k: self.book.stats[k] for k in ("stopped", "target_hit", "ratchet_exit")},
+              "restored": self.restored}
         usage = getattr(self.client, "usage", None)
         if usage is not None:
             hb["jev_usage"] = dict(usage)
