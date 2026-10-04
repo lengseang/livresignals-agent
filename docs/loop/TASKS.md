@@ -99,3 +99,5 @@ Branches `v2/*`, stacked. Shadow and paper only. Nothing here places an order or
 | V2-9 | Public data feed, real fallback stances (Donchian plugin + labelled trend reconstruction), legacy comparison source, paper runner with heartbeat/STOP/V2_KILL. NOT deployed: a resident process needs the owner's approval | V2-8 | review (branch `v2/live-runner`); verified live for 5 min |
 | V2-8 | Real TypeSafe client (wire format -> internal raw shape), workflow v2 with question text, one-shot probe, feature-values fix | V2-6 | review (branch `v2/jev-client`); live shape UNVERIFIED until the owner runs the probe (E4) |
 
+
+| V2-15 | In-position management (take profit, lock ratchet, Jev position workflow, risk-reducing policy), System One gateway (fitted + tested + dual-run), restart restore, randomised position invariants | V2-14 | review (branch `v2/position-management`); E13-E15 open |

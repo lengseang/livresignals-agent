@@ -247,6 +247,7 @@ class Runner:
               "models": {k[6:]: v for k, v in self.adapter.stats.items() if k.startswith("model:")},
               "fallback_gateway": self.adapter.stats["fallback_gateway"],
               "dual_run": {k[5:]: v for k, v in s.items() if k.startswith("dual:")},
+              "dual_run_advice": {k[12:]: v for k, v in s.items() if k.startswith("dual_advice:")},
               "advice": dict(self.advisor.stats),
               "stops_tightened": {k[15:]: v for k, v in self.book.stats.items() if k.startswith("stop_tightened:")},
               "exits": {k: self.book.stats[k] for k in ("stopped", "target_hit", "ratchet_exit")},

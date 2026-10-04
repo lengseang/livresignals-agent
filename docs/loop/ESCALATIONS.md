@@ -163,3 +163,27 @@ spread 0.82 bps + 1 bp slippage, daily-loss budget $20. All derived from ~18,000
 (`python -m trading.v2.calibrate`). Real fees/slippage stay UNKNOWN until real fills exist.
 **Answer:** approve all (2026-10-04). Locked in `src/trading/v2/approved.py`; paper only; real money and VPS deployment are NOT covered.
 
+
+## E5 · CLOSED by decision under the owner's delegation (V2-15, 2026-10-04)
+Fallback (now the System One gateway) may EXIT/REDUCE/TIGHTEN under the risk-reducing position policy (EXIT/REDUCE ≥ 0.70,
+TIGHTEN ≥ 0.60), the same thresholds as Jev. The "never EXECUTE" cap still holds for ENTRIES. Reason: blocking exits trapped
+positions whenever Jev was down; the cap exists to stop an unvetted source opening risk. See `docs/v2/V2-15-RESULTS.md`.
+
+## E13 · Position-policy thresholds are unvalidated (V2-15)
+EXIT/REDUCE at 0.70, TIGHTEN at 0.60 and TIGHTEN distance 1.5 x ATR(1h) are reasoned defaults, not measured. They cannot be
+backtested for Jev, because that needs a paid call per historical cycle. The shadow log will show, per answer, what holding
+would have done. Proposal: review after 30 positioned cycles.
+**Answer:**
+
+## E14 · Should an engaged kill switch still allow risk-reducing orders? (V2-15)
+`contracts.md` says "kill switch engaged → REJECT" for every order, and V2 follows it. Consequence: while killed, advice
+cannot EXIT. The resting stop and the L1 ratchet still protect (a stop amendment is not a new order). Option: let reduce-only
+orders pass the kill switch. That is a risk-limit change, so I did not make it.
+**Answer:**
+
+## E15 · No measured entry edge (V2-15)
+The gateway's entry model (features-v1, +7%/-3.5% in 14d) has no out-of-sample skill (AUC 0.49). Jev's entry skill is
+unmeasured: it has said NO_TRADE in every live entry cycle. Exit management cannot create edge (pre-registered study: every
+exit rule lost on test with naive entries). The next lever is the ENTRY signal: a different horizon/target, cross-sectional
+features, or Jev's own shadow record once it says LONG. Owner's call on direction.
+**Answer:**

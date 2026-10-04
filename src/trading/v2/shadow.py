@@ -241,6 +241,17 @@ class ShadowPipeline:
         view = ctx.position_view
         adv = self.advisor.advise(state, snap, view)
         p = position_plan(adv, view, snap.technical.atr, self.position_policy)
+        dual = None
+        if adv.source == "jev":         # dual-run: what the gateway would have advised, so exits are measured too
+            try:
+                g = self.advisor.gateway.position_answers(snap.to_dict(), state.market.spread_bps, view)
+                same = g["position_action"] == adv.action
+                self.stats["dual_advice:agree" if same else "dual_advice:disagree"] += 1
+                dual = {"action": g["position_action"], "distribution": g["position_action_distribution"],
+                        "target_reachable": g["target_reachable"], "agrees_with_jev": same}
+            except Exception as exc:
+                self.stats["dual_advice:gateway_error"] += 1
+                dual = {"error": type(exc).__name__}
         self.stats[f"advice:{adv.source}"] += 1
         self.stats[f"advice_plan:{p.kind}"] += 1
         taken, risk, preview, paper_submit, prop = None, None, None, None, None
@@ -276,7 +287,7 @@ class ShadowPipeline:
         if p.kind in ("exit", "reduce") and not (risk is not None and risk.approved):
             outcome = "position_risk_rejected"
         rec.update(outcome=outcome, features=snap.to_dict(), state=state.to_dict(), state_hash=state.state_hash(),
-                   advice=adv.to_dict(), position_plan={"kind": p.kind, "reason": p.reason, "new_stop": p.new_stop},
+                   advice=adv.to_dict(), gateway_dual_run=dual, position_plan={"kind": p.kind, "reason": p.reason, "new_stop": p.new_stop},
                    adjustment=taken, proposal=prop.to_dict() if prop else None,
                    risk=risk.to_dict() if risk else None, execution_preview=preview.to_dict() if preview else None,
                    paper_submit=paper_submit,

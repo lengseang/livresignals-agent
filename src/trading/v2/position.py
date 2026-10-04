@@ -2,9 +2,9 @@
 
 Evidence (docs/v2/evidence/exit_study_paired.json, BTC/ETH/SOL 1m, 2023-2024 and 2025-2026 separately): of the
 trades that reached HALF their target, 27-28% still ended as a LOSS under the plain bracket, which is the owner's
-"went for TP, came back to SL" case. Locking half the best excursion once half the target is reached made every one
-of those trades a winner, and the mean return was not measurably different from holding the bracket
-(-0.03% in both periods, 95% CIs spanning zero). The study's numbers are THE defaults below; the pre-registered
+"went for TP, came back to SL" case. Locking half the best excursion once half the target is reached cut that to
+0.0% (train) and 0.2% (test: gaps through the locked stop), and the mean return was not measurably different from
+holding the bracket (-0.03% in both periods, 95% CIs spanning zero). The study's numbers are THE defaults below; the pre-registered
 full study is reported alongside, including that no exit rule creates edge from edgeless entries.
 
 Pure: no clock, no I/O. Called by the paper book at the CLOSE of every 1m bar; the stop it returns applies from the

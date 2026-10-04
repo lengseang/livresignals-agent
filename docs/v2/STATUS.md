@@ -60,3 +60,9 @@ data and (with --run) starts a PAPER session with them. Proposals and evidence: 
 The owner approved all proposed limits for PAPER use. `python -m trading.v2.runner --approved --symbols BTCUSDT,ETHUSDT,SOLUSDT --cadence 15`
 runs with them (constants in `src/trading/v2/approved.py`, pinned by tests). `--demo` placeholders remain for experiments. Still needing the
 owner: VPS deployment of the runner, workflow v2 question text -> `active.json`, real-money questions (not started).
+
+## Update: in-position management + System One gateway (V2-15, `v2/position-management`)
+Take-profit now exists (it was computed and dropped). A lock-half stop ratchet cuts "went for TP, came back to SL" from ~27% of
+half-way trades to ~0% at no measurable cost (3 years of 1m data, train/test). Jev is asked a position workflow while a trade is
+open; the System One gateway answers every question when Jev is down (its entry model shows no skill, so it cannot open trades).
+A restarted runner now rebuilds its paper book. Full results: `docs/v2/V2-15-RESULTS.md`. Open: E13, E14, E15.

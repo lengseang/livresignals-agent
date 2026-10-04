@@ -147,6 +147,7 @@ class PositionAdvisor:
                 raise JevProtocolError("timeout", f"reply took {ms:.0f}ms")
             model, action, conf, dist, scores = normalise_position_reply(reply, self.workflow)
             self.stats["jev"] += 1
+            self.stats[f"model:{model}"] += 1           # jev-latest can move to a new build silently: count it
             return PositionAdvice(derive_id("adv", h, self.workflow.tag, "jev"), "jev", model, self.workflow.tag,
                                   action, conf, dist, scores, pos, ms)
         except JevProtocolError as exc:

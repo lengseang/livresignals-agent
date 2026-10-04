@@ -223,3 +223,11 @@ def test_exit_advice_below_threshold_is_a_hold(tmp_path):
     recs = positioned_records(p.run(make_bars()))
     assert recs and all(r["outcome"] == "position_hold" for r in recs)
     assert not any(t["reason"] == "exit" for t in bk.trades)
+
+
+def test_jev_advice_is_dual_run_against_the_gateway(tmp_path):
+    p, bk, _ = pipeline(tmp_path, reply("EXIT"))
+    recs = positioned_records(p.run(make_bars()))
+    assert recs[0]["gateway_dual_run"]["action"] in ("HOLD", "TIGHTEN_STOP", "REDUCE", "EXIT")
+    assert recs[0]["gateway_dual_run"]["agrees_with_jev"] is False        # Jev EXIT vs gateway HOLD
+    assert p.stats["dual_advice:disagree"] >= 1 and p.advisor.stats["model:jev-1.13.0"] >= 1

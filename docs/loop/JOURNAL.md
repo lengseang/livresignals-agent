@@ -322,3 +322,18 @@ results), and what was learned or blocked.
 - **Evidence:** `pytest tests/` (continue-on-collection-errors): see commit. 7 mutations of the preset and flag logic; 6 caught at once, the 7th
   (`--approved` silently building the DEMO config) had no test and got one. Live smoke with `--approved`: 3 symbols, 9/9 real Jev decisions, 0 fallbacks.
 - **Learned:** a flag that selects limits is a safety control and needs a test that proves it selects the right ones.
+
+## 2026-10-04 · V2-15 position management + System One gateway + audits
+- **Need check:** the owner's "TP missed, rode back to SL" is not an edge case. `target_pct` was computed and dropped, so no
+  position could take profit; exits needed 0.90; fallback could never exit.
+- **Done:** design + pre-registration first; exit study (12 rules, train then test) + post-hoc paired study; L0 target,
+  L1 ratchet, Contract K; gateway (fitted, tested, failed admission, OOS-skill shrinkage); position workflow + advisor + policy;
+  dual-run for entries and advice; paper-book restore on restart; randomised position invariants.
+- **Evidence:** 1322 passed / 6 skipped / 10 errors (444 baseline + 878 V2). Live: 3/3 jev-1.13.0 position calls.
+  Mutations: 10, all caught.
+- **Results I did not want, reported as they are:** the pre-registered exit winner (stop-only) was bull-market drift and failed
+  on test; the gateway's entry model has no skill.
+- **Mistakes:** the first gateway turned a no-skill model into "LONG at 0.77" (a test caught it; fixed with shrinkage). A commit
+  message claimed lock-half "removes every loss": on test it leaves 0.2% (gaps). Corrected in code and docs.
+- **Learned:** a selection metric over trades with different turnover measures drift and costs, not exit quality; pairing on
+  the same entries is what isolates the question.
