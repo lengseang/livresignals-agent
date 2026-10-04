@@ -225,3 +225,11 @@ results), and what was learned or blocked.
   (the contract itself refuses an approved decision with no size, which the fail-closed handler turns into a rejection).
 - **Found by tests:** size rounding to nearest overshot the exposure cap; now floors.
 - **Found by reading:** latent bug in legacy `_utc_week_start` (E6), not edited.
+
+## 2026-10-04 · V2-5 feature engine + state builder
+- **Need check:** no external data; read `signals/indicators.py` and `signals/regime.py` to reuse them.
+- **Done:** `src/trading/v2/{events,features,state}.py`, 29 tests.
+- **Evidence:** `pytest tests/loop/test_v2_features.py`: 29 passed; 15 mutations all caught.
+- **Bugs found by tests:** (1) windowing before filtering let a future/foreign bar displace a valid one; (2) a test
+  reference used a different RSI window than the engine (made the window part of the definition).
+- **Learned:** `classify_regime` returns "RANGING" for <60 rows without saying so: a silent default; guarded by the caller.

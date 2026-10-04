@@ -88,7 +88,7 @@ Branches `v2/*`, stacked. Shadow and paper only. Nothing here places an order or
 | V2-2 | Jev workflow definition (versioned data) + policy engine + policy->TradeProposal | V2-1 | review (branch `v2/policy`) |
 | V2-3 | Jev adapter with timeout/validation and the deterministic fallback (`trend_follower`, `donchian_ensemble`, `tsmom`, `ctrend`) | V2-2 | review (branch `v2/adapter`) |
 | V2-4 | Risk engine v2: wraps `src/trading/risk/` (never replaces), emits Contract G with every check | V2-2 | review (branch `v2/risk`) |
-| V2-5 | Feature engine (deterministic, from bars) + state builder (Contract B -> C) | V2-1 | todo |
+| V2-5 | Feature engine (deterministic, from bars) + state builder (Contract B -> C) | V2-1 | review (branch `v2/features`) |
 | V2-6 | Shadow pipeline: market -> features -> state -> adapter -> policy -> risk -> hash-chained decision log; compare with the current system. No execution | V2-3, V2-4, V2-5 | todo |
 | V2-7 | Paper execution of approved commands into a SEPARATE paper book | V2-6 | todo |
 | V2-8 | Real TypeSafe client (wire format -> internal raw shape) | owner: API docs, egress, key | owner (E4) |
