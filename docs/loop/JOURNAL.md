@@ -233,3 +233,12 @@ results), and what was learned or blocked.
 - **Bugs found by tests:** (1) windowing before filtering let a future/foreign bar displace a valid one; (2) a test
   reference used a different RSI window than the engine (made the window part of the definition).
 - **Learned:** `classify_regime` returns "RANGING" for <60 rows without saying so: a silent default; guarded by the caller.
+
+## 2026-10-04 · V2-6 shadow pipeline
+- **Need check:** reused `trading.shadow.chain.ShadowChain` (hash chain) and `replay.context.BarStore` after reading them.
+- **Done:** `src/trading/v2/shadow.py`, 24 tests, `docs/v2/STATUS.md`.
+- **Evidence:** `pytest tests/` (continue-on-collection-errors): 822 passed, 6 skipped, 10 errors = baseline 444/6/10 + 378
+  V2 tests. `pytest tests/loop`: 719 passed, 3 skipped. 11 real mutations of the pipeline all caught (a no-op "mutation" I
+  wrote by mistake was caught as meaningless and redone). `git diff origin/main -- src/trading/risk scripts tests/test_risk.py`: empty.
+- **Learned:** a late-received bar is first stopped by the stale ORDER BOOK check, not the stale snapshot check; both exist
+  and both are tested separately.
