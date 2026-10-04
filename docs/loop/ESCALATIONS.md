@@ -48,3 +48,32 @@ Read-only: `data/trend-state.json`, `data/live-trades.json`, `data/fee-audit.jso
 `reports/signal-ledger.json`, the last ~500 lines of `logs/trend.log` plus every `ERR`/`record dropped`
 line, `crontab -l`, wallet quantities for the 3 open coins, and whether `config/LIVE_ENABLED` exists.
 **Answer:**
+
+## E4 · V2-8: the real TypeSafe (Jev) client needs facts only the owner can supply
+The sandbox cannot reach `api.typesafe.ai` (egress proxy blocks it), so the adapter (V2-3) speaks an INTERNAL raw
+reply shape and the wire format is not guessed. To build V2-8 I need: (a) the request/response schema of
+`POST /v1/systemone` (question types, how per-option probabilities come back, error and "balance exhausted"
+responses, auth header), (b) the host allowed in the egress policy, (c) an API key supplied by you in the
+environment, never pasted in chat or committed. Until then V2 runs fallback-only or against a recorded fixture.
+**Answer:**
+
+## E5 · A fallback-only outage cannot close positions (V2-2/V2-3, by spec)
+Contract E caps a fallback at STRATEGY_CHECK, so during a Jev outage a fallback EXIT/REDUCE is escalated, not executed.
+Positions then rely on the protective stop placed with the entry. Options: keep as is (spec), or allow
+risk-REDUCING fallback exits through policy. Your call; I changed nothing.
+**Answer:**
+
+## E6 · Latent bug in the guard layer: `src/trading/risk/breakers.py::_utc_week_start`
+`day.replace(day=day.day - day.weekday())` raises `ValueError` whenever the weekday offset exceeds the day of the
+month (verified: 2026-10-02 Fri). Nothing calls it today; V2 deliberately does not. The file is the immutable
+guard layer ("do not edit without a human risk-approval"), so I did not touch it. Fix would be
+`day - timedelta(days=day.weekday())`.
+**Answer:**
+
+## E7 · Risk v2 policy choices that are yours to confirm (V2-4)
+(a) `daily_loss_cap_usd`: the live cap is -$1.00 today; what value should the V2 shadow/paper books use?
+(b) Kill switch blocks reduce-only exits too (matches the note's "block new orders"). Keep?
+(c) `reduce_fraction` = 0.5 for "reduce" intents (no spec value).
+(d) Existing sizing (2% risk / stop distance) yields ~100% of equity notional at a 2% stop; confirm the exit
+    params you intend, since stop_pct drives size.
+**Answer:**

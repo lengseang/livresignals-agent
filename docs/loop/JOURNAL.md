@@ -216,3 +216,12 @@ results), and what was learned or blocked.
   masked by the aggregator's) caught after adding a test that forces the aggregator to misbehave.
 - **Bug found by the tests, not by reading:** a pydantic `Field(...)` constant used as a default made
   `probability` required, so every good reply fell back. The failure was safe (fallback) and visible.
+
+## 2026-10-04 · V2-4 risk engine v2
+- **Need check:** read `src/trading/risk/{guards,breakers,risk_engine}.py` and `tests/test_risk.py` in full; no data needed.
+- **Done:** `src/trading/v2/risk.py` (wraps GUARDS / compute_position / breakers; adds spread, duplicate, exchange,
+  kill switch, short policy), 37 tests.
+- **Evidence:** `pytest tests/loop/test_v2_risk.py`: 37 passed. 16 mutations of the vetoes: 15 caught, 1 equivalent
+  (the contract itself refuses an approved decision with no size, which the fail-closed handler turns into a rejection).
+- **Found by tests:** size rounding to nearest overshot the exposure cap; now floors.
+- **Found by reading:** latent bug in legacy `_utc_week_start` (E6), not edited.
