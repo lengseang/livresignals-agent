@@ -172,10 +172,11 @@ def build_points(data: dict) -> dict:
 
 # ----------------------------------------------------------------------------- outcome simulation (1h bars)
 
-def simulate(d: dict, e: int, stop_pct: float, ratchet: bool = True, end_ms: int = END):
+def simulate(d: dict, e: int, stop_pct: float, ratchet: bool = True, end_ms: int = END,
+             horizon_bars: int = HORIZON_BARS):
     """Trade entered at the open of bar e. Returns (net, exit_bar_index, reason, label_hit_target_first)."""
     o, h, l, c, t = d["o"], d["h"], d["l"], d["c"], d["t"]
-    e1 = min(e + HORIZON_BARS, len(c), int(np.searchsorted(t, end_ms, side="left")))
+    e1 = min(e + horizon_bars, len(c), int(np.searchsorted(t, end_ms, side="left")))
     if e1 - e < 2:
         return None
     ef = o[e] * (1 + SIDE_COST)

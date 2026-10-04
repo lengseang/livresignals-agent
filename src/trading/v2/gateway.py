@@ -228,7 +228,7 @@ class Gateway:
                latency_ms: float = 0.0, position: Optional[PositionView] = None) -> Decision:
         if features.snapshot_id != state.features:
             raise ValueError("features do not belong to this state")
-        if features.feature_version != "features-v1":
+        if features.feature_version not in ("features-v1", "features-v2"):     # v2 = v1 + context; the model reads v1
             raise ValueError(f"gateway is fitted on features-v1, got {features.feature_version}")
         f = features.to_dict()
         spread = state.market.spread_bps

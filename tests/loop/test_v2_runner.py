@@ -41,7 +41,7 @@ def mk(sym, interval, i, o, c, vol, step, base):
 
 
 class FakeFeed:
-    def __init__(self, clock, symbols=(SYM,), start_price=100_000.0):
+    def __init__(self, clock, symbols=(SYM,), start_price=100_000.0, n1h=400):
         self.clock, self.bars, self.fail, self.errors, self.book_lead_ms = clock, {}, 0, 0, 0
         self.latency_s = 0.0
         self.last_latency_ms, self.last_ok_ms, self.calls = None, None, []
@@ -49,9 +49,9 @@ class FakeFeed:
             c1 = series(900, start=start_price, drift=0.00002, noise=0.0015, seed=11 + k)
             self.bars[(sym, "1m")] = [mk(sym, "1m", i, c1[i - 1] if i else start_price, c1[i], 10 + (i * 7 % 13), M, BASE - 450 * M)
                                       for i in range(900)]
-            ch = series(400, start=start_price * 0.9, drift=0.0004, noise=0.01, seed=21 + k)
-            self.bars[(sym, "1h")] = [mk(sym, "1h", i, ch[i - 1] if i else start_price * 0.9, ch[i], 500.0, H, BASE - 300 * H)
-                                      for i in range(400)]
+            ch = series(n1h, start=start_price * 0.9, drift=0.0004, noise=0.01, seed=21 + k)
+            self.bars[(sym, "1h")] = [mk(sym, "1h", i, ch[i - 1] if i else start_price * 0.9, ch[i], 500.0, H,
+                                         BASE - (n1h - 100) * H) for i in range(n1h)]
             cd = series(1000, start=start_price * 0.2, drift=0.0025, noise=0.02, seed=31 + k)
             self.bars[(sym, "1d")] = [mk(sym, "1d", i, cd[i - 1] if i else start_price * 0.2, cd[i], 30_000.0, D, BASE - 996 * D)
                                         for i in range(1000)]

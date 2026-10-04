@@ -1,0 +1,87 @@
+{
+  "workflow_id": "crypto_trading",
+  "version": "v3",
+  "model": "jev-latest",
+  "questions": {
+    "market_regime": {
+      "type": "choice",
+      "options": [
+        "TREND_UP",
+        "TREND_DOWN",
+        "RANGE",
+        "BREAKOUT",
+        "HIGH_VOLATILITY",
+        "LOW_LIQUIDITY"
+      ],
+      "instructions": "Classify the current market regime of state.symbol from state.regime, state.features and state.market. Weigh the multi-day context as well as the last hours. state.features.context (when present) holds MULTI-DAY evidence: z1d..z30d = 1-30 day returns in units of daily volatility, sma20_gap/sma50_gap = distance from the 20/50-day averages, xs_rank7/xs_rank30 = this coin's 7/30-day return rank among 15 large coins (1 = strongest), btc_above_sma50 = BTC above its 50-day average (1) or not (0), rsi_d/atr_d = daily RSI and ATR.",
+      "criteria": {
+        "TREND_UP": "Sustained uptrend: bullish trend regime, positive returns across the 1h and 4h horizons",
+        "TREND_DOWN": "Sustained downtrend: bearish trend regime, negative returns across the 1h and 4h horizons",
+        "RANGE": "No clear direction: neutral trend regime, small returns, price oscillating around its average",
+        "BREAKOUT": "Price is moving out of a range with expanding volume",
+        "HIGH_VOLATILITY": "Large, erratic moves; volatility regime is high without a clean direction",
+        "LOW_LIQUIDITY": "Thin market: wide spread or thin book, so prices are unreliable"
+      }
+    },
+    "trend_quality": {
+      "type": "score",
+      "instructions": "Is the current trend strong and clean, with a consistent direction across the 1m to 4h horizons rather than choppy? Use the multi-day context (state.features.context) when it is present."
+    },
+    "breakout_probability": {
+      "type": "score",
+      "instructions": "Is price likely to break out of its recent range, with confirming volume, in the direction of the prevailing trend?"
+    },
+    "reversal_probability": {
+      "type": "score",
+      "instructions": "Is the current move likely to reverse soon, for example an overextended RSI or exhausted volume?"
+    },
+    "entry_quality": {
+      "type": "score",
+      "instructions": "Is now a good moment to open a position in the direction of the prevailing trend, given the spread, volatility and the distance from VWAP? A long against a multi-day downtrend or a weak cross-sectional rank is a worse entry."
+    },
+    "expected_edge": {
+      "type": "score",
+      "instructions": "Does opening a position now have a positive expected value after fees and spread? Base it on the multi-day context when present, not only on the last hours."
+    },
+    "timing_quality": {
+      "type": "score",
+      "instructions": "Is the timing of an entry good relative to the latest price action, rather than chasing a move that has already happened?"
+    },
+    "risk_level": {
+      "type": "choice",
+      "options": [
+        "LOW",
+        "MEDIUM",
+        "HIGH",
+        "EXTREME"
+      ],
+      "instructions": "How risky is opening a new position in state.symbol right now?",
+      "criteria": {
+        "LOW": "Calm market, tight spread, deep book, normal volatility",
+        "MEDIUM": "Normal conditions with ordinary uncertainty",
+        "HIGH": "Elevated volatility or thin liquidity; a larger adverse move is plausible",
+        "EXTREME": "Disorderly market: very high volatility, very wide spread or unreliable data"
+      }
+    },
+    "action": {
+      "type": "choice",
+      "options": [
+        "LONG",
+        "SHORT",
+        "HOLD",
+        "EXIT",
+        "REDUCE",
+        "NO_TRADE"
+      ],
+      "instructions": "Given the whole state, including state.position, what should be done now? Choose NO_TRADE or HOLD unless the evidence is clear. state.features.context (when present) holds MULTI-DAY evidence: z1d..z30d = 1-30 day returns in units of daily volatility, sma20_gap/sma50_gap = distance from the 20/50-day averages, xs_rank7/xs_rank30 = this coin's 7/30-day return rank among 15 large coins (1 = strongest), btc_above_sma50 = BTC above its 50-day average (1) or not (0), rsi_d/atr_d = daily RSI and ATR.",
+      "criteria": {
+        "LONG": "Open a long position (state.position.side is none)",
+        "SHORT": "Open a short position (state.position.side is none)",
+        "HOLD": "Keep the current position unchanged",
+        "EXIT": "Close the whole current position",
+        "REDUCE": "Close part of the current position",
+        "NO_TRADE": "Do nothing: conditions do not justify a trade and there is no position to manage"
+      }
+    }
+  }
+}

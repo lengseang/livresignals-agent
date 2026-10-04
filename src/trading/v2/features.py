@@ -37,6 +37,7 @@ from trading.v2.events import iso_ms
 from trading.v2.ids import derive_id
 
 FEATURE_VERSION = "features-v1"
+FEATURE_VERSION_CONTEXT = "features-v2"          # = features-v1 + the context-v1 block (trading.v2.daily_context)
 RETURN_MINUTES = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240}
 N_1M = max(RETURN_MINUTES.values()) + 1          # 241 one-minute bars
 N_1H = 120                                       # hourly bars requested (regime needs >= 60, EMA50 >= 51)
@@ -71,6 +72,7 @@ class FeatureResult:
     missing: tuple[str, ...]      # empty iff snapshot is not None
     spread_bps: Optional[float]
     last_close: Optional[float]
+    context_missing: tuple = ()
 
     @property
     def ok(self) -> bool:
@@ -81,7 +83,8 @@ def snapshot_content_id(snapshot_dict: dict) -> str:
     """The id of a snapshot, DERIVED FROM ITS CONTENT: symbol, as-of, definition version and a hash of every
     value. Two snapshots with the same id have the same numbers, so DecisionState.state_hash() (which includes
     the id) pins exactly what the decision saw. `snapshot_dict` is a snapshot's dict form; its own id is ignored."""
-    body = {k: v for k, v in snapshot_dict.items() if k != "snapshot_id"}
+    # a snapshot without context hashes exactly as before V2-16 (ids of every earlier record stay verifiable)
+    body = {k: v for k, v in snapshot_dict.items() if k != "snapshot_id" and not (k == "context" and v is None)}
     h = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:16]
     return derive_id("feat", snapshot_dict["symbol"], snapshot_dict["as_of_utc"],
                      snapshot_dict["feature_version"], h)
@@ -138,7 +141,8 @@ def _gap_at(bars: Sequence[Bar], step_ms: int) -> Optional[int]:
 
 
 def compute_features(symbol: str, bars: BarSource, book: Optional[BookSource], now_ms: int,
-                     *, max_book_age_ms: int = MAX_BOOK_AGE_MS, book_lead_tolerance_ms: int = 0) -> FeatureResult:
+                     *, max_book_age_ms: int = MAX_BOOK_AGE_MS, book_lead_tolerance_ms: int = 0,
+                     context=None) -> FeatureResult:
     """`book_lead_tolerance_ms`: how far AFTER `now_ms` a book's timestamp may be. 0 (strict) for replays, where a book
     from the future is look-ahead. A live feed fetches the book after `now_ms` was taken, so the live runner allows the
     fetch latency (a few seconds); a book further in the future than that is still rejected."""
@@ -257,6 +261,15 @@ def compute_features(symbol: str, bars: BarSource, book: Optional[BookSource], n
         regime={"trend": trend, "volatility": vol_regime, "liquidity": liquidity},
         data_quality={"complete": True, "missing_fields": [], "stale_ms": max(0, now_ms - as_of_ms)},
     )
+    ctx_missing: tuple = ()
+    if context is not None:          # V2-16: multi-day context. Unavailable = a features-v1 snapshot, never invented
+        try:
+            ctx, ctx_missing = context(symbol, as_of_ms)
+        except Exception as exc:
+            ctx, ctx_missing = None, (f"context(error {type(exc).__name__})",)
+        if ctx is not None:
+            values["context"] = ctx
+            values["feature_version"] = FEATURE_VERSION_CONTEXT
     values["snapshot_id"] = snapshot_content_id(FeatureSnapshot(**values).to_dict())
     snap = FeatureSnapshot(**values)
-    return FeatureResult(snap, (), spread_bps, last_close)
+    return FeatureResult(snap, (), spread_bps, last_close, tuple(ctx_missing))

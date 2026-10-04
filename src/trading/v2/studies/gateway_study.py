@@ -153,7 +153,7 @@ def main(argv=None) -> int:
         # out-of-sample skill decides how far the gateway may move from the base rate: Gini = 2 AUC - 1, floored at 0
         models[side] = {"w": w.tolist(), "mean": mu.tolist(), "std": sd.tolist(), "l2": best_l2,
                         "train_base_rate": base, "n_train": int(len(y_tr)),
-                        "shrink": max(0.0, 2 * auc(p_te, y_te) - 1)}
+                        "shrink": max(0.0, 2 * auc(p_te, y_te) - 1) if brier < brier0 else 0.0}
         res[side] = {"l2_validation_logloss": {str(k): v for k, v in val.items()}, "l2": best_l2,
                      "train_base_rate": base, "test_base_rate": float(y_te.mean()), "n_train": int(len(y_tr)),
                      "n_test": int(len(y_te)), "test_brier": brier, "test_brier_base": brier0,

@@ -33,6 +33,7 @@ from trading.v2.binance_public import BinancePublic, FeedError, LiveBook
 from trading.v2.context import PaperContextProvider
 from trading.v2.contracts import StrategyRef
 from trading.v2.fallback import GatedSource
+from trading.v2.daily_context import N_CTX_1H, UNIVERSE, live_context
 from trading.v2.features import N_1H, N_1M
 from trading.v2.killswitch import KillController, KillLimits, Observation
 from trading.v2.advisor import PositionAdvisor
@@ -70,6 +71,7 @@ class RunnerConfig:
     book_lead_tolerance_ms: int = 5_000     # a live book is fetched AFTER `now` was taken: allow the fetch latency
     stance_symbols: Optional[tuple[str, ...]] = None      # default: the traded symbols
     ratchet: Optional[RatchetRule] = None                 # V2-15 L1 in-position stop ratchet (None = plain bracket)
+    context_symbols: Optional[tuple[str, ...]] = None     # V2-16 multi-day context universe (None = off)
 
 
 def demo_config(symbols: tuple[str, ...], cadence_minutes: int, out_dir: Path) -> RunnerConfig:
@@ -124,7 +126,12 @@ class Runner:
             adapter=self.adapter, provider=self.provider, sink=ShadowChain(out, "v2cycle", "pipeline", self.start_ms),
             book=LiveBook(feed), policy=PolicyConfig(), limits=cfg.risk_limits, cadence_minutes=cfg.cadence_minutes,
             max_stale_ms=cfg.max_stale_ms, paper=self.book,
-            book_lead_tolerance_ms=cfg.book_lead_tolerance_ms, advisor=self.advisor)
+            book_lead_tolerance_ms=cfg.book_lead_tolerance_ms, advisor=self.advisor,
+            context_source=self._context if cfg.context_symbols else None)
+        self.ctx_bars: dict[str, list] = {}
+        self._ctx_hour = 0
+        self.context_feed_failures = 0
+        self.context_refresh_ms = None
         self.last_end: dict[str, int] = {}
         self.last_1h_end: dict[str, int] = {}
         self.last_price: dict[str, float] = {}
@@ -168,7 +175,38 @@ class Runner:
                 self.book.last[sym] = b.close
                 self.last_price[sym] = b.close
         self._refresh_stances(now)
+        if self.cfg.context_symbols:
+            for s in self.cfg.context_symbols:
+                try:
+                    self.ctx_bars[s] = self.feed.history(s, "1h", N_CTX_1H + PRIME_MARGIN, now_ms=now)
+                except FeedError:
+                    self.context_feed_failures += 1
+                    log.warning("context history for %s unavailable", s)
+            self._ctx_hour = now // HOUR_MS
         self._poll_ok = True
+
+    # ------------------------------------------------------------------ V2-16 multi-day context
+
+    def _context(self, symbol: str, as_of_ms: int):
+        return live_context(self.ctx_bars, symbol, as_of_ms)
+
+    def _refresh_context(self, now: int) -> None:
+        """Once per hour: append each universe coin's newly closed 1h bars. A failure only makes that coin's context
+        stale (reported as missing); it never breaks a cycle."""
+        if not self.cfg.context_symbols or now // HOUR_MS <= self._ctx_hour:
+            return
+        t0 = self._clock()
+        for s in self.cfg.context_symbols:
+            try:
+                have = self.ctx_bars.get(s, [])
+                last = have[-1].end_ms if have else 0
+                new = [b for b in self.feed.klines(s, "1h", 3, now_ms=now) if b.end_ms > last]
+                self.ctx_bars[s] = (have + sorted(new, key=lambda b: b.end_ms))[-(N_CTX_1H + PRIME_MARGIN):]
+            except FeedError:
+                self.context_feed_failures += 1
+        self._ctx_hour = now // HOUR_MS
+        # it runs BEFORE the hour's cycles (they need the hour that just closed): its duration ages their snapshots
+        self.context_refresh_ms = round((self._clock() - t0) * 1000.0)
 
     def _refresh_stances(self, now_ms: int) -> None:
         syms = self.cfg.stance_symbols or self.cfg.symbols
@@ -189,6 +227,7 @@ class Runner:
         self._poll_ok, recs = True, []
         if _day(now) != self._stance_day:
             self._refresh_stances(now)
+        self._refresh_context(now)
         for sym in self.cfg.symbols:
             try:
                 # a FRESH "now" per symbol: earlier symbols' Jev calls and fetches take seconds, and a decision must be
@@ -251,7 +290,9 @@ class Runner:
               "advice": dict(self.advisor.stats),
               "stops_tightened": {k[15:]: v for k, v in self.book.stats.items() if k.startswith("stop_tightened:")},
               "exits": {k: self.book.stats[k] for k in ("stopped", "target_hit", "ratchet_exit")},
-              "restored": self.restored}
+              "restored": self.restored,
+              "context": {"ok": s.get("context:ok", 0), "missing": s.get("context:missing", 0),
+                          "feed_failures": self.context_feed_failures, "refresh_ms": self.context_refresh_ms}}
         usage = getattr(self.client, "usage", None)
         if usage is not None:
             hb["jev_usage"] = dict(usage)
@@ -286,7 +327,7 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--out", default="data/local/v2")
     ap.add_argument("--max-steps", type=int, default=None)
     ap.add_argument("--minutes", type=float, default=None, help="stop after this many minutes")
-    ap.add_argument("--workflow", default="crypto_trading_v2.json")
+    ap.add_argument("--workflow", default="crypto_trading_v3.json")
     a = ap.parse_args(argv[1:])
     if a.approved == a.demo:                                  # neither, or both
         print("refusing to run: pass exactly one of --approved (the owner-approved paper limits) or --demo (UNVALIDATED\n"

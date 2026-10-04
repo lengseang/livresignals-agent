@@ -201,6 +201,30 @@ class UnusableSnapshot(ValueError):
     """Raised when a snapshot is incomplete or stale. Never a 'weak signal'."""
 
 
+class ContextFeatures(_Contract):
+    """V2-16 multi-day context (`trading.v2.daily_context`, context-v1). Present iff feature_version is features-v2."""
+    context_version: Literal["context-v1"]
+    n_universe: Annotated[int, Field(ge=3)]
+    z1d: float
+    z3d: float
+    z7d: float
+    z14d: float
+    z30d: float
+    sma20_gap: float
+    sma50_gap: float
+    sma20_slope: float
+    donchian_pos: float
+    rsi_d: Annotated[float, Field(ge=0, le=100)]
+    atr_d: NonNeg
+    vol_ratio: NonNeg
+    xs_rank7: Unit
+    xs_rank30: Unit
+    rel_btc7: float
+    btc_ret30: float
+    btc_above_sma50: Unit
+    qv_ratio: NonNeg
+
+
 class FeatureSnapshot(_Contract):
     contract: Literal["feature_snapshot"]
     version: Literal["1.0"]
@@ -216,9 +240,12 @@ class FeatureSnapshot(_Contract):
     orderbook: OrderbookFeatures
     regime: Regime
     data_quality: DataQuality
+    context: Optional[ContextFeatures] = None      # V2-16: multi-day context; None = not available this cycle
 
     @model_validator(mode="after")
     def _returns_keys(self):
+        if self.context is not None and self.feature_version != "features-v2":
+            raise ValueError("a snapshot with context must be feature_version features-v2")
         if set(self.returns) != RETURN_HORIZONS:
             raise ValueError(
                 f"returns must have exactly {sorted(RETURN_HORIZONS)}, got {sorted(self.returns)}"

@@ -87,7 +87,7 @@ class ShadowPipeline:
                  limits: RiskLimits, cadence_minutes: int = 15, max_stale_ms: int = 10_000,
                  source: str = "ws", venue: str = "binance", store: Optional[BarStore] = None,
                  paper: Optional[PaperBook] = None, book_lead_tolerance_ms: int = 0,
-                 advisor=None, position_policy=None):
+                 advisor=None, position_policy=None, context_source=None):
         if cadence_minutes < 1:
             raise ValueError("cadence_minutes must be >= 1")
         self.adapter, self.provider, self.sink, self.book = adapter, provider, sink, book
@@ -99,6 +99,7 @@ class ShadowPipeline:
         self.store = store or BarStore()
         # V2-15 L2: while a position is open, the POSITION workflow is asked instead of the entry one
         self.advisor = advisor
+        self.context_source = context_source      # V2-16: (symbol, as_of_ms) -> (context dict | None, missing)
         self.position_policy = position_policy or PositionPolicy()
         self.stats: Counter = Counter()
         # After a restart, bars are replayed: skip cycles already in the chain (never log one twice).
@@ -157,7 +158,11 @@ class ShadowPipeline:
 
     def _fill(self, rec: dict, bar: Bar, received_ms: int, stage: list) -> None:
         res = compute_features(bar.symbol, self.store, self.book, received_ms,
-                               book_lead_tolerance_ms=self.book_lead_tolerance_ms)
+                               book_lead_tolerance_ms=self.book_lead_tolerance_ms, context=self.context_source)
+        if self.context_source is not None and res.ok:      # counted only where a snapshot exists to carry it
+            self.stats["context:" + ("ok" if res.snapshot.context is not None else "missing")] += 1
+            if res.context_missing:
+                rec["context_missing"] = list(res.context_missing)[:20]
         if not res.ok:
             rec.update(outcome="no_snapshot", missing=list(res.missing))
             return
