@@ -214,6 +214,7 @@ class JevAdapter:
                 raise JevProtocolError("timeout", f"reply took {latency_ms:.0f}ms")
             decision = normalise(reply, self.workflow, state, state_hash, latency_ms)
             self.stats["jev"] += 1
+            self.stats[f"model:{decision.model}"] += 1     # `jev-latest` can silently move to a new build: count it
             log.info("decision source=jev id=%s action=%s conf=%.3f latency_ms=%.0f",
                      decision.decision_id, decision.action, decision.confidence, latency_ms)
             return decision

@@ -17,7 +17,16 @@ Wire (as documented by third parties):
       "usage": {"input_tokens": n, "output_tokens": m}}
   errors: {"error": {"message": ..., "code": ...}} with 401 / 402 (code payment_required) / 422 / 429 / 529.
 
-Our workflow's "score" questions are sent as "noul" (yes/no): the score is the probability of YES.
+Our workflow's "score" questions are sent as "noul" (yes/no): the score is the probability of YES. The API's own
+"score" type is NOT used: its answer is a position on a LEVEL number line (e.g. 1.43), not a 0-1 value, so a
+"score"-typed reply is rejected here.
+
+Cross-checked against search snippets of docs.typesafe.ai (not the page itself, which the sandbox blocks):
+`model` is `jev-latest` (resolves to jev-1.13.0 today; `jev-preview` is newer), `state` may be a string, object or
+array, a choice has up to 255 options and returns `probabilities` (sum 1) + `confidence`, where confidence is computed
+from HOW SPREAD the probabilities are (one peak = high) and is described as calibrated; a 422 names the bad field.
+`jev-latest` can move to a new build without notice, so the adapter counts the model that actually answered
+(`stats["model:<name>"]`) and the workflow's `model` can be pinned (e.g. "jev-1.13.0") for reproducible comparisons.
 
 Safety rules (each tested):
   * the API key is read from the environment at call time, never stored on the object, never in a repr,

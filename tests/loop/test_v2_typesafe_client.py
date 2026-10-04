@@ -335,3 +335,24 @@ def test_probe_reports_a_network_failure_cleanly_instead_of_crashing_and_never_l
     r = probe(Fake(exc=JevTransportError("URLError")), WF2, True)
     assert not r["ok"] and "did not reach the API" in r["error"] and "URLError" in r["error"]
     assert KEY not in json.dumps(r) and "status" not in r
+
+
+def test_the_answering_model_build_is_counted_so_a_silent_upgrade_is_visible():
+    a = adapter(Fake(body=full_wire()))
+    a.evaluate(STATE, FEAT); a.evaluate(STATE, FEAT)
+    assert a.stats["model:jev-1.13.0"] == 2
+    a.client.transport = Fake(body=full_wire(model="jev-1.14.0"))
+    a.evaluate(STATE, FEAT)
+    assert a.stats["model:jev-1.14.0"] == 1 and a.stats["jev"] == 3
+
+
+def test_the_apis_own_score_answers_are_rejected_because_they_are_not_0_to_1():
+    score = {"type": "score", "score": 1.43, "legend": {"0": "low", "1": "mid", "2": "high"},
+             "probabilities": {"0": 0.1, "1": 0.6, "2": 0.3}, "confidence": 0.6}
+    with pytest.raises(JevProtocolError, match="unknown answer type"):
+        translate_response({"model": "jev-1.13.0", "answers": {"trend_quality": score}}, WF2)
+
+
+def test_a_pinned_model_is_what_goes_on_the_wire():
+    pinned = WF2.model_copy(update={"model": "jev-1.13.0"})
+    assert build_wire_request(pinned, {"state": STATE.to_dict(), "features": FEAT.to_dict()})["model"] == "jev-1.13.0"

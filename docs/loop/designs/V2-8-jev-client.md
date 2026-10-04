@@ -50,3 +50,12 @@ $0.42/M: $0.0004/call; $0.57/day ($5 lasts ~9 days); hourly = $0.14/day ($5 last
 3. The questions are ~70% of the request; if the API supports prompt caching or reusable questions, cost drops. Unknown.
 4. `state` as JSON object vs text is unknown; `state_as_text` flips it.
 5. Third-party sites in the search results look partly auto-generated; agreement among them is weaker evidence than the docs.
+
+## Cross-check against docs.typesafe.ai (search snippets of the real docs; the pages themselves are blocked)
+Confirmed: request fields (`model`, `state` as string/object/array, `questions`); Noul = `noul` 0..1; Choice = `choice` +
+`probabilities` for every option (sum 1) + `confidence`, up to 255 options; a 422 names the bad field.
+Matters for correctness: the API's **Score** returns a position on a level number line (e.g. 1.43) with a `legend`, not a 0-1
+value, so V2 does not use it (our scored questions are sent as Noul) and rejects a Score-typed reply. `confidence` is computed
+from how spread the probabilities are and is described as calibrated, so using the more conservative of it and the chosen
+option's probability is sound. `jev-latest` resolves to jev-1.13.0 today and can move: the answering build is now counted
+(`stats["model:<name>"]`), and the workflow `model` can be pinned for reproducible shadow comparisons.
