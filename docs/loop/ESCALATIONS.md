@@ -157,3 +157,9 @@ the frontend (you said not yet); a rule on P(risk=HIGH|EXTREME) instead of argma
 **Known limits:** runs measured in minutes, not days; paper results flatter reality by the unknown cost gap; trend stance is a reconstruction.
 **Answer:**
 
+## E12 · Proposed numbers for E7 / E10 / E8 are ready for your approval (V2-13)
+See `docs/v2/PROPOSED-LIMITS.md`: stop 3.5% / target 7%, daily loss cap $20 (2%), kill cap $40, kill price-move 3%, spread cap 5 bps, paper
+spread 0.82 bps + 1 bp slippage, daily-loss budget $20. All derived from ~18,000 real 1-minute bars by a reproducible rule
+(`python -m trading.v2.calibrate`). Reply "approve all" or edit the table. Real fees/slippage stay UNKNOWN until real fills exist.
+**Answer:**
+

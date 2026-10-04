@@ -1,8 +1,8 @@
 # V2 status: what is built, what is wired, what is not
 
 Branches (stacked, each reviewable alone; none merged, nothing on `main`):
-`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller` -> `v2/invariants` -> `v2/jev-client` -> `v2/live-runner`.
-Tests: 665 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 1109 passed, 6 skipped, 10 collection errors
+`v2/contracts` -> `v2/policy` -> `v2/adapter` -> `v2/risk` -> `v2/features` -> `v2/shadow` -> `v2/paper` -> `v2/fallback-source` -> `v2/kill-controller` -> `v2/invariants` -> `v2/jev-client` -> `v2/live-runner` -> `v2/calibration`.
+Tests: 706 V2 tests (`tests/loop/test_v2_*.py`). Full suite on this clone: 1151 passed, 6 skipped, 10 collection errors
 (the same 10 files that fail on `main` for lack of `src/trading/data/`).
 
 ```
@@ -51,3 +51,7 @@ the crontab, pm2 and `livr-shadow` untouched; no secrets; no network (the loop h
 data with the real Jev API against the paper book. Verified live (5 minutes, 5 real decisions, 0 fallbacks). NOT deployed; a resident
 process on the VPS needs your approval. `<out>/STOP` stops it, `<out>/V2_KILL` engages the kill switch, `<out>/heartbeat.json` is the
 health view. Still genuinely unbuilt: see the closing inventory in `docs/loop/ESCALATIONS.md` E11.
+
+## Update: calibrated numbers (V2-13)
+`python -m trading.v2.calibrate --symbols BTCUSDT,ETHUSDT,SOLUSDT [--run --cadence 15 --minutes N]` derives the open limits from live public
+data and (with --run) starts a PAPER session with them. Proposals and evidence: `docs/v2/PROPOSED-LIMITS.md`. Awaiting your approval (E12).

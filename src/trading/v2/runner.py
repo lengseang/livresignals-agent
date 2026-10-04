@@ -171,7 +171,9 @@ class Runner:
             self._refresh_stances(now)
         for sym in self.cfg.symbols:
             try:
-                recs += self._step_symbol(sym, now)
+                # a FRESH "now" per symbol: earlier symbols' Jev calls and fetches take seconds, and a decision must be
+                # judged against the moment it is actually made, not the moment the step began
+                recs += self._step_symbol(sym, self.feed.now_ms())
             except FeedError as exc:
                 self._poll_ok = False
                 self.feed_failures += 1

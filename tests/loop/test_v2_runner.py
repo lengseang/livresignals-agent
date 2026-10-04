@@ -43,6 +43,7 @@ def mk(sym, interval, i, o, c, vol, step, base):
 class FakeFeed:
     def __init__(self, clock, symbols=(SYM,), start_price=100_000.0):
         self.clock, self.bars, self.fail, self.errors, self.book_lead_ms = clock, {}, 0, 0, 0
+        self.latency_s = 0.0
         self.last_latency_ms, self.last_ok_ms, self.calls = None, None, []
         for k, sym in enumerate(symbols):
             c1 = series(900, start=start_price, drift=0.00002, noise=0.0015, seed=11 + k)
@@ -66,6 +67,7 @@ class FakeFeed:
             self.fail -= 1
             self.errors += 1
             raise FeedHttpError("503")
+        self.clock.t += self.latency_s                     # every call takes this long (simulated)
         self.last_latency_ms, self.last_ok_ms = 25.0, self.now_ms()
 
     def klines(self, sym, interval, limit=500, end_time_ms=None, now_ms=None):
@@ -288,3 +290,18 @@ def test_a_book_from_far_in_the_future_is_still_refused_by_the_runner(tmp_path):
     feed.book_lead_ms = 60_000
     r.run(max_steps=46)
     assert hb(tmp_path)["outcomes"] == {"no_snapshot": 3}
+
+
+def test_every_symbol_in_a_slow_multi_symbol_step_gets_a_snapshot(tmp_path):
+    """Found live: with 3 symbols each step takes seconds, so the LAST symbol's book was 'after now' and had no snapshot."""
+    syms = ("BTCUSDT", "ETHUSDT", "SOLUSDT")
+    clock = Clock(BASE + 120 * M)
+    feed = feed_for(clock, symbols=syms)
+    feed.latency_s = 1.0                                    # each feed call takes 1 s (live is ~0.75 s)
+    r = Runner(demo_config(syms, 15, tmp_path), feed, WF2, jev_client=Client(LONG_RAW), clock=clock.time, sleep=clock.sleep)
+    r.prime()
+    feed.latency_s = 1.0
+    clock.sleep(15 * 60)
+    recs = r.step()
+    assert sorted(x["symbol"] for x in recs) == sorted(syms)
+    assert {x["outcome"] for x in recs} <= {"would_execute", "no_proposal"}, [(x["symbol"], x["outcome"], x.get("missing")) for x in recs]

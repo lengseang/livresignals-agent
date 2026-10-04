@@ -149,9 +149,10 @@ class BinancePublic:
         return bars[-n:]
 
     def book(self, symbol: str) -> Book:
+        sent_ms = self.now_ms()                    # stamped when the request was SENT: the data is at least this fresh
         d = self._get(f"/api/v3/ticker/bookTicker?symbol={symbol}")
         try:
-            return Book(ts_ms=self.now_ms(), bid=float(d["bidPrice"]), ask=float(d["askPrice"]),
+            return Book(ts_ms=sent_ms, bid=float(d["bidPrice"]), ask=float(d["askPrice"]),
                         bid_qty=float(d["bidQty"]), ask_qty=float(d["askQty"]))
         except (KeyError, TypeError, ValueError):
             raise FeedMalformed("bad bookTicker") from None

@@ -94,6 +94,7 @@ Branches `v2/*`, stacked. Shadow and paper only. Nothing here places an order or
 | V2-10 | Deterministic kill controller + Contract J halt requests (Notion Gate 6) + `halt_scope` risk check + paper cancel | V2-7 | review (branch `v2/kill-controller`) |
 | V2-11 | Evidence gate on the fallback strategies (`GatedSource`, E9) | V2-3 | review (branch `v2/fallback-source`) |
 | V2-12 | Whole-chain randomised invariant test with coverage floors; gap/slippage protection (`max_slippage_bps`, `worst_price`) and the compounded-cost buffer invariant | V2-10 | review (branch `v2/invariants`) |
+| V2-13 | Calibrate the owner's open numbers from measured market data (`trading.v2.calibrate`), proposal doc, tests; fix two live multi-symbol bugs; direct feed tests | V2-9 | review (branch `v2/calibration`); numbers await owner approval |
 | V2-9 | Public data feed, real fallback stances (Donchian plugin + labelled trend reconstruction), legacy comparison source, paper runner with heartbeat/STOP/V2_KILL. NOT deployed: a resident process needs the owner's approval | V2-8 | review (branch `v2/live-runner`); verified live for 5 min |
 | V2-8 | Real TypeSafe client (wire format -> internal raw shape), workflow v2 with question text, one-shot probe, feature-values fix | V2-6 | review (branch `v2/jev-client`); live shape UNVERIFIED until the owner runs the probe (E4) |
 

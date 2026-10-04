@@ -305,3 +305,14 @@ results), and what was learned or blocked.
 - **Bugs only live data found:** history() off by one + paging; order-book timestamp after `now` rejected as look-ahead (4/4 live cycles lost).
 - **Bug found by thinking about live data:** a missing minute silently shifted every return (index-based windows): now MISSING data.
 - **Learned:** all-LONG stances looked like a bug; checking raw prices (BTC +18.6% over SMA200, all coins above SMA50) showed it was true.
+
+## 2026-10-04 · V2-13 calibration, multi-symbol live run, direct feed tests
+- **Need check:** the open numbers (E7/E10) are data questions: measured from ~18,000 live one-minute bars, hourly ATR and book-spread samples.
+- **Done:** `calibrate.py` (12 rules, each mutation-checked), proposal doc, `--run` mode; direct tests for `binance_public.py` (it had none);
+  per-symbol fresh "now" in the runner; book stamped at request-send time.
+- **Evidence:** `pytest tests/` (continue-on-collection-errors): 1151 passed, 6 skipped, 10 errors = 444/6/10 + 707 V2. Live: first 3-symbol run
+  9 cycles but SOL never got a snapshot; after the fix 9/9 real Jev decisions, 0 fallbacks. 24 mutations across calibrate + feed, all caught
+  (the +1-bar optimisation needed a request-count assertion because the result was identical).
+- **Bug only multi-symbol live data showed:** one `now` per step; later symbols' books landed "after now" (the earlier single-symbol fix hid it).
+- **Mistakes in my own tests:** two wrong expectations (arithmetic); a simulated 2.5 s/call latency that was unrealistic (live is ~0.75 s).
+- **Learned:** a fix for one symbol is not a fix for N; every live defect now has a test that reproduces it when the fix is reverted.
