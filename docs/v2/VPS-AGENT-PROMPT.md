@@ -1,8 +1,11 @@
-# Prompt for the VPS agent: deploy the V2 PAPER service (release v2.0.0-rc1)
+# Prompt for the VPS agent: deploy the V2 PAPER service (release branch v2/release-rc1)
 
 Paste everything below the line into the agent on the VPS.
 
 ---
+
+**Release commit to deploy: `RELEASE_SHA_GOES_HERE`** (the owner fills this in. It is the head of the branch
+`v2/release-rc1`. Where this prompt says "the SHA the owner gives you", it means this value.)
 
 You are deploying the **V2 paper trading service** of `lengseang/livresignals-agent` on this VPS. Follow these steps
 exactly. Report evidence (command output), not claims. If any step fails or does not match what is described, STOP
@@ -15,7 +18,7 @@ and report: do not improvise a workaround.
   everything in a SIMULATED paper book from public Binance data.
 * `trading.v2` contains **no order path**: no exchange client and no order call. Its preflight checks that on every
   start.
-* It runs from an **isolated git worktree** at `/opt/trading-agent-v2`, pinned to the tag `v2.0.0-rc1`. The live
+* It runs from an **isolated git worktree** at `/opt/trading-agent-v2`, pinned to the exact commit of the release branch `v2/release-rc1`. The live
   checkout `/opt/trading-agent` and its running processes stay exactly as they are.
 
 ## Hard rules: never break these
@@ -49,21 +52,22 @@ ls -d /opt/trading-agent-v2 2>/dev/null && echo "EXISTS" || echo "absent"
 
 ```
 cd /opt/trading-agent
-git fetch origin --tags
-git fetch origin v2/production-readiness
-git rev-parse v2.0.0-rc1
-git merge-base --is-ancestor origin/main v2.0.0-rc1 && echo "release contains main"
-git diff --stat origin/main v2.0.0-rc1 -- . ':(exclude)src/trading/v2' ':(exclude)tests/loop' ':(exclude)docs' ':(exclude)deploy/v2' | tail -3
+git fetch origin main
+git fetch origin v2/release-rc1
+REL=$(git rev-parse origin/v2/release-rc1); echo "release commit: $REL"
+git merge-base --is-ancestor origin/main "$REL" && echo "release contains main"
+git diff --stat origin/main "$REL" -- . ':(exclude)src/trading/v2' ':(exclude)tests/loop' ':(exclude)docs' ':(exclude)deploy/v2' | tail -3
 ```
 
-* Expected: the tag resolves, "release contains main" is printed, and the last diff is EMPTY. V2 only adds files
+* Expected: the release commit EQUALS the SHA the owner gives you (if not, STOP: the branch moved), "release
+  contains main" is printed, and the last diff is EMPTY. V2 only adds files
   under `src/trading/v2`, `tests/loop`, `docs` and `deploy/v2`.
 * If the diff is not empty, STOP and report.
 
 ## Step 2: create the isolated worktree
 
 ```
-git -C /opt/trading-agent worktree add --detach /opt/trading-agent-v2 v2.0.0-rc1
+git -C /opt/trading-agent worktree add --detach /opt/trading-agent-v2 "$REL"
 cd /opt/trading-agent-v2
 ln -s /opt/trading-agent/venv venv
 mkdir -p config logs data/v2/paper

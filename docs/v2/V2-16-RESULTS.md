@@ -1,7 +1,7 @@
 # V2-16 results: accuracy round 2 + production readiness
 
 * Branch: `v2/production-readiness`. It is stacked on `v2/position-management`; `main` plus additive changes only.
-* Release tag: `v2.0.0-rc1`.
+* Release: branch `v2/release-rc1` (the session's git proxy refuses tag pushes; the commit SHA is the pin).
 * Design and pre-registration: `docs/loop/designs/V2-16-accuracy-round-2-and-production.md`, committed before any
   result was seen.
 

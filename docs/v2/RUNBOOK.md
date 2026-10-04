@@ -6,8 +6,7 @@
 * `trading.v2` contains no order path, and preflight proves it on every start.
 * Real money is a separate decision. See "Live-readiness gate" at the end.
 
-**Where it runs.** On the VPS, in an isolated git worktree at **`/opt/trading-agent-v2`**, pinned to a release
-tag.
+**Where it runs.** On the VPS, in an isolated git worktree at **`/opt/trading-agent-v2`**, pinned to the exact commit of a release branch (`v2/release-*`).
 
 * The live box at `/opt/trading-agent` keeps its checkout and its processes. V2 does not touch them.
 * V2 does not touch `config/LIVE_ENABLED*`, the `livr-shadow` service or the repo's `ecosystem.config.js` either.
@@ -16,7 +15,7 @@ tag.
 
 | path | what |
 |---|---|
-| `/opt/trading-agent-v2` | git worktree at tag `v2.x.y` (detached) |
+| `/opt/trading-agent-v2` | git worktree, detached at the commit of release branch `v2/release-*` |
 | `/opt/trading-agent-v2/venv` | symlink to `/opt/trading-agent/venv` (same Python 3.12 + numpy/pydantic) |
 | `/opt/trading-agent-v2/config/v2.env` | `TYPESAFE_API_KEY`, `V2_OUT`, `V2_SYMBOLS`, `V2_CADENCE`; chmod 600; git-ignored |
 | `$V2_OUT` (default `/opt/trading-agent-v2/data/v2/paper`) | hash-chained records, `heartbeat.json`, `preflight.json`, `scorecard.json`, watchdog state |
@@ -66,12 +65,12 @@ Heartbeat fields that matter:
 | `kill_engaged`, `kill_reasons` | the kill switch |
 | `restored` | set after a restart |
 
-## Upgrade (new release tag)
+## Upgrade (new release branch)
 
 ```
-cd /opt/trading-agent && git fetch origin --tags
+cd /opt/trading-agent && git fetch origin v2/release-<next> && git rev-parse origin/v2/release-<next>   # = the SHA the owner gives
 cd /opt/trading-agent-v2 && touch "$V2_OUT/STOP" && sleep 90 && pm2 stop v2-paper
-git checkout --detach v2.x.y                      # the worktree moves to the new tag; data/ and config/ are untouched
+git checkout --detach <that SHA>                  # data/ and config/ are untouched
 PYTHONPATH=src venv/bin/python -m pytest -q tests/loop
 rm -f "$V2_OUT/STOP" && pm2 restart v2-paper && pm2 logs v2-paper --lines 30
 ```
@@ -80,7 +79,7 @@ rm -f "$V2_OUT/STOP" && pm2 restart v2-paper && pm2 logs v2-paper --lines 30
 
 ```
 cd /opt/trading-agent-v2 && touch "$V2_OUT/STOP" && sleep 90 && pm2 stop v2-paper
-git checkout --detach <previous tag> && rm -f "$V2_OUT/STOP" && pm2 restart v2-paper
+git checkout --detach <previous release SHA> && rm -f "$V2_OUT/STOP" && pm2 restart v2-paper
 ```
 
 The chains are append-only and stay valid across versions. A restored book replays them.
