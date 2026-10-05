@@ -154,7 +154,23 @@ def scan() -> dict | None:
     closes = [b["c"] for b in bars]
     px = closes[-1]
     hi = max(b["h"] for b in bars[-90:])
-    lo = min(b["l"] for b in bars[-90:])
+    # 🐛 SL-PLACEMENT FIX (2026-10-05, autonomous improvement agent).
+    # The stop used to be `lo * (1 - SL_BUFFER)` where `lo` was the minimum of
+    # the same ~90-bar (~22.5h) window used for the dip reference `hi`. That is
+    # nearly always an OLD low, so the SL landed in the noise directly under the
+    # entry rather than under the dip that was actually being bought. Measured on
+    # the 36-signal record: mean SL distance below entry = 0.51%, and 26 of 36
+    # signals had the SL tighter than 0.5% — inside a 15m gold ATR of ~0.3-0.6%.
+    # The stop was therefore a noise detector, not a risk level, which is a large
+    # part of the 33% WR / negative EV this edge is being retired for.
+    # Fix: anchor the stop to the RECENT swing low that defines the dip being
+    # traded, not a day-old extreme. This is a bug fix (the stop's stated intent
+    # was always "below dip low"); it does not re-enable the edge — RESEARCH_ONLY
+    # stays True, and the corrected geometry will be re-measured before any
+    # re-enable decision. The dip reference for `dd` still uses the 90-bar high.
+    RECENT_LO_BARS = 16   # ~4h of 15m bars: the dip leg being entered
+    lo_recent = min(b["l"] for b in bars[-RECENT_LO_BARS:])
+    lo = lo_recent
     dd = px / hi - 1
     r = rsi(closes)
     r_prev = rsi(closes[:-1])

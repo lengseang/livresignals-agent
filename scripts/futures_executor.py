@@ -54,10 +54,20 @@ ENV_FILE = BASE_DIR / "config" / "live.env"
 
 LEVERAGE = 3
 MAX_NOTIONAL = 18.0   # full wallet at 3x (owner: risk more on A+ signals)
-STOP_PCT = 0.02     # auto-tuned 2026-09-24 (OOS +0.5%)
+# 2026-10-04 overnight REVERT: a 13:05 improvement pass hand-edited these to
+# STOP_PCT=0.012 / 0.008 / 0.008, picking the least-negative OOS cell of a
+# 4-point grid in which EVERY config was negative on both IS and OOS. The
+# automated optimizer itself returned "no config generalised (kept current)"
+# (self_improve.py only accepts a config when IS>0 AND OOS>0). Overriding it
+# was an order-path change on an unvalidated belief — against the hard rule
+# "never modify live trading logic on an unvalidated belief". Reverted to the
+# committed, reviewed baseline. The proposed tweak is preserved for the owner
+# in reports/undeployed/2026-10-04-futures-stop-trail-proposal.patch — do not
+# re-apply without a folds-positive backtest.
+STOP_PCT = 0.02     # auto-tuned 2026-09-24 (OOS +0.5%) [committed baseline]
 TP_RR = 5.0          # far TP (+6%) — the TRAIL is now the primary exit
-TRAIL_ACTIVATE = 0.01  # auto-tuned 2026-09-24
-TRAIL_DIST = 0.012      # auto-tuned 2026-09-24
+TRAIL_ACTIVATE = 0.01  # auto-tuned 2026-09-24 [committed baseline]
+TRAIL_DIST = 0.012      # auto-tuned 2026-09-24 [committed baseline]
 DAILY_LOSS_CAP = 1.00
 SYMBOLS = ["SOL/USDT:USDT", "XRP/USDT:USDT"]  # elite 15m-sharp symbols, futures syntax
 # spot-style symbol -> futures symbol
