@@ -102,4 +102,4 @@ Branches `v2/*`, stacked. Shadow and paper only. Nothing here places an order or
 
 | V2-15 | In-position management (take profit, lock ratchet, Jev position workflow, risk-reducing policy), System One gateway (fitted + tested + dual-run), restart restore, randomised position invariants | V2-14 | review (branch `v2/position-management`); E13-E15 open |
 | V2-16 | Accuracy round 2 (entry study v2, context-v1 to Jev, workflow v3, scorecard) + production readiness (preflight, notify, watchdog, deploy/v2, runbook, VPS prompt, rc1 release branch) | V2-15 | review (branch `v2/production-readiness`, release branch `v2/release-rc1`); E13-E16 open |
-| V2-17 | Owner decisions E13-E16 (delegated): kill passes reduce-only, ATR lane B, E13 review flag, E15 plan | V2-16 | review (`v2/release-rc2`) |
+| V2-17 | Owner decisions E13-E16 (delegated): kill passes reduce-only, ATR lane B, E13 review flag, E15 plan | V2-16 | review (`v2/release-rc3`) |

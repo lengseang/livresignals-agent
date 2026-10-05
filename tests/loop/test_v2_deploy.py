@@ -3,6 +3,7 @@ import os
 import pathlib
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -22,8 +23,10 @@ def test_ecosystem_is_v2_only_and_isolated():
     code = "\n".join(l for l in js.splitlines() if not l.strip().startswith("//"))
     assert "/opt/trading-agent/" not in code and "/opt/trading-agent-v2/" in code
     assert "LIVE_ENABLED" not in code and "max_memory_restart" in code
-    if shutil.which("node"):
-        assert subprocess.run(["node", "-e", f"require('{(D / 'ecosystem.v2.config.js').resolve()}')"]).returncode == 0
+    node = shutil.which("node")
+    if node and subprocess.run([node, "-e", ""], capture_output=True).returncode == 0:
+        # only where node itself runs cleanly: a host with a broken node (aborts on exit) must not fail V2's suite
+        assert subprocess.run([node, "-e", f"require('{(D / 'ecosystem.v2.config.js').resolve()}')"]).returncode == 0
 
 
 def test_env_example_has_no_secret_and_is_not_ignored():
@@ -40,7 +43,8 @@ def test_real_env_file_would_be_ignored():
 def test_a_failed_preflight_blocks_the_runner(tmp_path):
     root = tmp_path / "root"
     (root / "config").mkdir(parents=True)
-    for name, target in (("src", ROOT / "src"), ("deploy", ROOT / "deploy"), ("venv", ROOT / ".venv")):
+    # the venv running THIS test (the VPS names it `venv`, a developer machine `.venv`): never a hardcoded folder name
+    for name, target in (("src", ROOT / "src"), ("deploy", ROOT / "deploy"), ("venv", pathlib.Path(sys.prefix))):
         (root / name).symlink_to(target)
     (root / "config" / "v2.env").write_text(f"TYPESAFE_API_KEY=\nV2_OUT={root}/out\n")       # no key -> FAIL
     env = {**os.environ, "V2_ROOT": str(root), "V2_FAIL_SLEEP": "0"}

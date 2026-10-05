@@ -1,11 +1,11 @@
-# Prompt for the VPS agent: deploy the V2 PAPER service (release branch v2/release-rc2)
+# Prompt for the VPS agent: deploy the V2 PAPER service (release branch v2/release-rc3)
 
 Paste everything below the line into the agent on the VPS.
 
 ---
 
 **Release commit to deploy: `RELEASE_SHA_GOES_HERE`** (the owner fills this in. It is the head of the branch
-`v2/release-rc2`. Where this prompt says "the SHA the owner gives you", it means this value.)
+`v2/release-rc3`. Where this prompt says "the SHA the owner gives you", it means this value.)
 
 You are deploying the **V2 paper trading service** of `lengseang/livresignals-agent` on this VPS. Follow these steps
 exactly. Report evidence (command output), not claims. If any step fails or does not match what is described, STOP
@@ -18,7 +18,7 @@ and report: do not improvise a workaround.
   everything in a SIMULATED paper book from public Binance data.
 * `trading.v2` contains **no order path**: no exchange client and no order call. Its preflight checks that on every
   start.
-* It runs from an **isolated git worktree** at `/opt/trading-agent-v2`, pinned to the exact commit of the release branch `v2/release-rc2`. The live
+* It runs from an **isolated git worktree** at `/opt/trading-agent-v2`, pinned to the exact commit of the release branch `v2/release-rc3`. The live
   checkout `/opt/trading-agent` and its running processes stay exactly as they are.
 
 ## Hard rules: never break these
@@ -53,8 +53,8 @@ ls -d /opt/trading-agent-v2 2>/dev/null && echo "EXISTS" || echo "absent"
 ```
 cd /opt/trading-agent
 git fetch origin main
-git fetch origin v2/release-rc2
-REL=$(git rev-parse origin/v2/release-rc2); echo "release commit: $REL"
+git fetch origin v2/release-rc3
+REL=$(git rev-parse origin/v2/release-rc3); echo "release commit: $REL"
 git merge-base --is-ancestor origin/main "$REL" && echo "release contains main"
 git diff --stat origin/main "$REL" -- . ':(exclude)src/trading/v2' ':(exclude)tests/loop' ':(exclude)docs' ':(exclude)deploy/v2' | tail -3
 ```
@@ -80,10 +80,12 @@ git -C /opt/trading-agent status -sb | head -3     # must be unchanged from Step
 ```
 cd /opt/trading-agent-v2
 venv/bin/python -c "import numpy, pydantic; print(numpy.__version__, pydantic.__version__)"
-PYTHONPATH=src venv/bin/python -m pytest -q tests/loop 2>&1 | tail -3
+set -o pipefail
+PYTHONPATH=src venv/bin/python -m pytest -q tests/loop 2>&1 | tail -3 ; echo "pytest exit code: ${PIPESTATUS[0]}"   # must be 0
 ```
 
-* Expected: about `1250 passed, 3 skipped` and 0 failed.
+* Expected: about `1266 passed, 3 skipped`, 0 failed, and `pytest exit code: 0`. (The tests do not depend on how the
+  host names its venv, and they skip the pm2-file check where `node` itself aborts.)
 * If numpy or pydantic is missing, STOP and report. Do not pip-install into the shared venv without the owner's
   approval.
 * If any test fails, STOP and report the failure output.
@@ -117,6 +119,11 @@ cd /opt/trading-agent-v2
 pm2 start deploy/v2/ecosystem.v2.config.js
 pm2 status
 ```
+
+**Known host issue.** If `node -e ""` aborts on this box (a broken system node), do NOT touch system packages. Run pm2's
+own script under a working node instead, changing nothing: `<working-node> $(readlink -f $(which pm2)) start
+deploy/v2/ecosystem.v2.config.js`. Do not modify pm2 or its daemon. Do not run `pm2 save` until the owner has decided
+about the node problem; report it instead.
 
 Expected: `v2-paper` (lane A, approved fixed bracket) and `v2-paper-b` (lane B, volatility-scaled bracket) are online;
 `v2-watchdog` and `v2-daily` are registered as cron apps. Every pre-existing app is
