@@ -38,6 +38,27 @@ CONTEXT_FIELDS = ("z1d", "z3d", "z7d", "z14d", "z30d", "sma20_gap", "sma50_gap",
 UNIVERSE = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "BNBUSDT", "ADAUSDT", "LINKUSDT", "DOGEUSDT", "AVAXUSDT",
             "NEARUSDT", "SUIUSDT", "ARBUSDT", "DOTUSDT", "LTCUSDT", "ATOMUSDT")
 
+PRESETS = {"top3": UNIVERSE[:3], "top8": UNIVERSE[:8], "all15": UNIVERSE}      # the rollout steps (3 -> 8 -> 15)
+
+
+def resolve_symbols(text: str) -> tuple:
+    """`--symbols` / V2_SYMBOLS: comma separated pairs and/or the presets top3 | top8 | all15. De-duplicated, order kept,
+    each pair validated (A-Z0-9, 5-20 chars). Raises ValueError on anything else."""
+    import re
+    out: list = []
+    for part in (p.strip() for p in text.split(",")):
+        if not part:
+            continue
+        items = PRESETS.get(part.lower()) or (part.upper(),)
+        for sym in items:
+            if not re.fullmatch(r"[A-Z0-9]{5,20}", sym):
+                raise ValueError(f"not a trading pair: {sym!r}")
+            if sym not in out:
+                out.append(sym)
+    if not out:
+        raise ValueError("no symbols")
+    return tuple(out)
+
 
 def _wilder(x: np.ndarray, n: int) -> float:
     if len(x) <= n:

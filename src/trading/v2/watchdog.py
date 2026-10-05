@@ -23,6 +23,8 @@ from typing import Optional
 from trading.v2.notify import Notifier
 
 SILENT_S = 300
+STALE_RATE = 0.15
+STALE_SYMBOL_RATE = 0.5
 MIN_FREE_GB = 2.0
 
 
@@ -52,6 +54,22 @@ def assess(out: Path, now: float, prev: dict) -> tuple[dict, dict]:
         if ff - counters.get("feed_failures", ff) >= 5:
             problems["feed_failing"] = f"feed failures {counters.get('feed_failures')} -> {ff}"
         counters["feed_failures"] = ff
+        bud = hb.get("jev_budget")
+        if isinstance(bud, dict) and bud.get("cap") and bud.get("used", 0) >= 0.9 * bud["cap"]:
+            problems["jev_budget"] = (f"Jev calls today {bud['used']}/{bud['cap']}; refused {bud.get('refused', 0)} "
+                                      "(over the cap the gateway answers)")
+        by = hb.get("by_symbol") or {}
+        cyc = sum(v.get("cycles", 0) for v in by.values())
+        bad = {k: v["unusable"] for k, v in by.items() if v.get("unusable")}
+        # judged only after >= 8 decision boundaries (the one unusable boundary right after a restart is expected):
+        #   overall > 15% skipped as stale, OR any single coin skipped more than half the time (with 15 coins one dead
+        #   coin is only 6.7% overall and would otherwise never alert)
+        sick = {k: v for k, v in by.items() if v.get("cycles", 0) >= 8 and v.get("unusable", 0) / v["cycles"] > STALE_SYMBOL_RATE}
+        overall = by and cyc >= 8 * len(by) and sum(bad.values()) / cyc > STALE_RATE
+        if overall or sick:
+            worst = ", ".join(f"{k}:{n}" for k, n in sorted(bad.items(), key=lambda kv: -kv[1])[:5])
+            problems["stale_snapshots"] = (f"{sum(bad.values())}/{cyc} decisions skipped as stale ({worst}); "
+                                           f"step {hb.get('timing', {}).get('step_ms_last')} ms")
         ce = (hb.get("outcomes") or {}).get("cycle_error", 0)
         if ce > counters.get("cycle_error", 0):
             problems["cycle_errors"] = f"cycle errors {counters.get('cycle_error', 0)} -> {ce}"

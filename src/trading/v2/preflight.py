@@ -28,7 +28,8 @@ def _check(name: str, fn: Callable[[], tuple[bool, str]], required: bool = True)
     return {"name": name, "ok": bool(ok), "required": required, "detail": detail}
 
 
-def checks(out: Path, symbols: tuple[str, ...], offline: bool, http_get: Optional[Callable] = None) -> list[dict]:
+def checks(out: Path, symbols: tuple[str, ...], offline: bool, http_get: Optional[Callable] = None,
+           http_post: Optional[Callable] = None) -> list[dict]:
     res = []
     res.append(_check("python>=3.12", lambda: (sys.version_info[:2] >= MIN_PY, sys.version.split()[0])))
 
@@ -120,7 +121,35 @@ def checks(out: Path, symbols: tuple[str, ...], offline: bool, http_get: Optiona
             st, _ = get("https://api.typesafe.ai/")
             return st > 0, f"reachable (HTTP {st})"
         res.append(_check("typesafe_reachable", typesafe))
+
+        def jev_auth():
+            # a key that is present but wrong/revoked/mistyped would pass every other check and run the whole service on
+            # the gateway; one minimal call (about 100 tokens) proves the key authenticates
+            import json as _j
+            key = os.environ.get("TYPESAFE_API_KEY", "").strip()
+            if not key:
+                return False, "no key to test"
+            body = _j.dumps({"state": {"preflight": True}, "model": "jev-latest",
+                             "questions": {"ok": {"type": "noul", "instructions": "Is preflight true?"}}}).encode()
+            st, _ = (http_post or _http_post)("https://api.typesafe.ai/v1/systemone", key, body)
+            if st == 200:
+                return True, "key authenticates"
+            return False, {401: "HTTP 401: key rejected", 403: "HTTP 403: key rejected (revoked, rotated or mistyped)",
+                           402: "HTTP 402: account out of balance"}.get(st, f"HTTP {st}")
+        res.append(_check("jev_key_authenticates", jev_auth))
     return res
+
+
+def _http_post(url: str, key: str, body: bytes) -> tuple[int, bytes]:
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:                         # noqa: S310 (fixed https URL)
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, b""
 
 
 def _http_get(url: str) -> tuple[int, bytes]:
@@ -133,14 +162,19 @@ def _http_get(url: str) -> tuple[int, bytes]:
         return e.code, b""
 
 
-def main(argv=None, http_get=None) -> int:
+def main(argv=None, http_get=None, http_post=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--symbols", default="BTCUSDT,ETHUSDT,SOLUSDT")
     ap.add_argument("--offline", action="store_true")
     a = ap.parse_args(argv)
-    syms = tuple(s.strip().upper() for s in a.symbols.split(",") if s.strip())
-    res = checks(a.out, syms, a.offline, http_get)
+    from trading.v2.daily_context import resolve_symbols
+    try:
+        syms = resolve_symbols(a.symbols)
+    except ValueError as exc:
+        print(f"usage: --symbols: {exc}")
+        return 2
+    res = checks(a.out, syms, a.offline, http_get, http_post)
     ok = all(r["ok"] for r in res if r["required"])
     for r in res:
         print(f"{'PASS' if r['ok'] else 'FAIL':4s}  {r['name']:20s} {r['detail']}")

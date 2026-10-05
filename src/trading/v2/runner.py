@@ -17,6 +17,7 @@ Safety defaults: no limits are defaulted (the caller supplies RiskLimits, KillLi
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import logging
 import sys
@@ -29,11 +30,13 @@ from typing import Callable, Optional
 from trading.replay.broker import CostModel
 from trading.shadow.chain import ShadowChain
 from trading.v2.adapter import JevAdapter, JevClient
-from trading.v2.binance_public import BinancePublic, FeedError, LiveBook
+from trading.v2.budget import BudgetedClient, JevBudget
+from trading.v2.binance_public import BinancePublic, FeedError, PrefetchedBook
+from trading.v2.budget import BudgetedClient, JevBudget
 from trading.v2.context import PaperContextProvider
 from trading.v2.contracts import StrategyRef
 from trading.v2.fallback import GatedSource
-from trading.v2.daily_context import N_CTX_1H, UNIVERSE, live_context
+from trading.v2.daily_context import N_CTX_1H, UNIVERSE, live_context, resolve_symbols
 from trading.v2.features import N_1H, N_1M
 from trading.v2.killswitch import KillController, KillLimits, Observation
 from trading.v2.advisor import PositionAdvisor
@@ -51,6 +54,7 @@ log = logging.getLogger("trading.v2.runner")
 MIN_MS = 60_000
 HOUR_MS = 3_600_000
 PRIME_MARGIN = 20
+MAX_FETCH_WORKERS = 16     # concurrent public-data requests per phase (Binance weight limits are far above this)
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,7 @@ class RunnerConfig:
     stance_symbols: Optional[tuple[str, ...]] = None      # default: the traded symbols
     ratchet: Optional[RatchetRule] = None                 # V2-15 L1 in-position stop ratchet (None = plain bracket)
     context_symbols: Optional[tuple[str, ...]] = None     # V2-16 multi-day context universe (None = off)
+    jev_daily_call_cap: Optional[int] = None              # rc4: max paid Jev calls per UTC day per lane (None = no cap)
 
 
 def demo_config(symbols: tuple[str, ...], cadence_minutes: int, out_dir: Path) -> RunnerConfig:
@@ -99,6 +104,10 @@ class Runner:
         out.mkdir(parents=True, exist_ok=True)
         self.start_ms = int(clock() * 1000)
         self.stances = ReplayStanceSource()
+        self.live_book = PrefetchedBook(feed)
+        self.step_ms_last = self.step_ms_max = self.fetch_ms_last = 0.0
+        self.stale_ms_max = 0
+        self.sym_stats: dict[str, dict] = {s: {"cycles": 0, "unusable": 0, "no_snapshot": 0} for s in cfg.symbols}
         paper_chain = ShadowChain(out, "v2paper", "book", self.start_ms)
         self.book = PaperBook(cfg.paper_equity, cfg.costs, paper_chain, ratchet=cfg.ratchet)
         self.restored = None
@@ -114,17 +123,18 @@ class Runner:
             self.book, cfg.strategy, cfg.risk_limits, exit_params=cfg.exit_params,
             daily_loss_budget_usd=cfg.daily_loss_budget_usd, exchange_health=self._health, kill_switch=self._kill,
             legacy_action=self._legacy, paused=lambda: self.ctl.paused_scopes)
-        self.client = jev_client or TypeSafeJevClient(workflow)
+        self.budget = JevBudget(cfg.jev_daily_call_cap, clock=clock) if cfg.jev_daily_call_cap else None
+        self.client = self._budgeted(jev_client or TypeSafeJevClient(workflow))
         self.gateway = Gateway(max_spread_bps=cfg.risk_limits.max_spread_bps)
         self.adapter = JevAdapter(self.client, workflow, GatedSource(self.stances), timeout_s=cfg.jev_timeout_s,
                                   gateway=self.gateway)
         # V2-15 L2: while positioned, Jev's POSITION workflow is asked (gateway on failure)
         pwf = load_position_workflow()
-        self.advisor = PositionAdvisor(position_client or TypeSafeJevClient(pwf), pwf, self.gateway,
+        self.advisor = PositionAdvisor(self._budgeted(position_client or TypeSafeJevClient(pwf)), pwf, self.gateway,
                                        timeout_s=cfg.jev_timeout_s)
         self.pipeline = ShadowPipeline(
             adapter=self.adapter, provider=self.provider, sink=ShadowChain(out, "v2cycle", "pipeline", self.start_ms),
-            book=LiveBook(feed), policy=PolicyConfig(), limits=cfg.risk_limits, cadence_minutes=cfg.cadence_minutes,
+            book=self.live_book, policy=PolicyConfig(), limits=cfg.risk_limits, cadence_minutes=cfg.cadence_minutes,
             max_stale_ms=cfg.max_stale_ms, paper=self.book,
             book_lead_tolerance_ms=cfg.book_lead_tolerance_ms, advisor=self.advisor,
             context_source=self._context if cfg.context_symbols else None)
@@ -141,6 +151,26 @@ class Runner:
         self.steps = 0
         self.cycles = 0
         self.feed_failures = 0
+
+    def _budgeted(self, client):
+        return BudgetedClient(client, self.budget) if self.budget is not None else client
+
+    def _pmap(self, fn, items) -> dict:
+        """Run `fn(item)` for every item CONCURRENTLY and return {item: (ok, value | exception)}. Network I/O only:
+        everything that changes state (bar store, paper book, chains, Jev) stays sequential and in `cfg.symbols` order,
+        so a run is exactly as deterministic as before."""
+        items = list(items)
+        if not items:
+            return {}
+        out: dict = {}
+        with ThreadPoolExecutor(max_workers=min(MAX_FETCH_WORKERS, len(items)), thread_name_prefix="v2-fetch") as ex:
+            futs = {it: ex.submit(fn, it) for it in items}
+            for it, f in futs.items():
+                try:
+                    out[it] = (True, f.result())
+                except Exception as exc:                 # the caller decides: FeedError is handled, anything else re-raised
+                    out[it] = (False, exc)
+        return out
 
     # ------------------------------------------------------------------ the providers' facts
 
@@ -165,23 +195,34 @@ class Runner:
         off = self.feed.sync_clock()
         now = self.feed.now_ms()
         log.info("clock offset to the exchange: %+d ms", off)
+        got = self._pmap(lambda sym: (self.feed.history(sym, "1h", N_1H + PRIME_MARGIN, now_ms=now),
+                                      self.feed.history(sym, "1m", N_1M + PRIME_MARGIN, now_ms=now)), self.cfg.symbols)
         for sym in self.cfg.symbols:
-            for b in self.feed.history(sym, "1h", N_1H + PRIME_MARGIN, now_ms=now):
+            ok, val = got[sym]
+            if not ok:
+                raise val                                   # priming failure is fatal, as before
+            h1, m1 = val
+            for b in h1:
                 self.pipeline.store.append(b)
                 self.last_1h_end[sym] = b.end_ms
-            for b in self.feed.history(sym, "1m", N_1M + PRIME_MARGIN, now_ms=now):
+            for b in m1:
                 self.pipeline.store.append(b)
                 self.last_end[sym] = b.end_ms
                 self.book.last[sym] = b.close
                 self.last_price[sym] = b.close
         self._refresh_stances(now)
         if self.cfg.context_symbols:
+            ctx = self._pmap(lambda s: self.feed.history(s, "1h", N_CTX_1H + PRIME_MARGIN, now_ms=now),
+                             self.cfg.context_symbols)
             for s in self.cfg.context_symbols:
-                try:
-                    self.ctx_bars[s] = self.feed.history(s, "1h", N_CTX_1H + PRIME_MARGIN, now_ms=now)
-                except FeedError:
+                ok, val = ctx[s]
+                if ok:
+                    self.ctx_bars[s] = val
+                elif isinstance(val, FeedError):
                     self.context_feed_failures += 1
                     log.warning("context history for %s unavailable", s)
+                else:
+                    raise val
             self._ctx_hour = now // HOUR_MS
         self._poll_ok = True
 
@@ -196,14 +237,18 @@ class Runner:
         if not self.cfg.context_symbols or now // HOUR_MS <= self._ctx_hour:
             return
         t0 = self._clock()
+        got = self._pmap(lambda s: self.feed.klines(s, "1h", 3, now_ms=now), self.cfg.context_symbols)
         for s in self.cfg.context_symbols:
-            try:
-                have = self.ctx_bars.get(s, [])
-                last = have[-1].end_ms if have else 0
-                new = [b for b in self.feed.klines(s, "1h", 3, now_ms=now) if b.end_ms > last]
-                self.ctx_bars[s] = (have + sorted(new, key=lambda b: b.end_ms))[-(N_CTX_1H + PRIME_MARGIN):]
-            except FeedError:
+            ok, val = got[s]
+            if not ok:
+                if not isinstance(val, FeedError):
+                    raise val
                 self.context_feed_failures += 1
+                continue
+            have = self.ctx_bars.get(s, [])
+            last = have[-1].end_ms if have else 0
+            new = [b for b in val if b.end_ms > last]
+            self.ctx_bars[s] = (have + sorted(new, key=lambda b: b.end_ms))[-(N_CTX_1H + PRIME_MARGIN):]
         self._ctx_hour = now // HOUR_MS
         # it runs BEFORE the hour's cycles (they need the hour that just closed): its duration ages their snapshots
         self.context_refresh_ms = round((self._clock() - t0) * 1000.0)
@@ -211,11 +256,16 @@ class Runner:
     def _refresh_stances(self, now_ms: int) -> None:
         syms = self.cfg.stance_symbols or self.cfg.symbols
         daily = {}
-        for s in sorted(set(syms) | {"BTCUSDT"}):
-            try:
-                daily[s] = self.feed.history(s, "1d", 1000, now_ms=now_ms)
-            except FeedError:
+        names = sorted(set(syms) | {"BTCUSDT"})
+        got = self._pmap(lambda s: self.feed.history(s, "1d", 1000, now_ms=now_ms), names)
+        for s in names:
+            ok, val = got[s]
+            if ok:
+                daily[s] = val
+            elif isinstance(val, FeedError):
                 log.warning("daily history for %s unavailable: stances may be UNAVAILABLE", s)
+            else:
+                raise val
         self.stances.refresh(daily, now_ms)
         self._stance_day = _day(now_ms)
 
@@ -223,33 +273,66 @@ class Runner:
 
     def step(self) -> list[dict]:
         self.steps += 1
+        t0 = self._clock()
         now = self.feed.now_ms()
         self._poll_ok, recs = True, []
         if _day(now) != self._stance_day:
             self._refresh_stances(now)
         self._refresh_context(now)
+        # PHASE 1 (concurrent, network only): every symbol's new bars, the hourly bar at an hour boundary, and the order
+        # book where a decision is due. With many symbols the old one-after-another fetching aged the later symbols'
+        # snapshots past the staleness ceiling (about 2 s per symbol: 15 symbols = ~30 s against a 20 s ceiling).
+        fetched = self._pmap(lambda sym: self._fetch_symbol(sym, self.feed.now_ms()), self.cfg.symbols)
+        # PHASE 1b (concurrent): the order books of the symbols whose decision is due, fetched together and JUST before
+        # the sequential phase so they are as fresh as possible when each decision needs one
+        cad = self.cfg.cadence_minutes * MIN_MS
+        due = [sym for sym in self.cfg.symbols if fetched[sym][0] and any(b.end_ms % cad == 0 for b in fetched[sym][1][0])]
+        self._pmap(self.live_book.prefetch, due)
+        self.fetch_ms_last = round((self._clock() - t0) * 1000.0)
+        # PHASE 2 (sequential, in cfg.symbols order): decisions, Jev, paper book, chains
         for sym in self.cfg.symbols:
             try:
-                # a FRESH "now" per symbol: earlier symbols' Jev calls and fetches take seconds, and a decision must be
-                # judged against the moment it is actually made, not the moment the step began
-                recs += self._step_symbol(sym, self.feed.now_ms())
+                ok, val = fetched[sym]
+                if not ok:
+                    raise val
+                # a FRESH "now" per symbol: a decision is judged against the moment it is actually made
+                recs += self._process_symbol(sym, val, self.feed.now_ms())
             except FeedError as exc:
                 self._poll_ok = False
                 self.feed_failures += 1
                 log.warning("feed failure for %s: %s", sym, type(exc).__name__)
         self.cycles += len(recs)
+        for r in recs:
+            st = self.sym_stats.setdefault(r["symbol"], {"cycles": 0, "unusable": 0, "no_snapshot": 0})
+            st["cycles"] += 1
+            if r["outcome"] == "snapshot_unusable":
+                st["unusable"] += 1
+            elif r["outcome"] == "no_snapshot":
+                st["no_snapshot"] += 1
+            stale = ((r.get("features") or {}).get("data_quality") or {}).get("stale_ms")
+            if isinstance(stale, int):
+                self.stale_ms_max = max(self.stale_ms_max, stale)
         self._observe(now)
+        self.step_ms_last = round((self._clock() - t0) * 1000.0)
+        self.step_ms_max = max(self.step_ms_max, self.step_ms_last)
         self._heartbeat(now)
         return recs
 
-    def _step_symbol(self, sym: str, now: int) -> list[dict]:
+    def _fetch_symbol(self, sym: str, now: int):
+        """Network phase for one symbol (thread-safe: it only reads the runner's counters and fills the book cache)."""
         last = self.last_end.get(sym, 0)
         missing = max(2, (now - last) // MIN_MS + 2)
-        bars = [b for b in self.feed.klines(sym, "1m", min(1000, missing), now_ms=now) if b.end_ms > last]
+        bars = sorted((b for b in self.feed.klines(sym, "1m", min(1000, missing), now_ms=now) if b.end_ms > last),
+                      key=lambda x: x.end_ms)
+        hourly = self.feed.klines(sym, "1h", 3, now_ms=now) if any(b.end_ms % HOUR_MS == 0 for b in bars) else []
+        return bars, hourly
+
+    def _process_symbol(self, sym: str, fetched, now: int) -> list[dict]:
+        bars, hourly = fetched
         out = []
-        for b in sorted(bars, key=lambda x: x.end_ms):
+        for b in bars:
             if b.end_ms % HOUR_MS == 0:                                  # the hourly bar that closes with this minute
-                for hb in self.feed.klines(sym, "1h", 3, now_ms=now):
+                for hb in hourly:
                     if hb.end_ms > self.last_1h_end.get(sym, 0):
                         self.pipeline.on_bar(hb, now)
                         self.last_1h_end[sym] = hb.end_ms
@@ -291,6 +374,11 @@ class Runner:
               "stops_tightened": {k[15:]: v for k, v in self.book.stats.items() if k.startswith("stop_tightened:")},
               "exits": {k: self.book.stats[k] for k in ("stopped", "target_hit", "ratchet_exit")},
               "restored": self.restored,
+              "timing": {"step_ms_last": self.step_ms_last, "step_ms_max": self.step_ms_max,
+                         "fetch_ms_last": self.fetch_ms_last, "stale_ms_max": self.stale_ms_max,
+                         "stale_ceiling_ms": self.cfg.max_stale_ms},
+              "by_symbol": self.sym_stats, "book_prefetch": dict(self.live_book.stats),
+              "jev_budget": self.budget.snapshot() if self.budget is not None else None,
               "context": {"ok": s.get("context:ok", 0), "missing": s.get("context:missing", 0),
                           "feed_failures": self.context_feed_failures, "refresh_ms": self.context_refresh_ms}}
         usage = getattr(self.client, "usage", None)
@@ -322,7 +410,7 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description="V2 paper runner (public data, simulated book; no real orders)")
     ap.add_argument("--approved", action="store_true", help="use the owner-APPROVED paper limits (trading.v2.approved)")
     ap.add_argument("--demo", action="store_true", help="use the UNVALIDATED demo placeholders instead")
-    ap.add_argument("--symbols", default="BTCUSDT")
+    ap.add_argument("--symbols", default="BTCUSDT", help="pairs and/or presets: top3 | top8 | all15")
     ap.add_argument("--cadence", type=int, default=15, help="minutes between decisions")
     ap.add_argument("--out", default="data/local/v2")
     ap.add_argument("--max-steps", type=int, default=None)
@@ -336,7 +424,11 @@ def main(argv: list[str]) -> int:
               "placeholders). The risk, kill and exit limits are the owner's decisions; nothing is defaulted.", file=sys.stderr)
         return 2
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    syms = tuple(s.strip().upper() for s in a.symbols.split(",") if s.strip())
+    try:
+        syms = resolve_symbols(a.symbols)
+    except ValueError as exc:
+        print(f"refusing to run: --symbols: {exc}", file=sys.stderr)
+        return 2
     if a.approved:
         from trading.v2.approved import approved_config
         cfg = approved_config(syms, a.cadence, Path(a.out), exit_mode=a.exit_mode)

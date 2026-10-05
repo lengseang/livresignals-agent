@@ -78,3 +78,9 @@ E13: keep the position thresholds; the scorecard flags a review automatically. E
 the kill cancels only opening orders. E15: test the volatility-scaled barrier in paper, measure Jev with the scorecard, and refit
 after 30 days under the same protocol. E16: lane B (`v2-paper-b`, volatility-scaled bracket) runs beside the approved lane A.
 Real money stays behind the RUNBOOK gate.
+
+## Update: rc4, scaling from 3 to 15 symbols (V2-18, release branch `v2/release-rc4`)
+Network phases are concurrent (decisions stay sequential and deterministic); 15 symbols measured live: 0 of 105 decisions skipped,
+slowest step 10.6 s, oldest snapshot 12.6 s against the 20 s ceiling. Jev call budget per lane, `top3|top8|all15` presets,
+per-symbol scorecard and heartbeat, new watchdog alerts, and a preflight check that the Jev key really authenticates (the live runs
+showed a rotated key passing every check). Rollout 3 -> 8 -> 15 with gates: `docs/v2/SCALE-ROLLOUT-PROMPT.md`. Results: `docs/v2/V2-18-RESULTS.md`.

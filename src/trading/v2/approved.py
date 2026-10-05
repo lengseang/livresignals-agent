@@ -35,6 +35,9 @@ KILL_EXCHANGE_FAILURES = 3
 KILL_MAX_FEED_AGE_MS = 180_000
 KILL_MIN_REQUEST_CONFIDENCE = 0.8
 KILL_MAX_ABS_SLIPPAGE_BPS = 50.0
+# rc4: a daily cap on paid Jev calls PER LANE. 15 symbols x 96 cycles = 1,440 entry calls + at most as many position calls
+# (one per open position per cycle) = 2,880 worst case; the cap leaves ~40% headroom, so a runaway loop (not normal use) trips it
+JEV_DAILY_CALL_CAP = 4_000
 # V2-15 (decided under the owner's delegation, evidence: docs/v2/evidence/exit_study_paired.json): once a trade has gone
 # half way to its target, keep the stop at entry + half the best excursion. Risk-REDUCING only: it never widens a stop.
 RATCHET = RatchetRule(activate_frac=0.5, lock_frac=0.5)
@@ -62,4 +65,4 @@ def approved_config(symbols: tuple[str, ...], cadence_minutes: int, out_dir: Pat
         exit_params=ExitParams(stop_pct=STOP_PCT, target_pct=TARGET_PCT) if exit_mode == "fixed" else ATR_EXIT,
         daily_loss_budget_usd=DAILY_LOSS_BUDGET_USD,
         costs=CostModel(fee_rate=FEE_RATE, spread_bps=PAPER_SPREAD_BPS, slippage_bps=PAPER_SLIPPAGE_BPS),
-        ratchet=RATCHET, context_symbols=CONTEXT_UNIVERSE)
+        ratchet=RATCHET, context_symbols=CONTEXT_UNIVERSE, jev_daily_call_cap=JEV_DAILY_CALL_CAP)

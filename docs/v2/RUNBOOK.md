@@ -119,3 +119,35 @@ service starts.
 3. Real fees and slippage measured from real fills (testnet or tiny live).
 4. An execution adapter with order reconciliation and an exchange-side bracket (OCO), with its own tests.
 5. The owner's written decision, plus `LIVE_ENABLED`. V2 never touches that file.
+
+
+## Scaling the symbol set (rc4)
+
+`V2_SYMBOLS` (and `--symbols`) take pairs and/or presets: **`top3`** (BTC, ETH, SOL), **`top8`** (+ XRP, BNB, ADA, LINK,
+DOGE) and **`all15`** (+ AVAX, NEAR, SUI, ARB, DOT, LTC, ATOM). The multi-day context is always computed over all 15
+whatever you trade, because the cross-coin ranks need them.
+
+**Rollout gates.** Move up only when the current step has run at least 2 days and every gate holds on BOTH lanes. Drop back
+one step if any gate fails; the chains are append-only, so nothing is lost.
+
+| gate | where to read it | must be |
+|---|---|---|
+| decisions skipped as stale | `heartbeat.json` `by_symbol[*].unusable` / `cycles` | under 1% per coin (the first boundary after a restart is expected) |
+| slowest step | `timing.step_ms_max` | under 15 000 ms |
+| oldest snapshot used | `timing.stale_ms_max` | under `timing.stale_ceiling_ms` (20 000) |
+| order-book prefetch | `book_prefetch` | `hit` much larger than `stale_refetch` |
+| Jev budget | `jev_budget.used` / `cap` | under 70% of the daily cap, `refused` 0 |
+| Jev answering | `jev_ok` / `jev_calls` | at least 90% (if it is near 0, check `jev_key_authenticates` in `preflight.json`: a rotated key means everything is answered by the gateway) |
+| errors | `outcomes.cycle_error`, watchdog `problems` | 0 and `{}` |
+
+**Changing the set.** Edit `V2_SYMBOLS` in `config/v2.env`, then `pm2 restart v2-paper v2-paper-b`. The paper book is rebuilt from
+its chain, so open positions survive; the next boundary decides for the new set. Do not shrink the set while positions are
+open in a coin you are removing.
+
+**What rc4 changed for scale.** The network phases (priming, hourly context refresh, daily stances, each symbol's bars and
+order book) run concurrently; decisions, Jev, the paper book and the chains stay sequential in the configured order, so
+runs are as reproducible as before. Before, about 2 s per symbol meant 15 symbols would have aged the last third of the
+decisions past the 20 s staleness ceiling. The ceiling itself is unchanged.
+
+**Jev call budget.** `jev_daily_call_cap` (4 000 per lane per UTC day in the approved config) is shared by the entry and
+position clients. Over the cap the gateway answers, labelled `balance_exhausted`, and the watchdog alerts at 90%.

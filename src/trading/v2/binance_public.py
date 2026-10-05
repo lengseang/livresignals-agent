@@ -170,3 +170,29 @@ class LiveBook:
             return self.feed.book(symbol)
         except FeedError:
             return None
+
+
+class PrefetchedBook(LiveBook):
+    """LiveBook plus a one-shot prefetch cache (rc4). With many symbols the order-book requests are made concurrently
+    BEFORE the sequential decision phase; a prefetched book is used only if it is still younger than `max_age_ms` when
+    the decision needs it, else it is fetched fresh. A book is never reused (popped on use) and never invented."""
+
+    def __init__(self, feed: BinancePublic, max_age_ms: int = 4_000):     # < the feature engine's own 5 s ceiling
+        super().__init__(feed)
+        self.max_age_ms = max_age_ms
+        self._cache: dict = {}
+        self.stats = {"hit": 0, "stale_refetch": 0, "miss": 0}
+
+    def prefetch(self, symbol: str) -> None:
+        try:
+            self._cache[symbol] = self.feed.book(symbol)
+        except FeedError:
+            self._cache.pop(symbol, None)
+
+    def latest(self, symbol: str) -> Optional[Book]:
+        b = self._cache.pop(symbol, None)
+        if b is not None and self.feed.now_ms() - b.ts_ms <= self.max_age_ms:
+            self.stats["hit"] += 1
+            return b
+        self.stats["stale_refetch" if b is not None else "miss"] += 1
+        return super().latest(symbol)

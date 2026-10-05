@@ -114,8 +114,8 @@ def _calibration(ps, ys, edges=(0.0, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0001)) -> list[d
     return out
 
 
-def _grade_decision(dec: dict, t: int, price: float, path: Path1h) -> dict:
-    g = {"action": dec["action"], "confidence": dec["confidence"]}
+def _grade_decision(dec: dict, t: int, price: float, path: Path1h, symbol: str = "") -> dict:
+    g = {"symbol": symbol, "action": dec["action"], "confidence": dec["confidence"]}
     for k, h in HORIZONS.items():
         c = path.close_at_or_after(t + h) if path.ends and path.ends[-1] >= t + h else None
         g[k] = (c / price - 1.0) if c is not None else None
@@ -188,13 +188,13 @@ def score(records: Sequence[dict], paths: Mapping[str, Path1h]) -> dict:
             continue
         src = "jev" if dec["source"] == "jev" else (
             "gateway" if dec.get("fallback_strategy") == "system_one_gateway" else "strategy_vote")
-        g = _grade_decision(dec, t, price, path)
+        g = _grade_decision(dec, t, price, path, sym)
         if g["barrier"] is None:             # its longest horizon (14 days) has not elapsed
             pending += 1
         by_src[src].append(g)
         dual = (r.get("gateway_dual_run") or {}).get("decision")
         if dual:
-            by_src["gateway_dual"].append(_grade_decision(dual, t, price, path))
+            by_src["gateway_dual"].append(_grade_decision(dual, t, price, path, sym))
             agree[(_norm(dec["action"]), _norm(dual["action"]))] += 1
     adv_out = {}
     for src, rows in advice.items():
@@ -206,7 +206,16 @@ def score(records: Sequence[dict], paths: Mapping[str, Path1h]) -> dict:
         # owner decision E13: thresholds stay until evidence says otherwise. >= 20 graded exits that beat holding less
         # than half the time -> flag a review (raise EXIT/REDUCE to 0.80). Flag only; nothing changes by itself.
         adv_out[src]["e13_review"] = bool(len(ex) >= E13_MIN_EXITS and sum(ex) / len(ex) < 0.5)
-    return {"sources": {k: _summarise(v) for k, v in sorted(by_src.items())},
+    sources = {}
+    for k, v in sorted(by_src.items()):
+        sources[k] = _summarise(v)
+        syms = sorted({g["symbol"] for g in v})
+        if len(syms) > 1:          # per-coin rows: which coins is each source good or bad at (rc4: 3 -> 15 coins)
+            sources[k]["by_symbol"] = {sym: {kk: vv for kk, vv in _summarise([g for g in v if g["symbol"] == sym]).items()
+                                             if kk in ("decisions", "graded_24h", "action_mix", "directional_n",
+                                                       "directional_hit_rate_24h", "mean_fwd_24h_long_calls",
+                                                       "barrier_base_rate")} for sym in syms}
+    return {"sources": sources,
             "agreement_jev_x_gateway": {f"{a}|{b}": n for (a, b), n in sorted(agree.items())},
             "position_advice": adv_out, "pending": pending}
 

@@ -51,12 +51,17 @@ def ok_get(url):
     return 404, b""
 
 
+def ok_post(url, key, body):
+    return 200, b"{}"
+
+
 def test_preflight_passes_with_key_and_network(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPESAFE_API_KEY", "x")
-    assert preflight.main(["--out", str(tmp_path)], http_get=ok_get) == 0
+    assert preflight.main(["--out", str(tmp_path)], http_get=ok_get, http_post=ok_post) == 0
     rep = json.loads((tmp_path / "preflight.json").read_text())
     assert rep["ok"] and {c["name"] for c in rep["checks"]} >= {"workflows", "paper_only", "chains_verify",
-                                                                  "binance_data_api", "jev_key_present"}
+                                                                  "binance_data_api", "jev_key_present",
+                                                                  "jev_key_authenticates"}
     assert "x" not in json.dumps([c["detail"] for c in rep["checks"] if c["name"] == "jev_key_present"]).replace("MISSING", "")
 
 
@@ -78,9 +83,9 @@ def test_preflight_fails_on_a_broken_chain(tmp_path, monkeypatch):
 def test_preflight_fails_on_clock_skew_or_unreachable_binance(tmp_path, monkeypatch):
     monkeypatch.setenv("TYPESAFE_API_KEY", "x")
     skew = lambda u: (200, json.dumps({"serverTime": 1}).encode()) if "binance" in u else (404, b"")  # noqa: E731
-    assert preflight.main(["--out", str(tmp_path)], http_get=skew) == 1
+    assert preflight.main(["--out", str(tmp_path)], http_get=skew, http_post=ok_post) == 1
     down = lambda u: (451, b"")  # noqa: E731
-    assert preflight.main(["--out", str(tmp_path)], http_get=down) == 1
+    assert preflight.main(["--out", str(tmp_path)], http_get=down, http_post=ok_post) == 1
 
 
 # ------------------------------------------------------------ watchdog
@@ -141,3 +146,46 @@ def test_watchdog_retries_an_alert_that_was_not_delivered(tmp_path):
 def test_failed_digest_is_not_reported_as_sent(tmp_path):
     hb(tmp_path)
     assert "digest" not in watch(tmp_path, Notifier(sender=Sink(ok=False)), daily=True)["sent"]
+
+
+def test_watchdog_budget_and_stale_alerts(tmp_path):
+    syms = {s: {"cycles": 10, "unusable": 0, "no_snapshot": 0} for s in ("BTCUSDT", "ETHUSDT", "SOLUSDT")}
+    hb(tmp_path, jev_budget={"used": 3700, "cap": 4000, "refused": 0}, by_symbol=syms)
+    p = watch(tmp_path, Notifier(sender=Sink()))["problems"]
+    assert "jev_budget" in p and "stale_snapshots" not in p
+    # the expected single unusable boundary after a restart (1 of 10 per symbol) must NOT alert; a steady 40% must
+    one = {s: {"cycles": 10, "unusable": 1 if s == "SOLUSDT" else 0, "no_snapshot": 0} for s in syms}
+    hb(tmp_path, jev_budget=None, by_symbol=one)
+    assert "stale_snapshots" not in watch(tmp_path, Notifier(sender=Sink()))["problems"]
+    bad = {s: {"cycles": 10, "unusable": 6 if s == "SOLUSDT" else 0, "no_snapshot": 0} for s in syms}
+    hb(tmp_path, by_symbol=bad)
+    p = watch(tmp_path, Notifier(sender=Sink()))["problems"]
+    assert "stale_snapshots" in p and "SOLUSDT:6" in p["stale_snapshots"]
+    few = {s: {"cycles": 2, "unusable": 2, "no_snapshot": 0} for s in syms}          # too early to judge
+    hb(tmp_path, by_symbol=few)
+    assert "stale_snapshots" not in watch(tmp_path, Notifier(sender=Sink()))["problems"]
+
+
+def test_watchdog_one_dead_coin_among_fifteen_alerts_even_though_overall_is_small(tmp_path):
+    from trading.v2.daily_context import UNIVERSE
+    by = {s: {"cycles": 10, "unusable": 10 if s == "ADAUSDT" else 0, "no_snapshot": 0} for s in UNIVERSE}
+    hb(tmp_path, by_symbol=by)                           # 10 of 150 = 6.7% overall, but ADA is skipped every time
+    p = watch(tmp_path, Notifier(sender=Sink()))["problems"]
+    assert "stale_snapshots" in p and "ADAUSDT:10" in p["stale_snapshots"]
+
+
+@pytest.mark.parametrize("status,why", [(403, "rejected"), (401, "rejected"), (402, "balance"), (500, "HTTP 500")])
+def test_preflight_fails_when_the_key_is_present_but_does_not_authenticate(tmp_path, monkeypatch, status, why):
+    # found by the first live 15-symbol run: a rotated key passed every check and the service ran on the gateway
+    monkeypatch.setenv("TYPESAFE_API_KEY", "apikey_FAKE0000_notarealkey000000")
+    assert preflight.main(["--out", str(tmp_path)], http_get=ok_get, http_post=lambda u, k, b: (status, b"")) == 1
+    rep = json.loads((tmp_path / "preflight.json").read_text())
+    detail = next(c["detail"] for c in rep["checks"] if c["name"] == "jev_key_authenticates")
+    assert why in detail and "apikey_" not in json.dumps(rep)
+
+
+def test_preflight_never_sends_the_key_anywhere_but_typesafe(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setenv("TYPESAFE_API_KEY", "apikey_FAKE0000_notarealkey000000")
+    preflight.main(["--out", str(tmp_path)], http_get=ok_get, http_post=lambda u, k, b: seen.append((u, k)) or (200, b"{}"))
+    assert [u for u, _ in seen] == ["https://api.typesafe.ai/v1/systemone"]

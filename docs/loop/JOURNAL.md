@@ -356,3 +356,14 @@ results), and what was learned or blocked.
   anchor), so the replace target was "" and the text was inserted between every character. `bash -n` caught it before any
   commit; restored from git and rewritten whole.
 - **Learned:** never splice files by searching for the first occurrence of a common token; write small files whole.
+
+## 2026-10-05 · V2-18 rc4: scaling to 15 symbols
+- **Need check:** 2 s per symbol x 15 = ~30 s against a 20 s staleness ceiling: the last third of the coins would have been skipped silently.
+- **Done:** concurrent network phases (decisions sequential and deterministic), separate book-prefetch phase, Jev call budget, presets,
+  per-symbol heartbeat and scorecard, watchdog alerts, rollout prompt and gates.
+- **Measured live (15 symbols, 7 boundaries):** 0/105 skipped, slowest step 10.6 s, oldest snapshot 12.6 s. A first build with only
+  concurrent bar fetching still skipped 15/105 and aged snapshots to 22.5 s: the order book was the other half of the cost.
+- **Found by the live run, not by unit tests:** the development key was revoked (403 x 195, system fell back cleanly) and a bad key
+  passed preflight. Preflight now authenticates. A watchdog rule that averaged over coins would have missed one dead coin of 15.
+- **Learned:** one measurement run found more than the whole test suite did; and a test can prove "concurrent" with a barrier that
+  only opens if every request is in flight at once.

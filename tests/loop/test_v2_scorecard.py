@@ -99,3 +99,13 @@ def test_e13_review_flag_after_twenty_bad_exits():
     assert a["exits"] == 20 and a["exit_precision"] == 0.0 and a["e13_review"] is True
     a19 = score(recs[:19], {"BTCUSDT": p})["position_advice"]["jev"]
     assert a19["e13_review"] is False
+
+
+def test_scorecard_has_per_symbol_rows_when_several_coins_are_traded():
+    pa, pb = Path1h(bars(UP)), Path1h(bars(DOWN, sym="ETHUSDT"))
+    recs = [rec(T, 100.0, sym="BTCUSDT"), rec(T + H, 100.0, sym="ETHUSDT")]
+    src = score(recs, {"BTCUSDT": pa, "ETHUSDT": pb})["sources"]["jev"]
+    assert set(src["by_symbol"]) == {"BTCUSDT", "ETHUSDT"}
+    assert src["by_symbol"]["BTCUSDT"]["directional_hit_rate_24h"] == 1.0
+    assert src["by_symbol"]["ETHUSDT"]["directional_hit_rate_24h"] == 0.0
+    assert "by_symbol" not in score([rec(T, 100.0)], {"BTCUSDT": pa})["sources"]["jev"]
