@@ -33,7 +33,11 @@ def hermes_sender(subject: str, body: str) -> bool:
     if exe is None:
         log.warning("notify: hermes CLI not found; message dropped: %s", subject)
         return False
-    r = subprocess.run([exe, "send", "--to", "telegram", "--subject", subject, body],
+    # Delivery target. Defaults to the home channel, but V2 alerts belong in their
+    # own topic so a real STOP is not buried in a chat thread. Set V2_ALERT_TARGET
+    # in config/v2.env to override, e.g. telegram:-1004498352646:1269.
+    target = os.environ.get("V2_ALERT_TARGET", "").strip() or "telegram"
+    r = subprocess.run([exe, "send", "--to", target, "--subject", subject, body],
                        capture_output=True, timeout=TIMEOUT_S, check=False)
     return r.returncode == 0
 
