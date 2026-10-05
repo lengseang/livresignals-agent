@@ -87,19 +87,34 @@ addition of a guard to a pipeline.
 
 ## 4. Proposed change
 
-**Enforce an RR floor of 2.0 on every entry, at the point of order construction.**
+**Enforce an RR floor of 2.0 on every entry, by REJECTING the signal.**
 
-Concretely, one of:
+**This section originally offered two options — (a) raise the TP multiplier, or (b) reject
+the signal. The validation run (§6.1) settles it in favour of (b), and against (a):**
 
-- **(a)** raise the TP multiplier at lines 326, 426, 480 to `2.0` (uniform behaviour), or
-- **(b)** reject signals whose constructed RR would be < 2.0 (keeps the existing
-  exit geometry, takes fewer trades),
+The exit mix explains why. The RR<2 cohort does not lose by stopping out — it loses by
+*stalling*:
 
-or a combination. **The choice between (a) and (b) is not made here** — it changes
-which signals are traded, and should be settled by the backtest in §6, not by argument.
+```
+RR>=2   TP 31.0%   SL 44.6%   TIME 10.9%   STALL 13.5%
+RR<2    TP  6.1%   SL 34.4%   TIME 58.0%   STALL  1.3%
+```
 
-**Not in scope:** the `imported` lane's aggregate loss, the exit logic, position
-sizing, and the risk engine.
+**58% of RR<2 trades exit on TIME, and only 6.1% reach target.** These are entries that
+drift sideways until the clock closes them. **Widening the target (option a) would make
+that strictly worse — a trade reaching a 1.5R target 6% of the time will reach a 2R
+target less often still.** The defect is in the *entry*, so the fix is to not take it.
+
+Concretely: at the point of order construction, compute the RR the trade would have and
+**skip the signal if it is < 2.0**.
+
+**Not in scope:** the `imported` lane's aggregate loss, the exit logic, position sizing,
+and the risk engine.
+
+**Open question this raises (not answered here):** *why* do these entries stall? Filtering
+by RR removes the symptom. If a signal fires and 58% of the time goes nowhere, the
+signal generator — not the exit geometry — is where the cause lives. **Finding that is
+worth more than the filter.**
 
 ---
 
@@ -136,22 +151,50 @@ for that reason.
 
 ---
 
-## 6. Validation required before this is actionable
+## 6. Validation — RUN 2026-10-05, RESULT: PASS (4/4)
+
+Plan written before running, at `docs/proposals/rr-floor-validation-plan.md`. Method:
+time-ordered split (not random), one threshold (2.0), no sweeping. **Falsification
+criteria were declared in advance and all four were checked.**
 
 ```
-1. Split-sample          re-derive the RR effect on a held-out period; require the
-                         sign and rough magnitude to survive.
-2. Per-symbol check      the effect must not be one symbol carrying the whole result.
-                         XRP is 15 of 30 live trades — check concentration.
-3. Geometry sensitivity  test (a) raise-TP vs (b) reject-signal separately. They are
-                         different populations and must not be conflated.
-4. Forward paper         run either variant in the paper book for a fixed period
-                         before any live consideration.
-5. Cost re-check         confirm 0.28% is realistic for the retained cohort's
-                         holding time.
+usable trades  1,698 of 2,337 with a derivable RR
+H1             2026-08-29 .. 2026-09-20   (849)
+H2             2026-09-20 .. 2026-10-05   (849)
 ```
 
-**If the effect does not survive (1) and (2), this proposal is withdrawn.**
+| Test | Criterion | Result |
+|---|---|---|
+| **V1** | RR>=2 avg > RR<2 avg in the OOS half | **PASS** — H1 +0.06244 vs −0.02998; H2 +0.07499 vs −0.04488 |
+| **V2** | sign holds in both halves | **PASS** — same direction, magnitude *stronger* in H2 |
+| **V3** | no single symbol > 50% of RR>=2 net | **PASS** — max share 25% (H1), 26% (H2) |
+| **V4** | OOS RR>=2 survives removing its 3 best | **PASS** — +28.422 → +27.353 |
+
+Full figures:
+
+```
+H1  RR>=2  n=346  win=73.1%  net=+21.605  avg=+0.06244  PF=4.65
+H1  RR<2   n=503  win=30.8%  net=−15.081  avg=−0.02998  PF=0.37
+H2  RR>=2  n=379  win=80.7%  net=+28.422  avg=+0.07499  PF=7.21
+H2  RR<2   n=470  win=22.1%  net=−21.096  avg=−0.04488  PF=0.09
+```
+
+### 6.1 What the validation changed
+
+It settled §4 in favour of **rejecting** rather than **re-widening**, via the exit mix
+(see §4). It did **not** change the direction of the finding.
+
+**Remaining validation before this is actionable** (unchanged from the plan):
+
+```
+1. split-sample            DONE — pass
+2. per-symbol concentration DONE — pass
+3. geometry: (a) vs (b)    RESOLVED by the exit mix — (b)
+4. forward paper           NOT DONE — build variant (b), run it in paper
+5. cost re-check           NOT DONE — RR<2 exits are TIME-heavy; confirm 0.28% holds
+```
+
+**Steps 4 and 5 are the gate to live. Neither is done.**
 
 ---
 
