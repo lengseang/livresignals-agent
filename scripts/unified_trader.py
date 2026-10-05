@@ -206,6 +206,17 @@ def _paper_check(ex) -> None:
         except Exception:
             keep.append(p)
             continue
+        # RECORD THE ADVERSE EXTREME (2026-10-05). `best_px` records how far a trade
+        # went in its FAVOUR; nothing recorded how far it went AGAINST. That gap made
+        # every initial-stop question unanswerable: to ask "would a 1.2% stop have been
+        # hit?" you need the worst price reached, and the book only stored the best.
+        # `worst_px` is sampled from the same observed ticks as best_px (at the
+        # :16/:46 scan cadence), so it is a lower bound on the true adverse extreme —
+        # a tighter stop may have been breached between samples. Recorded for new
+        # trades only; existing closed records keep their shape.
+        w = float(p.get("worst_px") or p["entry"])
+        if px < w:
+            p["worst_px"] = round(px, 6)
         if px >= p["tp"]:
             p["pnl"] = round((px - p["entry"]) * (p["size"] / p["entry"]), 4)
             p["reason"] = "TP"
