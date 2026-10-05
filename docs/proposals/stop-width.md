@@ -156,3 +156,80 @@ of the damage while leaving the mechanism intact — **a proxy fix that looks li
 second time this week that a plausible order-path change did not survive contact with
 the data (the first being the 2026-10-04 futures stop/trail edit, reverted the same
 night).
+
+---
+
+## 8. RESOLUTION ATTEMPT — replay sweep, 2026-10-05. INCONCLUSIVE, and here is why.
+
+Plan: `docs/proposals/stop-width-sweep-plan.md` (written before running).
+
+### 8.1 The naive approach failed first
+
+`unified-paper.json`'s `best_px` field cannot test a stop. It is the **favourable**
+extreme — **0 of 1,592 values are below entry** — and it is present on only 68% of
+trades, and those are the **winners**:
+
+```
+usable (best_px present)  n=1592  win 58.0%  net +49.920
+excluded                  n= 746  win 25.9%  net −27.473
+```
+
+**The field is recorded when a trade did well and absent when it did not.** Any sweep
+on it would measure survivors.
+
+### 8.2 The real replay — against actual candles
+
+`data/trading.db` has 9.5M candles with true `high`/`low`. `scripts/replay_stop_sweep.py`
+walks each trade forward bar-by-bar at seven stop widths, 1,347 trades replayable.
+
+```
+width     n    win%      net        avg      SL%    TP%   TIME%
+ 0.8%  1347   39.0%    +1.048   +0.00078   35.2%  10.3%  54.5%
+ 1.0%  1347   39.9%    -0.687   -0.00051   29.8%  10.8%  59.3%
+ 1.2%  1347   40.9%    -2.312   -0.00172   25.7%  11.1%  63.3%
+ 1.5%  1347   41.6%    -5.082   -0.00377   21.6%  11.3%  67.1%
+ 2.0%  1347   42.4%    -7.586   -0.00563   14.9%  11.6%  73.5%
+ 2.5%  1347   42.8%   -10.135   -0.00752   11.1%  11.7%  77.1%
+ 3.0%  1347   43.0%   -12.247   -0.00909    8.0%  11.7%  80.3%
+```
+
+**The ordering supports the proposal — monotone, no plateau, tighter is better at every
+step. The SL%/TIME% columns reproduce the substitution mechanism exactly (stop-outs
+35%→8% as timeouts 54%→80%). And TP% is nearly flat (10.3%→11.7%), which removes the
+original rationale for widening: a wider stop does NOT reach target more often.**
+
+### 8.3 But the absolute numbers are wrong, so the ordering is all we have
+
+**Every width loses in the replay; the book is +22 net.** The replay has **no lock-half
+ratchet**, and the book's `STALL` exits — the ratchet firing — average **+0.058/trade
+across 237 trades** and are a large part of the book's profit. **The replay cannot
+reproduce the mechanism that generates the profit, so its levels are meaningless and only
+its ordering is usable.**
+
+### 8.4 The calibration disagreement is now explained
+
+`exit-params.json` swept the same question on **30 real trades** and picked 2.5%.
+Between 1.0% (+0.00094) and 2.5% (+0.00270) the difference is **0.0018 USDT per trade**
+— indistinguishable from noise on n=30. **The "plateau at 2.5–5.0%" is the sweep running
+out of data, not a real optimum.** It selected the flat end of a curve on far too few
+observations.
+
+### 8.5 Verdict: NEITHER ESTABLISHED — proposal not actionable
+
+```
+my tight-stop reading      ordering supported, levels wrong (no ratchet in replay)
+the calibration's 2.5%     n=30, differences within noise
+the original code comment  counted stop-outs and TP, never TIME exits
+```
+
+**Do NOT change the stop width on this evidence.** The correct next step is not another
+analysis — it is to **fix the recording gap**:
+
+```
+add `worst_px` (intra-trade adverse extreme) to the paper book's closed records
+```
+
+**One field. Then this question is directly answerable instead of inferred.** Until it
+exists, every stop-width result is a reconstruction with a known hole in it.
+
+**The proposal is retained as an open question, not a recommendation.**
