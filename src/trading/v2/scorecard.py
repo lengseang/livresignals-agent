@@ -32,6 +32,7 @@ H = 3_600_000
 HORIZONS = {"fwd_1h": H, "fwd_4h": 4 * H, "fwd_24h": 24 * H}
 STOP, TARGET, BARRIER_MS = 0.035, 0.07, 14 * 24 * H
 INACTIVE = ("HOLD", "NO_TRADE")
+E13_MIN_EXITS = 20
 
 
 def _norm(a: str) -> str:
@@ -202,6 +203,9 @@ def score(records: Sequence[dict], paths: Mapping[str, Path1h]) -> dict:
         adv_out[src] = {"graded": len(rows), "exits": len(ex), "exit_precision": (sum(ex) / len(ex)) if ex else None,
                         "holds": len(hold), "hold_precision": (sum(hold) / len(hold)) if hold else None,
                         "mean_exit_minus_hold": sum(d for _, _, d in rows) / len(rows) if rows else None}
+        # owner decision E13: thresholds stay until evidence says otherwise. >= 20 graded exits that beat holding less
+        # than half the time -> flag a review (raise EXIT/REDUCE to 0.80). Flag only; nothing changes by itself.
+        adv_out[src]["e13_review"] = bool(len(ex) >= E13_MIN_EXITS and sum(ex) / len(ex) < 0.5)
     return {"sources": {k: _summarise(v) for k, v in sorted(by_src.items())},
             "agreement_jev_x_gateway": {f"{a}|{b}": n for (a, b), n in sorted(agree.items())},
             "position_advice": adv_out, "pending": pending}

@@ -89,3 +89,13 @@ def test_cli_reads_a_real_chain(tmp_path):
     import json
     out = json.loads((tmp_path / "scorecard.json").read_text())
     assert out["sources"]["jev"]["decisions"] == 1
+
+
+def test_e13_review_flag_after_twenty_bad_exits():
+    adv = {"source": "jev", "action": "EXIT", "position": {"side": "LONG", "entry": 95.0, "stop": 90.0, "target": 120.0}}
+    p = Path1h(bars(UP))                                    # holding to the target always beat exiting
+    recs = [rec(T + k * H, 100.0 + k * 0.5, advice=adv) for k in range(20)]
+    a = score(recs, {"BTCUSDT": p})["position_advice"]["jev"]
+    assert a["exits"] == 20 and a["exit_precision"] == 0.0 and a["e13_review"] is True
+    a19 = score(recs[:19], {"BTCUSDT": p})["position_advice"]["jev"]
+    assert a19["e13_review"] is False

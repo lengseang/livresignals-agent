@@ -81,9 +81,39 @@ def evaluate_policy(decision: Decision, cfg: PolicyConfig = PolicyConfig()) -> P
 @dataclass(frozen=True)
 class ExitParams:
     """Calibrated stop/target fractions (data/exit-params.json via exit_calibrate.py).
-    Injected, never defaulted: an unknown stop is not invented."""
+    Injected, never defaulted: an unknown stop is not invented.
+
+    V2-17 (owner decision E16): with `atr_mult` set, the bracket is VOLATILITY-SCALED per decision:
+    stop = clamp(atr_mult x daily ATR / close, min_stop, max_stop), target = reward_risk x stop, the barrier the entry
+    study found predictable. The daily ATR comes from the snapshot's context block; without it there is no
+    proposal (never a silent fall back to the fixed numbers)."""
     stop_pct: float
     target_pct: float
+    atr_mult: Optional[float] = None
+    min_stop: float = 0.01
+    max_stop: float = 0.05
+    reward_risk: float = 2.0
+
+    def __post_init__(self):
+        if self.atr_mult is not None and not (self.atr_mult > 0 and 0 < self.min_stop <= self.max_stop < 1
+                                              and self.reward_risk > 0):
+            raise ValueError("invalid ATR exit parameters")
+
+    @property
+    def mode(self) -> str:
+        return "atr" if self.atr_mult is not None else "fixed"
+
+
+def resolve_exit_params(ep: Optional[ExitParams], snapshot) -> Optional[ExitParams]:
+    """The concrete stop/target for THIS decision. Fixed mode: unchanged. ATR mode: from the snapshot's daily ATR,
+    or None when the context is missing (then propose_trade says exit_params_unknown)."""
+    if ep is None or ep.atr_mult is None:
+        return ep
+    ctx = getattr(snapshot, "context", None)
+    if ctx is None or not (ctx.atr_d > 0):
+        return None
+    stop = min(ep.max_stop, max(ep.min_stop, ep.atr_mult * ctx.atr_d))
+    return ExitParams(stop_pct=round(stop, 6), target_pct=round(ep.reward_risk * stop, 6))
 
 
 @dataclass(frozen=True)

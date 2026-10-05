@@ -159,12 +159,17 @@ class PaperBook:
         return "queued"
 
     def cancel_pending(self, ts_ms: int, why: str) -> int:
-        """Cancel every queued, unfilled command (Gate 6: kill switch cancels orders). Returns how many."""
-        n = len(self.pending)
-        for cmd, _ in self.pending:
+        """Cancel every queued, unfilled OPENING command (Gate 6: kill switch cancels orders). Reduce-only commands
+        stay: they only take risk off (owner decision E14). Returns how many were cancelled."""
+        keep, n = [], 0
+        for cmd, ts in self.pending:
+            if cmd.reduce_only:
+                keep.append((cmd, ts))
+                continue
+            n += 1
             self.stats[f"cancelled:{why}"] += 1
             self._emit("cancelled", ts_ms, cmd.symbol, reason=why, key=cmd.idempotency_key)
-        self.pending = []
+        self.pending = keep
         return n
 
     def _reject(self, cmd: ExecutionCommand, ts_ms: int, why: str) -> str:

@@ -6,6 +6,7 @@ module.exports = {
     {
       name: "v2-paper",
       script: "/opt/trading-agent-v2/deploy/v2/run-v2.sh",
+      args: "a",
       cwd: "/opt/trading-agent-v2",
       interpreter: "/bin/bash",
       autorestart: true,
@@ -18,6 +19,25 @@ module.exports = {
       time: true,
       out_file: "/opt/trading-agent-v2/logs/v2-paper.out.log",
       error_file: "/opt/trading-agent-v2/logs/v2-paper.err.log",
+      merge_logs: true,
+    },
+    {
+      // lane B (owner decision E16): volatility-scaled bracket, separate book and chains, same Jev
+      name: "v2-paper-b",
+      script: "/opt/trading-agent-v2/deploy/v2/run-v2.sh",
+      args: "b",
+      cwd: "/opt/trading-agent-v2",
+      interpreter: "/bin/bash",
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: 60000,
+      restart_delay: 30000,
+      exp_backoff_restart_delay: 30000,
+      max_memory_restart: "700M",
+      kill_timeout: 10000,
+      time: true,
+      out_file: "/opt/trading-agent-v2/logs/v2-paper-b.out.log",
+      error_file: "/opt/trading-agent-v2/logs/v2-paper-b.err.log",
       merge_logs: true,
     },
     {

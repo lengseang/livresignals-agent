@@ -12,7 +12,7 @@ error reject. Position size exists only here, as a base-asset quantity (notional
 
 Which checks apply to reduce-only intents (exit/reduce/flatten): risk-reducing orders are NOT blocked by
 entry limits (daily loss, exposure, spread). Kill switch, exchange health and duplicate-order still apply:
-the kill switch blocks every new order by definition ("BLOCK NEW ORDERS"). Listed as "n/a" in the audit log.
+the kill switch blocks every order that adds risk; reduce-only orders pass it (owner decision E14). Listed as "n/a".
 """
 from __future__ import annotations
 
@@ -234,8 +234,15 @@ def _evaluate(p: TradeProposal, ctx: RiskContext, score_pct: Optional[float],
     add("exchange_health", h is not None and h.ok,
         "unknown (failing closed)" if h is None else h.detail)
     ks = ctx.kill_switch_engaged
-    add("kill_switch", ks is False,
-        "state unknown (failing closed)" if ks is None else ("ENGAGED" if ks else "not engaged"))
+    if entry:
+        add("kill_switch", ks is False,
+            "state unknown (failing closed)" if ks is None else ("ENGAGED" if ks else "not engaged"))
+    else:
+        # Owner decision E14 (2026-10-05): the kill switch blocks every order that ADDS risk; a reduce-only order is
+        # how a position gets out, so it passes (a kill that traps a position in a disorderly market is the worse
+        # failure). Exchange health still applies to it.
+        add("kill_switch", True, "n/a: reduce-only passes the kill switch (E14); state "
+            + ("unknown" if ks is None else ("ENGAGED" if ks else "not engaged")))
 
     # --- legacy halts as extra checks (entries only)
     for name, st in (("weekly_loss_halt", wk), ("drawdown_halt", dd)):

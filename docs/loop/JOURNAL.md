@@ -347,3 +347,12 @@ results), and what was learned or blocked.
 - **Mistakes:** committed with a failing test (pipe hid the exit code), fixed one commit later, pipefail since. The
   watchdog forgot alerts it failed to deliver; found by running the ops job for real; fixed with tests.
 - **Learned:** run the deploy path itself, not only the units; the alert bug was invisible to unit tests that always succeeded.
+
+## 2026-10-05 · V2-17 owner decisions E13-E16 (delegated)
+- **Done:** E14 in risk + paper (reduce-only passes the kill; the kill cancels only opening orders); E16 lane B (ExitParams ATR mode,
+  `--exit-mode`, `run-v2.sh b`, pm2 `v2-paper-b`, ops over both lanes); E13 review flag in the scorecard and digest; E15
+  recorded as the plan.
+- **Mistake:** a string-slice edit of ops-v2.sh used an end index that came before the start (`|| exit 0` precedes the
+  anchor), so the replace target was "" and the text was inserted between every character. `bash -n` caught it before any
+  commit; restored from git and rewritten whole.
+- **Learned:** never splice files by searching for the first occurrence of a common token; write small files whole.

@@ -328,6 +328,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--max-steps", type=int, default=None)
     ap.add_argument("--minutes", type=float, default=None, help="stop after this many minutes")
     ap.add_argument("--workflow", default="crypto_trading_v3.json")
+    ap.add_argument("--exit-mode", choices=("fixed", "atr"), default="fixed",
+                    help="fixed = the approved 3.5%%/7%% bracket (lane A); atr = volatility-scaled (lane B, E16)")
     a = ap.parse_args(argv[1:])
     if a.approved == a.demo:                                  # neither, or both
         print("refusing to run: pass exactly one of --approved (the owner-approved paper limits) or --demo (UNVALIDATED\n"
@@ -337,7 +339,7 @@ def main(argv: list[str]) -> int:
     syms = tuple(s.strip().upper() for s in a.symbols.split(",") if s.strip())
     if a.approved:
         from trading.v2.approved import approved_config
-        cfg = approved_config(syms, a.cadence, Path(a.out))
+        cfg = approved_config(syms, a.cadence, Path(a.out), exit_mode=a.exit_mode)
     else:
         cfg = demo_config(syms, a.cadence, Path(a.out))
     wf = load_workflow(WORKFLOW_DIR / a.workflow)

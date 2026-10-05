@@ -32,7 +32,7 @@ from trading.v2.features import BookSource, compute_features
 from trading.v2.advisor import PositionPolicy, plan as position_plan
 from trading.v2.paper import LABEL as PAPER_LABEL, PaperBook
 from trading.v2.ids import derive_id
-from trading.v2.policy import ExitParams, PolicyConfig, evaluate_policy, propose_trade
+from trading.v2.policy import ExitParams, PolicyConfig, evaluate_policy, propose_trade, resolve_exit_params
 from trading.v2.risk import ExchangeHealth, OpenOrder, RiskContext, RiskLimits, evaluate_risk
 from trading.v2.state import build_decision_state
 
@@ -204,7 +204,8 @@ class ShadowPipeline:
                 dual = {"error": type(exc).__name__}
         stage[0] = "policy"
         pres = evaluate_policy(decision, self.policy)
-        prop = propose_trade(decision, pres, state, ctx.exit_params)
+        exit_used = resolve_exit_params(ctx.exit_params, snap)          # E16: per-decision in ATR mode
+        prop = propose_trade(decision, pres, state, exit_used)
         risk = preview = None
         if prop.proposal is not None:
             stage[0] = "risk"
@@ -236,6 +237,8 @@ class ShadowPipeline:
             risk=risk.to_dict() if risk else None,
             execution_preview=preview.to_dict() if preview else None,
             paper_submit=paper_submit, comparison=cmp, gateway_dual_run=dual,
+            exit_params=None if exit_used is None else {"mode": ctx.exit_params.mode, "stop_pct": exit_used.stop_pct,
+                                                         "target_pct": exit_used.target_pct},
             versions={"feature": snap.feature_version, "workflow": self.adapter.workflow.tag,
                       "policy": self.policy.policy_version, "risk": self.limits.risk_version,
                       "model": decision.model})

@@ -87,6 +87,10 @@ def digest(out: Path) -> str:
                 pl = v.get("p_long") or {}
                 lines.append(f"score {src}: n={v.get('decisions')} graded={v.get('graded_barrier')} "
                              f"hit24h={v.get('directional_hit_rate_24h')} brier={pl.get('brier')} base={v.get('brier_base_rate')}")
+            for src, a in s.get("position_advice", {}).items():
+                lines.append(f"advice {src}: exits={a.get('exits')} exit_precision={a.get('exit_precision')}"
+                             + (" -> E13 REVIEW: exits beat holding < 50%; consider EXIT/REDUCE >= 0.80"
+                                if a.get("e13_review") else ""))
         except Exception:
             lines.append("scorecard unreadable")
     return "\n".join(lines)

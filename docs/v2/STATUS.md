@@ -72,3 +72,9 @@ No entry rule is admitted (pre-registered, 15 coins, 2020-2026 walk-forward). Mu
 now reaches Jev (features-v2, workflow v3, verified live). A scorecard grades every decision. The paper service is deployable:
 preflight, watchdog, Telegram alerts, an isolated worktree, a pm2 file of its own, the runbook and the VPS-agent prompt.
 End-to-end smoke test through the real start script: 12/12 Jev, 0 fallbacks. See `docs/v2/V2-16-RESULTS.md`.
+
+## Update: open decisions answered (V2-17, 2026-10-05, release branch `v2/release-rc2`)
+E13: keep the position thresholds; the scorecard flags a review automatically. E14: reduce-only exits pass the kill switch;
+the kill cancels only opening orders. E15: test the volatility-scaled barrier in paper, measure Jev with the scorecard, and refit
+after 30 days under the same protocol. E16: lane B (`v2-paper-b`, volatility-scaled bracket) runs beside the approved lane A.
+Real money stays behind the RUNBOOK gate.

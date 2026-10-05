@@ -196,7 +196,9 @@ def test_every_cycle_of_a_randomised_run_satisfies_every_safety_invariant(tmp_pa
     COVER["slippage_refused"] += book.stats["rejected:slippage_exceeded"]
     # a latched kill switch or a pause on the symbol means no entry was ever queued
     if ctl.engaged or ("symbol", SYM) in ctl.paused or ("all", "*") in ctl.paused:
-        assert book.stats["queued"] == 0, ctx
+        # no ENTRY ever; a reduce-only exit may pass a kill or a pause (owner decision E14)
+        assert not [r for r in recs if r["outcome"] == "would_execute" and r["proposal"]["intent"] == "entry"], ctx
+        assert book.stats["opened"] == 0, ctx
 
 
 def test_the_random_runs_actually_exercised_the_dangerous_paths():

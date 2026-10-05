@@ -273,8 +273,6 @@ def test_reduce_only_is_not_blocked_by_loss_limits_exposure_or_spread():
 
 
 @pytest.mark.parametrize("kw,reason", [
-    (dict(kill_switch_engaged=True), "kill_switch"),
-    (dict(kill_switch_engaged=None), "kill_switch"),
     (dict(exchange=None), "exchange_health"),
     (dict(exchange=ExchangeHealth(False, "down")), "exchange_health"),
     (dict(open_orders=(OpenOrder("BTCUSDT", "LONG", True),)), "duplicate_order"),
@@ -283,6 +281,18 @@ def test_reduce_only_is_not_blocked_by_loss_limits_exposure_or_spread():
 def test_reduce_only_is_still_blocked_by_the_safety_vetoes(kw, reason):
     r = run(p=exit_proposal("exit"), c=ctx(state=state(**LONG_POS), **kw))
     assert not r.approved and r.reject_reason == reason
+
+
+@pytest.mark.parametrize("ks", [True, None])
+def test_reduce_only_passes_the_kill_switch_owner_decision_e14(ks):
+    for intent in ("exit", "reduce"):
+        r = run(p=exit_proposal(intent), c=ctx(state=state(**LONG_POS), kill_switch_engaged=ks))
+        assert r.approved, (intent, r.reject_reason)
+        assert "E14" in next(x.detail for x in r.checks if x.name == "kill_switch")
+    # ... but an entry is still blocked, and a dead exchange still blocks the exit
+    assert run(c=ctx(kill_switch_engaged=ks)).reject_reason == "kill_switch"
+    r = run(p=exit_proposal("exit"), c=ctx(state=state(**LONG_POS), kill_switch_engaged=ks, exchange=None))
+    assert not r.approved and r.reject_reason == "exchange_health"
 
 
 def test_exit_without_a_matching_position_is_rejected():

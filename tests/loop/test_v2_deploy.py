@@ -18,7 +18,7 @@ def test_scripts_parse(script):
 def test_ecosystem_is_v2_only_and_isolated():
     js = (D / "ecosystem.v2.config.js").read_text()
     names = [l.split('"')[1] for l in js.splitlines() if l.strip().startswith("name:")]
-    assert names == ["v2-paper", "v2-watchdog", "v2-daily"]
+    assert names == ["v2-paper", "v2-paper-b", "v2-watchdog", "v2-daily"]
     code = "\n".join(l for l in js.splitlines() if not l.strip().startswith("//"))
     assert "/opt/trading-agent/" not in code and "/opt/trading-agent-v2/" in code
     assert "LIVE_ENABLED" not in code and "max_memory_restart" in code
@@ -48,3 +48,15 @@ def test_a_failed_preflight_blocks_the_runner(tmp_path):
     r = subprocess.run(["bash", str(D / "run-v2.sh")], env=env, capture_output=True, text=True, timeout=120)
     assert r.returncode == 1 and "PREFLIGHT FAILED" in r.stdout and "jev_key_present" in r.stdout
     assert not (root / "out" / "heartbeat.json").exists()              # the runner never started
+
+
+def test_lanes_map_to_exit_modes_and_unknown_lane_is_refused(tmp_path):
+    text = (D / "run-v2.sh").read_text()
+    assert "a) EXIT_MODE=fixed" in text and 'b) EXIT_MODE=atr; V2_OUT="$V2_OUT_B"' in text
+    assert '--exit-mode "$EXIT_MODE"' in text
+    root = tmp_path / "root"
+    (root / "config").mkdir(parents=True)
+    (root / "config" / "v2.env").write_text("TYPESAFE_API_KEY=\n")
+    r = subprocess.run(["bash", str(D / "run-v2.sh"), "z"], env={**os.environ, "V2_ROOT": str(root)},
+                       capture_output=True, text=True, timeout=60)
+    assert r.returncode == 2 and "unknown lane" in r.stdout

@@ -42,7 +42,14 @@ RATCHET = RatchetRule(activate_frac=0.5, lock_frac=0.5)
 CONTEXT_UNIVERSE = UNIVERSE
 
 
-def approved_config(symbols: tuple[str, ...], cadence_minutes: int, out_dir: Path) -> RunnerConfig:
+# V2-17 (owner decision E16): paper lane B, volatility-scaled bracket (stop 1.5 x daily ATR clamped 1%..5%, target 2 x stop)
+ATR_EXIT = ExitParams(stop_pct=STOP_PCT, target_pct=TARGET_PCT, atr_mult=1.5, min_stop=0.01, max_stop=0.05,
+                      reward_risk=2.0)
+
+
+def approved_config(symbols: tuple[str, ...], cadence_minutes: int, out_dir: Path, exit_mode: str = "fixed") -> RunnerConfig:
+    if exit_mode not in ("fixed", "atr"):
+        raise ValueError("exit_mode must be fixed or atr")
     return RunnerConfig(
         symbols=symbols, cadence_minutes=cadence_minutes, paper_equity=PAPER_EQUITY_USD, out_dir=out_dir,
         risk_limits=RiskLimits(daily_loss_cap_usd=DAILY_LOSS_CAP_USD, max_spread_bps=RISK_MAX_SPREAD_BPS),
@@ -52,7 +59,7 @@ def approved_config(symbols: tuple[str, ...], cadence_minutes: int, out_dir: Pat
                                max_price_move_frac=KILL_MAX_PRICE_MOVE_FRAC,
                                daily_loss_cap_usd=KILL_DAILY_LOSS_CAP_USD,
                                min_request_confidence=KILL_MIN_REQUEST_CONFIDENCE),
-        exit_params=ExitParams(stop_pct=STOP_PCT, target_pct=TARGET_PCT),
+        exit_params=ExitParams(stop_pct=STOP_PCT, target_pct=TARGET_PCT) if exit_mode == "fixed" else ATR_EXIT,
         daily_loss_budget_usd=DAILY_LOSS_BUDGET_USD,
         costs=CostModel(fee_rate=FEE_RATE, spread_bps=PAPER_SPREAD_BPS, slippage_bps=PAPER_SLIPPAGE_BPS),
         ratchet=RATCHET, context_symbols=CONTEXT_UNIVERSE)

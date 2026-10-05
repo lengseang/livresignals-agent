@@ -18,12 +18,13 @@
 | `/opt/trading-agent-v2` | git worktree, detached at the commit of release branch `v2/release-*` |
 | `/opt/trading-agent-v2/venv` | symlink to `/opt/trading-agent/venv` (same Python 3.12 + numpy/pydantic) |
 | `/opt/trading-agent-v2/config/v2.env` | `TYPESAFE_API_KEY`, `V2_OUT`, `V2_SYMBOLS`, `V2_CADENCE`; chmod 600; git-ignored |
-| `$V2_OUT` (default `/opt/trading-agent-v2/data/v2/paper`) | hash-chained records, `heartbeat.json`, `preflight.json`, `scorecard.json`, watchdog state |
+| `$V2_OUT` / `$V2_OUT_B` (default `.../data/v2/paper` and `.../paper-b`) | hash-chained records, `heartbeat.json`, `preflight.json`, `scorecard.json`, watchdog state |
 | `/opt/trading-agent-v2/logs/` | pm2 stdout/stderr |
 
 **pm2 apps**, from `deploy/v2/ecosystem.v2.config.js` only:
 
-* `v2-paper`: the runner, started through `run-v2.sh`, with preflight first.
+* `v2-paper`: lane A, the approved fixed 3.5% / 7% bracket (`run-v2.sh a`), with preflight first.
+* `v2-paper-b`: lane B, the volatility-scaled bracket (owner decision E16, `run-v2.sh b`), with its own book and chains in `$V2_OUT_B`.
 * `v2-watchdog`: runs every 5 minutes and alerts on problems.
 * `v2-daily`: runs at 08:50 UTC; scorecard plus a Telegram digest.
 
@@ -37,7 +38,8 @@ touch "$V2_OUT/STOP"                               # graceful stop at the next s
 pm2 restart v2-paper                               # restart: the paper book is rebuilt from its own chain
 ```
 
-* **Kill switch.** Run `touch "$V2_OUT/V2_KILL"`. It latches and blocks every new order, and the watchdog alerts.
+* **Kill switch.** Run `touch "$V2_OUT/V2_KILL"` (per lane). It latches and blocks every order that ADDS risk;
+  reduce-only exits still pass (owner decision E14). The watchdog alerts.
   Only a human can reset it: remove the file and restart.
 * **Never edit the chains** (`$V2_OUT/v2cycle`, `v2paper`, `v2kill`). They are append-only and hash-linked;
   preflight refuses to start on a broken one.
@@ -93,7 +95,7 @@ service starts.
 ## Costs and growth (measured)
 
 * **Jev:** ~2.6k input tokens per entry call and ~1.6k per position call. With 3 symbols every 15 minutes, that is
-  288 calls a day.
+  288 calls a day per lane (576 with lane B).
 * **Disk:** the cycle records hold the full snapshot, state, decision and dual-run, about 2-3 MB a day for 3
   symbols. Watch it in the digest; preflight and the watchdog alert below 2 GB free.
 

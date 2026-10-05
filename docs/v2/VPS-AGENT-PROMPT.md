@@ -1,11 +1,11 @@
-# Prompt for the VPS agent: deploy the V2 PAPER service (release branch v2/release-rc1)
+# Prompt for the VPS agent: deploy the V2 PAPER service (release branch v2/release-rc2)
 
 Paste everything below the line into the agent on the VPS.
 
 ---
 
 **Release commit to deploy: `RELEASE_SHA_GOES_HERE`** (the owner fills this in. It is the head of the branch
-`v2/release-rc1`. Where this prompt says "the SHA the owner gives you", it means this value.)
+`v2/release-rc2`. Where this prompt says "the SHA the owner gives you", it means this value.)
 
 You are deploying the **V2 paper trading service** of `lengseang/livresignals-agent` on this VPS. Follow these steps
 exactly. Report evidence (command output), not claims. If any step fails or does not match what is described, STOP
@@ -18,7 +18,7 @@ and report: do not improvise a workaround.
   everything in a SIMULATED paper book from public Binance data.
 * `trading.v2` contains **no order path**: no exchange client and no order call. Its preflight checks that on every
   start.
-* It runs from an **isolated git worktree** at `/opt/trading-agent-v2`, pinned to the exact commit of the release branch `v2/release-rc1`. The live
+* It runs from an **isolated git worktree** at `/opt/trading-agent-v2`, pinned to the exact commit of the release branch `v2/release-rc2`. The live
   checkout `/opt/trading-agent` and its running processes stay exactly as they are.
 
 ## Hard rules: never break these
@@ -28,7 +28,7 @@ and report: do not improvise a workaround.
 * NEVER change the checkout or branch of `/opt/trading-agent`. Only `git fetch` there (fetching does not touch the
   working tree).
 * NEVER run `pm2 start ecosystem.config.js`, and NEVER restart, stop or modify any existing pm2 app or the
-  `livr-shadow` service. Only the three new apps `v2-paper`, `v2-watchdog` and `v2-daily` are yours.
+  `livr-shadow` service. Only the four new apps `v2-paper`, `v2-paper-b`, `v2-watchdog` and `v2-daily` are yours.
 * NEVER touch `config/LIVE_ENABLED*`, `.gitignore`, deploy-key settings, risk limits or any ledger or state JSON.
 * NEVER print, log or echo the API key. Do not `cat` `config/v2.env`.
 * NEVER place, modify or cancel an exchange order. This deployment has no reason to.
@@ -53,8 +53,8 @@ ls -d /opt/trading-agent-v2 2>/dev/null && echo "EXISTS" || echo "absent"
 ```
 cd /opt/trading-agent
 git fetch origin main
-git fetch origin v2/release-rc1
-REL=$(git rev-parse origin/v2/release-rc1); echo "release commit: $REL"
+git fetch origin v2/release-rc2
+REL=$(git rev-parse origin/v2/release-rc2); echo "release commit: $REL"
 git merge-base --is-ancestor origin/main "$REL" && echo "release contains main"
 git diff --stat origin/main "$REL" -- . ':(exclude)src/trading/v2' ':(exclude)tests/loop' ':(exclude)docs' ':(exclude)deploy/v2' | tail -3
 ```
@@ -70,7 +70,7 @@ git diff --stat origin/main "$REL" -- . ':(exclude)src/trading/v2' ':(exclude)te
 git -C /opt/trading-agent worktree add --detach /opt/trading-agent-v2 "$REL"
 cd /opt/trading-agent-v2
 ln -s /opt/trading-agent/venv venv
-mkdir -p config logs data/v2/paper
+mkdir -p config logs data/v2/paper data/v2/paper-b
 cp deploy/v2/v2.env.example config/v2.env && chmod 600 config/v2.env
 git -C /opt/trading-agent status -sb | head -3     # must be unchanged from Step 0
 ```
@@ -118,18 +118,20 @@ pm2 start deploy/v2/ecosystem.v2.config.js
 pm2 status
 ```
 
-Expected: `v2-paper` is online; `v2-watchdog` and `v2-daily` are registered as cron apps. Every pre-existing app is
+Expected: `v2-paper` (lane A, approved fixed bracket) and `v2-paper-b` (lane B, volatility-scaled bracket) are online;
+`v2-watchdog` and `v2-daily` are registered as cron apps. Every pre-existing app is
 exactly as it was in Step 0.
 
 ## Step 7: verify it is really working (wait about 20 minutes, then report)
 
 ```
-pm2 logs v2-paper --lines 60 --nostream
+pm2 logs v2-paper --lines 60 --nostream ; pm2 logs v2-paper-b --lines 60 --nostream
 cat /opt/trading-agent-v2/data/v2/paper/heartbeat.json
-cd /opt/trading-agent-v2 && PYTHONPATH=src venv/bin/python -m trading.v2.watchdog --out data/v2/paper
+cat /opt/trading-agent-v2/data/v2/paper-b/heartbeat.json
+cd /opt/trading-agent-v2 && for L in paper paper-b; do PYTHONPATH=src venv/bin/python -m trading.v2.watchdog --out data/v2/$L; done
 ```
 
-Report:
+Report, for EACH lane:
 
 * `steps` is increasing (it is written every minute).
 * `cycles` > 0 after the first 15-minute boundary.
@@ -151,10 +153,10 @@ pm2 save
 ## Stop / rollback (only if the owner asks or something is wrong)
 
 ```
-touch /opt/trading-agent-v2/data/v2/paper/STOP ; sleep 90 ; pm2 stop v2-paper v2-watchdog v2-daily
+touch /opt/trading-agent-v2/data/v2/paper/STOP /opt/trading-agent-v2/data/v2/paper-b/STOP ; sleep 90 ; pm2 stop v2-paper v2-paper-b v2-watchdog v2-daily
 ```
 
-* Do not delete anything under `data/v2/paper`. The chains are append-only evidence.
+* Do not delete anything under `data/v2/`. The chains are append-only evidence.
 * Full instructions are in `/opt/trading-agent-v2/docs/v2/RUNBOOK.md`.
 
 ## Final report format

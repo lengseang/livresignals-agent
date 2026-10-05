@@ -212,3 +212,15 @@ def test_restore_fails_closed_on_a_wrong_start_equity_or_a_broken_chain(tmp_path
     f.write_text(f.read_text().replace('"qty":1.0', '"qty":2.0', 1))
     with pytest.raises(ValueError, match="does not verify"):
         read_chain(tmp_path / "v2paper" / "book")
+
+
+def test_kill_switch_cancels_opening_orders_but_keeps_exits():
+    # owner decision E14
+    from test_v2_paper import close_cmd
+    bk = long_book(rule=None)
+    bk.submit(close_cmd(size=1.0, key="9"), T0 + M)
+    bk.submit(cmd(key="5", size=1.0, stop_price=95.0, target_price=110.0, symbol="ETHUSDT"), T0 + M)
+    assert bk.cancel_pending(T0 + M, "kill_switch") == 1
+    assert [c.reduce_only for c, _ in bk.pending] == [True]
+    bk.on_bar(b(1, 101.0))
+    assert bk.trades[-1]["reason"] == "exit" and "BTCUSDT" not in bk.positions
