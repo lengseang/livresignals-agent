@@ -24,6 +24,7 @@ Plus the general rule: shallow-but-deep-enough dips with rsi<=30 and >=3 red.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -145,6 +146,50 @@ def _validated(sig: dict) -> dict | None:
     return None
 
 
+# --- PAPER COST MODEL (2026-10-05) -----------------------------------------
+# The paper book booked GROSS pnl: it applied no transaction cost at all, so its
+# P&L measured the strategy's gross behaviour and not its profitability. That gap
+# was measured, not guessed: the walk-forward replay (docs/proposals/replay-findings.md)
+# shows the live rule earns PF 1.02-1.04 at the real fills' implied cost but is
+# negative at the exchange's own taker fee. A paper track with no costs cannot
+# show that, and reported +0.0095/trade where the replay supports +0.0006..+0.0013.
+#
+# PAPER_COST_RT is the round-trip fraction charged on close, as a FRACTION (not
+# bps). 0.0003 = 0.03% round trip, taken from the 30 real fills on this account
+# (recovered fees: +0.027%, -0.001%, +0.059% — median ~zero, mean ~0.03%).
+# Deliberately conservative: it is the LOW end, so the paper book is flattered
+# rather than punished. Set PAPER_COST_RT=0 to restore gross-only booking.
+#
+# `pnl` stays the GROSS number so every existing consumer, threshold and
+# comparison keeps working unchanged. `pnl_net` is the new, honest figure, and
+# `cost` records what was charged. Nothing else about the book changes.
+PAPER_COST_RT = float(os.environ.get("PAPER_COST_RT", "0.0003"))
+
+# PAPER_CHARGE_COST=0 disables charging entirely (records pnl_net == pnl).
+PAPER_CHARGE_COST = os.environ.get("PAPER_CHARGE_COST", "1") not in ("0", "false", "False")
+
+
+def _book_pnl(p: dict, exit_px: float) -> float:
+    """Close the trade on `p`: set pnl (gross), cost and pnl_net. Returns net.
+
+    Cost is charged on the exit notional (size in USDT terms), matching how the
+    live fills behaved: a round trip costs PAPER_COST_RT of the position's value.
+    """
+    size = p.get("size", 5.0)
+    entry = p.get("entry") or 0.0
+    qty = size / entry if entry else 0.0
+    gross = (exit_px - entry) * qty
+    p["pnl"] = round(gross, 4)
+    if PAPER_CHARGE_COST and size:
+        cost = size * PAPER_COST_RT
+        p["cost"] = round(cost, 6)
+        p["pnl_net"] = round(gross - cost, 4)
+    else:
+        p["cost"] = 0.0
+        p["pnl_net"] = round(gross, 4)
+    return p["pnl_net"]
+
+
 def _paper_open(sig: dict) -> None:
     if _symbol_disabled(sig.get("symbol", "")):
         return
@@ -218,15 +263,17 @@ def _paper_check(ex) -> None:
         if px < w:
             p["worst_px"] = round(px, 6)
         if px >= p["tp"]:
-            p["pnl"] = round((px - p["entry"]) * (p["size"] / p["entry"]), 4)
+            _book_pnl(p, px)
             p["reason"] = "TP"
             s["closed"].append(p)
-            print(f"  PAPER CLOSE {p['symbol']} TP pnl={p['pnl']:+.2f}")
+            print(f"  PAPER CLOSE {p['symbol']} TP pnl={p['pnl']:+.2f} "
+                  f"net={p['pnl_net']:+.2f}")
         elif px <= p["sl"]:
-            p["pnl"] = round((px - p["entry"]) * (p["size"] / p["entry"]), 4)
+            _book_pnl(p, px)
             p["reason"] = "SL"
             s["closed"].append(p)
-            print(f"  PAPER CLOSE {p['symbol']} SL pnl={p['pnl']:+.2f}")
+            print(f"  PAPER CLOSE {p['symbol']} SL pnl={p['pnl']:+.2f} "
+                  f"net={p['pnl_net']:+.2f}")
         else:
             # BREAKEVEN/TRAIL PROTECTION (mirrors live_executor 2026-09-07):
             # never give back a winner — >= +0.5% locks breakeven, >= +1.5%
@@ -264,7 +311,7 @@ def _paper_check(ex) -> None:
                     except Exception:
                         pass
             if stall:
-                p["pnl"] = round((px - p["entry"]) * (p["size"] / p["entry"]), 4)
+                _book_pnl(p, px)
                 p["reason"] = "STALL"
                 p["exit_px"] = px
                 s["closed"].append(p)
@@ -301,7 +348,7 @@ def _paper_check(ex) -> None:
                 if pnl_pct >= 0.5 and age_h < 12.0:
                     keep.append(p)  # winner still running — DON'T cut it short
                     continue
-                p["pnl"] = round((px - p["entry"]) * (p["size"] / p["entry"]), 4)
+                _book_pnl(p, px)
                 p["reason"] = "TIME"
                 p["exit_px"] = px
                 s["closed"].append(p)
