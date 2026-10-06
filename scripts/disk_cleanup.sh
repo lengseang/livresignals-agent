@@ -27,9 +27,18 @@ df -h / | tail -1
 echo
 
 echo "--- 1. unreferenced one-off sweep output (162M) ---"
+# CAUTION (2026-10-05): full_sweep.json IS referenced — scripts/paper_learner.py
+# reads it as its historical price source. Deleting it here crashed the daily
+# paper-learner cron (FileNotFoundError) until paper_learner gained a fallback
+# to live_fine.json / alts_fine.json. Only delete if paper_learner's fallback
+# sources are confirmed present, otherwise the learner silently goes dark.
 if [ -f data/full_sweep.json ]; then
-  ls -lh data/full_sweep.json
-  rm -f data/full_sweep.json && echo "  ✅ deleted full_sweep.json (regenerable via research harness)"
+  if [ -f data/live_fine.json ] || [ -f data/alts_fine.json ]; then
+    ls -lh data/full_sweep.json
+    rm -f data/full_sweep.json && echo "  ✅ deleted full_sweep.json (paper_learner has fallback sources)"
+  else
+    echo "  ⚠️  keeping full_sweep.json — paper_learner has NO fallback source"
+  fi
 else
   echo "  already gone"
 fi

@@ -39,14 +39,49 @@ REDS = [2, 3, 4]
 HOLDS = {"5m": 6, "15m": 4, "30m": 3}  # bars held per tf
 
 
+def _read_sweep_file(path):
+    """Read one historical-sweep JSON, returning {key: [(ts, close), ...]}.
+
+    Returns {} on any failure so a missing/corrupt file never raises."""
+    try:
+        if not path.exists():
+            return {}
+        d = json.loads(path.read_text())
+        return d if isinstance(d, dict) else {}
+    except Exception:  # noqa: BLE001 — data files are best-effort inputs
+        return {}
+
+
 def _load_all_series():
-    """Load full_sweep.json ONCE into {key: closes}. Avoids re-reading 169MB
-    per combo (the old bottleneck that made this 576x too slow)."""
-    d = json.loads(SWEEP.read_text())
+    """Load the historical close series ONCE into {key: closes}.
+
+    Bug fixed 2026-10-05: this used to read data/full_sweep.json, which
+    disk_cleanup.sh deleted as 'referenced NOWHERE' — but this cron DOES
+    reference it, so paper_learner crashed with FileNotFoundError on every
+    daily run and silently never learned. Fall back to the sibling sweep
+    files that still exist (live_fine.json / alts_fine.json) and map their
+    keys onto SERIES_KEYS. If no source has usable data, return {} so main()
+    logs a clear line and exits 0 instead of dumping a traceback.
+    """
+    sources = [SWEEP, DATA / "live_fine.json", DATA / "alts_fine.json"]
+    merged = {}
+    for path in sources:
+        for k, v in _read_sweep_file(path).items():
+            if k not in merged and isinstance(v, list) and v:
+                merged[k] = v
+    # live_fine.json is keyed by bare timeframe ("15m") for BTC/USDT only.
     out = {}
     for key in SERIES_KEYS:
-        if key in d:
-            out[key] = [x[1] for x in d[key]]
+        series = merged.get(key)
+        if series is None and key in ("15m:BTC/USDT", "30m:BTC/USDT",
+                                      "5m:BTC/USDT"):
+            bare = key.split(":", 1)[0]
+            series = merged.get(bare)
+        if series:
+            try:
+                out[key] = [x[1] for x in series]
+            except Exception:  # noqa: BLE001
+                continue
     return out
 
 
@@ -120,32 +155,15 @@ def simulate(closes, dip, rsi_max, red_min, hold_bars):
     return wins, losses, ev
 
 
-def evaluate_params(dip, rsi_max, red_min):
-    """Average accuracy + EV across all series for a param set."""
-    accs, evs, ns = [], [], []
-    for key in SERIES_KEYS:
-        closes = _load_series(key)
-        if len(closes) < 120:
-            continue
-        tf = key.split(":")[0]
-        r = simulate(closes, dip, rsi_max, red_min, HOLDS[tf])
-        if r:
-            w, l, ev = r
-            accs.append(w / (w + l)); evs.append(ev); ns.append(w + l)
-    if not accs:
-        return None
-    # accuracy-weighted by sample size
-    tot = sum(ns)
-    wacc = sum(a * n for a, n in zip(accs, ns)) / tot
-    wev = sum(e * n for e, n in zip(evs, ns)) / tot
-    return wacc * 100, wev, tot
-
-
 def best_params():
     """Grid-search the param space for highest accuracy. Pure python, cached
     per-combo so it survives interruption (writes progress to STATE)."""
     combos = [(d, r, rm) for d in DIPS for r in RSIS for rm in REDS]
-    series_cache = _load_all_series()  # load 169MB ONCE
+    series_cache = _load_all_series()  # load sweep data ONCE
+    if not series_cache:
+        print("paper-learner: no historical sweep data available "
+              "(full_sweep.json missing and no fallback series) — skipping")
+        return None
     # load prior progress
     done = {}
     if STATE.exists():

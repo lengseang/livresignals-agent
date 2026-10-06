@@ -211,11 +211,20 @@ USE_GATE = True
 # Vet: https://github.com/binance/binance-skills-hub/tree/main/skills/binance-web3/query-token-audit
 # Endpoint: POST web3.binance.com/bapi/defi/v1/public/wallet-direct/security/token/audit
 # Probed:   BSC 200 OK, Solana 200 OK (returns risk level + buy/sell tax + specific risk items)
-# Status: MONITOR-ONLY — no history to backtest against. Cannot validate benefit.
-# Adds information? YES — contract risk data is NOT derivable from candles (same class as OI).
-# But: requires symbol→contract_address mapping we don't have built yet.
-# When enabled: skips entries where a coin's token contract is flagged HIGH/MID risk.
-# Module lives in src/trading/signals/token_audit.py
+# Status: REJECTED as a veto (2026-10-05, 3rd independent measurement). DO NOT ENABLE.
+#   The resolver now EXISTS (src/trading/signals/token_resolver.py) — building it is
+#   what falsified the candidate. It returns the CEX asset's BRIDGED TWIN on another
+#   chain, not the contract Binance spot trades: AAVE->Solana, ETHFI->Solana, DOGE->BSC
+#   Binance-Peg. Re-measured 2026-10-05 over the full 53-coin universe: exactly 2
+#   alerts are raised and BOTH are false positives on listed blue-chips (ETHFI HIGH
+#   "Rug Pull Risk" from its Solana twin). 24/53 native coins correctly fail closed.
+#   The defect is STRUCTURAL — a chain-agnostic symbol search with an mcap tiebreak
+#   will always prefer a larger wrapped twin — so it cannot be fixed with more data.
+#   The "fix" of querying chain 1 alone is WORSE: it manufactures contracts for native
+#   coins (XRP -> "HarryPotterObamaPacMan8Inu", SOL -> "Wrapped SOL"), turning a safe
+#   fail-closed None into a confident wrong answer.
+# Adds information? NOT for our book — the risk profile scored is a different contract.
+# Module lives in src/trading/signals/token_audit.py; history: reports/overnight-*.md
 USE_TOKEN_AUDIT_VETO = False
 # Regime filter length. Walk-forward validated (4 folds, 300d each):
 #   sma200 -> median +12.5%, 3/4 folds positive

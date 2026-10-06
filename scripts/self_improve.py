@@ -196,15 +196,51 @@ def optimize(symbols: list[str]) -> dict:
             out.append(ret - FEE)
         return out
 
+    def _fetch_paginated(sym: str, pages: int = 3) -> list:
+        """Fetch up to `pages`x1000 15m bars by walking backwards with `since`.
+
+        🔴 ROOT-CAUSE FIX (2026-10-06): Binance caps a single fetch_ohlcv at
+        1000 bars regardless of the requested limit. The old code asked for
+        1200, got 1000, split it into two 500-bar halves, then spent the first
+        200 bars of EACH half rebuilding the EMA200 and reserved the next 97
+        for the forward window — leaving only ~193 usable iterations per half.
+        The sharp-dip+RSI+regime gate is rare, so the OUT-OF-SAMPLE half
+        routinely produced ZERO signals. With oos_n==0 the fail-closed guard
+        below refused every config, so the optimizer could NEVER tune and
+        reported "no config generalised" forever. Giving it more history is
+        the fix; the two halves each get their own full 200-bar warmup.
+        """
+        base = ex.fetch_ohlcv(sym, "15m", limit=1000)
+        if not base:
+            return []
+        merged = {x[0]: x for x in base}
+        earliest = base[0][0]
+        step = 1000 * 15 * 60 * 1000
+        for _ in range(pages - 1):
+            try:
+                page = ex.fetch_ohlcv(sym, "15m", limit=1000,
+                                      since=earliest - step)
+            except Exception:
+                break
+            if not page:
+                break
+            for x in page:
+                merged[x[0]] = x
+            earliest = min(x[0] for x in page)
+        return [merged[k] for k in sorted(merged)]
+
     data = {}
     failed = []
     for s in symbols:
         try:
-            o = ex.fetch_ohlcv(s, "15m", limit=1200)
-            if o and len(o) > 500:
+            o = _fetch_paginated(s, pages=3)
+            # Need >= 1000 bars so each half keeps a full 200-bar EMA warmup
+            # PLUS a meaningful forward window. Below that the OOS half is a
+            # coin flip on whether it produces any signal at all.
+            if o and len(o) >= 1000:
                 data[s] = o
             else:
-                failed.append(f"{s}(short)")
+                failed.append(f"{s}(short {len(o)})")
         except Exception as e:
             # A per-symbol fetch failure silently shrank the optimizer's sample.
             # The search then reported a confident OOS figure computed on fewer
@@ -343,7 +379,26 @@ def main() -> None:
                 f"({which}). An empty half passes a >="
                 f" check for free, so tuning is refused rather than guessed.")
         else:
-            findings.append("optimizer: no config generalised (kept current)")
+            # The search ran on a real sample and every config was negative in
+            # at least one half. Report WHICH and WHY, so a healthy "we measured
+            # it and it loses" is distinguishable from an untested pass.
+            grid = opt.get("grid", [])
+            neg_both = [g for g in grid
+                        if g.get("is_pct") is not None
+                        and g.get("oos_pct") is not None
+                        and g["is_pct"] <= 0 and g["oos_pct"] <= 0]
+            if grid and len(neg_both) == len(grid):
+                worst = min(grid, key=lambda g: (g["is_pct"] or 0) + (g["oos_pct"] or 0))
+                findings.append(
+                    f"optimizer: NO CHANGE — all {len(grid)} configs NEGATIVE in "
+                    f"BOTH halves on real data (n={grid[0].get('n')}); the "
+                    f"sharp-dip entry is negative-EV after fees, so no exit "
+                    f"tuning can rescue it. Best-of-bad: sl={worst['sl']} "
+                    f"trail={worst['trail']} IS={worst['is_pct']:+.2f}% "
+                    f"OOS={worst['oos_pct']:+.2f}%. Entry signal needs "
+                    f"rework, not tuning.")
+            else:
+                findings.append("optimizer: no config generalised (kept current)")
 
     # 3) disable proven-losing edges (safe: state file, not code)
     state = load_json(STATE, {"disabled": [], "promoted": []})
