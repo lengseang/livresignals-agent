@@ -45,6 +45,9 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from paper_net import summarise as paper_summarise, per_symbol_net  # noqa: E402
+
 BASE = Path(__file__).resolve().parents[1]
 DATA = BASE / "data"
 REPORTS = BASE / "reports"
@@ -325,9 +328,36 @@ def main() -> None:
     fut_c = fut.get("closed", [])
 
     ls, ps, fs = stats(live_c), stats(paper_c), stats(fut_c)
+    # The paper book charges costs (2026-10-06) and records pnl_net. Report the
+    # NET figure — the gross one was what the card quoted, and it is flattered by
+    # exactly the costs the book now measures. Gross is kept in parens for the
+    # reader who wants to see the haircut.
+    pnet = paper_summarise(paper_c)
     findings.append(f"live: n={ls['n']} wr={ls['wr']:.0f}% pnl={ls['pnl']:+.3f}")
-    findings.append(f"paper: n={ps['n']} wr={ps['wr']:.0f}% pnl={ps['pnl']:+.3f}")
+    findings.append(
+        f"paper NET: n={pnet['n']} wr={pnet['wr_net']:.0f}% "
+        f"pnl={pnet['net_pnl']:+.3f} ev/trade={pnet['ev_net']:+.5f} "
+        f"(gross {pnet['gross_pnl']:+.3f}, wr {pnet['wr_gross']:.0f}%)"
+        + (f"; {pnet['uncosted']} record(s) uncosted" if pnet['uncosted'] else ""))
     findings.append(f"futures: n={fs['n']} wr={fs['wr']:.0f}% pnl={fs['pnl']:+.3f}")
+
+    # 1b) per-symbol net edge — which symbols actually EARN after costs.
+    #     A symbol whose net is negative loses money at any win rate; the owner
+    #     should see that rather than the aggregate, which hides it. Only the
+    #     biggest earners/losers are named so the card stays short.
+    psn = per_symbol_net(paper_c)
+    ranked = sorted(psn.items(), key=lambda kv: kv[1]["net"], reverse=True)
+    ranked = [(s, d) for s, d in ranked if d["n"] >= 20]   # ignore tiny samples
+    if ranked:
+        top = ranked[0]
+        findings.append(
+            f"paper best symbol: {top[0]} n={top[1]['n']} "
+            f"net={top[1]['net']:+.3f} (gross {top[1]['gross']:+.3f})")
+        losers = [(s, d) for s, d in ranked if d["net"] < 0]
+        if losers:
+            names = ", ".join(f"{s} {d['net']:+.2f}" for s, d in losers[:4])
+            findings.append(
+                f"paper net-LOSING symbols (n>=20): {len(losers)} — {names}")
 
     # 2) optimizer — OOS validated parameter search
     opt = optimize(["SOL/USDT", "XRP/USDT", "ETH/USDT", "BTC/USDT", "LINK/USDT"])

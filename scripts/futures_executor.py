@@ -51,6 +51,44 @@ def live_enabled() -> bool:
 
 STATE_PATH = BASE_DIR / "data" / "futures-trades.json"
 ENV_FILE = BASE_DIR / "config" / "live.env"
+SIGNALS_STATE = BASE_DIR / "data" / "signals-state.json"
+
+
+def sharp_dip_paused() -> bool:
+    """True if the futures SHARP-DIP entry is paused by research evidence.
+
+    Set via data/signals-state.json -> "futures_sharp_dip_paused": true.
+
+    WHY (2026-10-06 autonomous improvement pass). The SOL/XRP 15m sharp-dip
+    entry (dd<=-1.1%, RSI<=35, px>EMA200) was re-tested OUT-OF-SAMPLE four
+    independent ways on ~3000 real 15m bars/symbol, split in half, fee 0.08%:
+
+      1. self_improve.py optimizer: all stop/trail configs negative in BOTH
+         halves (n=435).
+      2. Prior pass entry test on 12 majors: aggregate EV -0.364%, n=1026.
+      3. This pass, confirmation filters (bullish close / higher-low / reclaim
+         / vol-spike / up-bar): EVERY variant negative in BOTH halves.
+      4. This pass, 6 alternative signal families (BTC-regime dip, RSI-resume,
+         EMA-stack pullback, RSI2, breakout, no-regime dip): NONE positive in
+         both halves; the two near-misses (stack-pullback, RSI2) flip sign
+         between halves -> regime-dependent artifacts.
+
+    Conclusion: the entry is structurally negative-EV after fees, not
+    mis-tuned. Exits cannot rescue it. Pausing NEW entries protects real 3x
+    money while keeping the venue, its management, and its data intact.
+
+    This ONLY blocks new entries — it never widens risk, and futures_manage()
+    still fully supervises any already-open position. Fail-OPEN on a
+    read/parse error so a corrupt state file can never silently stall the
+    venue forever (the owner can also delete the key to re-enable).
+    """
+    try:
+        if SIGNALS_STATE.exists():
+            st = json.loads(SIGNALS_STATE.read_text(encoding="utf-8"))
+            return bool(st.get("futures_sharp_dip_paused", False))
+    except Exception:
+        pass
+    return False
 
 LEVERAGE = 3
 MAX_NOTIONAL = 18.0   # full wallet at 3x (owner: risk more on A+ signals)
@@ -216,6 +254,14 @@ def futures_open(symbol_spot: str, sig: dict | None = None) -> dict:
     if abs(_daily_loss()) >= DAILY_LOSS_CAP:
         return {"ok": False, "err": f"daily loss cap -${DAILY_LOSS_CAP} hit — halted for today"}
 
+    # --- research pause (2026-10-06) ---
+    # unified_trader's 2x/hour futures branch calls futures_open() DIRECTLY,
+    # bypassing futures_scan()'s gate. Enforce the pause HERE too so EVERY
+    # caller is protected (same reasoning as the regime filter below).
+    if sharp_dip_paused():
+        return {"ok": False,
+                "err": "sharp-dip entry PAUSED: negative-EV in both OOS halves"}
+
     s = _load()
     if len(s["open"]) >= 1:
         return {"ok": False, "err": "1 futures position already open"}
@@ -348,6 +394,12 @@ def futures_scan() -> dict:
         return {"ok": True, "opened": 0, "reason": "position already open"}
     if abs(_daily_loss()) >= DAILY_LOSS_CAP:
         return {"ok": True, "opened": 0, "reason": "daily loss cap hit"}
+    # RESEARCH PAUSE (2026-10-06): the sharp-dip entry is negative-EV in both
+    # OOS halves across 4 independent tests. Block NEW entries; management of
+    # any open position is unaffected. See sharp_dip_paused() for evidence.
+    if sharp_dip_paused():
+        return {"ok": True, "opened": 0,
+                "reason": "sharp-dip entry PAUSED (negative-EV in both OOS halves)"}
     ex = make_futures_exchange()
     try:
         # RELIABILITY FIX (2026-10-01): load_markets() hits the SPOT endpoint
