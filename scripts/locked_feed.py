@@ -74,19 +74,30 @@ class LockedFeed:
     """
 
     def __init__(self, con: sqlite3.Connection, symbol: str, timeframe: str,
-                 start_ms: int | None = None, allow_empty_before: bool = False):
+                 start_ms: int | None = None, allow_empty_before: bool = False,
+                 _bars_cache: dict | None = None):
         self.symbol, self.timeframe = symbol, timeframe
         self._step = tf_ms(timeframe)
-        rows = con.execute(
-            "select open_time_utc, open, high, low, close, volume from candles "
-            "where symbol=? and timeframe=? order by open_time_utc",
-            (symbol, timeframe),
-        ).fetchall()
-        self._bars = [
-            Bar(int(r[0]), int(r[0]) + self._step, r[1], r[2], r[3], r[4],
-                (r[5] if len(r) > 5 else 0.0))
-            for r in rows
-        ]
+        # A shared cache lets a sweep parse each series ONCE instead of once per
+        # config. The cached object is a list of immutable Bar records, so sharing
+        # it cannot leak state between runs — the guard lives in the cursor, which
+        # is per-instance. Keyed by (symbol, timeframe).
+        key = (symbol, timeframe)
+        if _bars_cache is not None and key in _bars_cache:
+            self._bars = _bars_cache[key]
+        else:
+            rows = con.execute(
+                "select open_time_utc, open, high, low, close, volume from candles "
+                "where symbol=? and timeframe=? order by open_time_utc",
+                (symbol, timeframe),
+            ).fetchall()
+            self._bars = [
+                Bar(int(r[0]), int(r[0]) + self._step, r[1], r[2], r[3], r[4],
+                    (r[5] if len(r) > 5 else 0.0))
+                for r in rows
+            ]
+            if _bars_cache is not None:
+                _bars_cache[key] = self._bars
         self._times = [b.open_time for b in self._bars]
         self._idx: int | None = None      # index of newest CLOSED bar
         if start_ms is not None:

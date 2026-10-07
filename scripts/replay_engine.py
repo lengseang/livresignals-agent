@@ -109,7 +109,8 @@ class ReplayEngine:
 
     def __init__(self, con: sqlite3.Connection, symbols: list[str], timeframe: str,
                  start_ms: int, end_ms: int, costs: Costs | None = None,
-                 notional: float = 5.0, max_open: int = 10):
+                 notional: float = 5.0, max_open: int = 10,
+                 bars_cache: dict | None = None):
         self.tf = timeframe
         self.step = tf_ms(timeframe)
         self.costs = costs or Costs()
@@ -121,10 +122,18 @@ class ReplayEngine:
             # allow_empty_before: a symbol whose data starts later than the window
             # (ARB, 2023) simply is not tradeable before then. That is reality, not
             # an error — it must not abort the whole replay.
+            #
+            # bars_cache: pass the SAME dict across a sweep and each series is parsed
+            # once rather than once per config. Bars are immutable and the cursor is
+            # per-instance, so no state leaks between runs.
             self.feeds[s] = LockedFeed(con, s, timeframe, start_ms=start_ms,
-                                       allow_empty_before=True)
+                                       allow_empty_before=True,
+                                       _bars_cache=bars_cache)
         self.open: dict[str, Position] = {}
         self.closed: list[ClosedTrade] = []
+        # a stable list for the hot loop (advance_all runs per bar, millions of
+        # times across a sweep — dict.values() churn showed up in profiling)
+        self._feeds_list = list(self.feeds.values())
         self.pending: list[Decision] = []      # decided at t, filled at t+1 open
 
     # -- the clock --------------------------------------------------------
@@ -136,12 +145,22 @@ class ReplayEngine:
         did not both list at the same instant), so counting bars cannot keep them
         in lockstep. The clock is therefore the MINIMUM started cursor: no feed may
         run ahead of the slowest. A feed with more data simply waits.
+
+        Started feeds that DISAGREE are a hard error, not something to paper over:
+        a desynced clock means some strategy saw a bar another had not, which is
+        precisely the look-ahead the guard exists to prevent. `advance_all` keeps
+        them aligned, so this can only fire if something moved a cursor directly.
         """
         closes = [f.cursor_ms for f in self.feeds.values()
                   if f._idx is not None and f._idx >= 0]
         if not closes:
             return 0
-        return min(closes)
+        now = min(closes)
+        for c in closes:
+            if abs(c - now) >= self.step:
+                raise RuntimeError(
+                    f"started feeds disagree on the clock: {sorted(set(closes))}")
+        return now
 
     def advance_all(self) -> bool:
         """Advance the clock by one bar, keeping every feed at or behind it.
@@ -153,36 +172,43 @@ class ReplayEngine:
         BOOTSTRAP: on the very first call nothing has started, so the earliest feed
         begins unconditionally — otherwise the clock stays 0 and nothing ever
         starts (a deadlock that spins forever).
-        """
-        if all(f.exhausted for f in self.feeds.values()):
-            return False
 
-        started = [f for f in self.feeds.values() if f._idx is not None and f._idx >= 0]
+        PERFORMANCE: this runs once per bar per replay (millions of calls across a
+        sweep). The per-feed property reads are hoisted out of the inner loop and
+        only the feeds that can actually move are touched — profiling showed the
+        naive form spent 6.9s of an 8.7s pure-loop budget right here.
+        """
+        feeds = self._feeds_list
+        started = [f for f in feeds if f._idx is not None and f._idx >= 0]
 
         if not started:
-            candidates = [f for f in self.feeds.values() if f._bars]
-            if not candidates:
+            first = min((f for f in feeds if f._bars),
+                        key=lambda f: f._bars[0].close_time, default=None)
+            if first is None:
                 return False
-            first = min(candidates, key=lambda f: f._bars[0].close_time)
             first.advance()                      # idx -1 -> 0
             started = [first]
 
-        now = min(f.cursor_ms for f in started)
+        now = min(f._bars[f._idx].close_time for f in started)
 
         # a fresh feed joins if its first bar is at or before the clock
-        for f in self.feeds.values():
-            if f.exhausted or f._idx is None or f._idx >= 0:
-                continue
-            if f._bars and f._bars[0].close_time <= now:
-                f.advance()
-                started.append(f)
-                now = min(now, f.cursor_ms)
+        for f in feeds:
+            if f._idx is not None and f._idx < 0 and f._bars:
+                if f._bars[0].close_time <= now:
+                    f.advance()
+                    started.append(f)
+                    c = f._bars[f._idx].close_time
+                    if c < now:
+                        now = c
 
         # advance every feed once, so they all reach now + one step together
-        for f in self.feeds.values():
-            if f.exhausted:
+        for f in feeds:
+            i = f._idx
+            if i is None:
                 continue
-            if f.cursor_ms <= now and not (f._idx is not None and f._idx >= len(f._bars) - 1):
+            if i >= len(f._bars) - 1:            # exhausted: skip
+                continue
+            if f._bars[i].close_time <= now:
                 f.advance()
         return True
 
