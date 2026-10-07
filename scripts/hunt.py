@@ -224,6 +224,25 @@ def run_funnel(con, cache, cands, exs, args):
 
     if not scored:
         print("\n  VERDICT: nothing survives the screen. The space is empty.")
+        # A NEGATIVE RESULT IS STILL A RESULT. It must be recorded and dated, or
+        # the owner cannot tell "the hunt swept the space and found nothing" from
+        # "the hunt silently failed to run". Silence in the DELIVERY is correct;
+        # silence in the RECORD is not.
+        if args.save:
+            RESULTS.mkdir(parents=True, exist_ok=True)
+            stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+            f = RESULTS / f"{stamp}_{args.tf}.json"
+            f.write_text(json.dumps({
+                "ran_at": stamp, "tf": args.tf, "mode": "funnel",
+                "split": {"is": [IS_START, IS_END], "oos": [OOS_START, OOS_END]},
+                "screen": [SCREEN_START, SCREEN_END],
+                "cost": "0.10% fee + 0.05% slip per side",
+                "stage1_passed": 0, "stage2_passed": 0,
+                "entries_screened": len(cands),
+                "verdict": "nothing survives the screen; space is empty",
+                "survivors": [],
+            }, indent=2))
+            print(f"\n  saved -> {f}")
         return 0
 
     # ---- stage 2: full IS on the top screen performers, across ALL exits
