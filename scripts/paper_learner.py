@@ -4,12 +4,25 @@
 Strategy: simulate the validated capitulation-catch logic on HISTORICAL data
 (never touching live money) across many symbols/timeframes, record every
 paper trade outcome, and re-fit the strategy's dip/RSI/hold parameters to
-maximize real predictive accuracy. The live bot only adopts a new param set
-after it BEATS the current config on a held-out (out-of-sample) window.
+maximize NET expectancy (after fees). A new param set is adopted only if it
+beats the current one by >= 0.05pp of net expectancy.
+
+HONEST SCOPE (corrected 2026-10-07):
+  * Ranking is by NET EV, never accuracy — "accuracy" was the project's
+    documented failure mode (SYSTEM_MAP §5), and GROSS expectancy ignores the
+    fee wall (fees.py) that is 100% of the loss. See the fee-honesty note at
+    the FEE_RT import below.
+  * There is NO out-of-sample split here. The sweep is historical and live is
+    unseen, which is an IMPLICIT guard only; it is not a substitute for the
+    walk-forward engines (replay_engine / hunt.py). Do not read this learner's
+    number as a validated edge.
+  * The adopted params are a SIGNAL, not a control: no live/paper trader reads
+    paper-learner-state.json (unified_trader holds its own buckets). The log
+    says so on every adoption.
 
 Pure stdlib (no numpy/sklearn) so it runs on the tiny VPS.
 
-Run: cron every 15 min, or `python paper_learner.py [once|retrain]`
+Run: cron daily (see crontab), or `python paper_learner.py [once|retrain]`
 """
 from __future__ import annotations
 
