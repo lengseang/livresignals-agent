@@ -15,7 +15,7 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 | T0.7 | Commit `src/trading/data/` (F5) | owner files | owner |
 | T0.8 | CI fix: `check-books.py` base path from env (F6) | owner OK | owner |
 | T0.9 | `tests/test_forward.py::test_wallet_cap_no_dead_entries` reads the real `data/trading.db` (test line 35); fails off-VPS with `unable to open database file`. Make it use the temp-DB fixture the same file already has (line 46). Test-only change | T0.2 | review (#7) |
-| T0.10 | Readers stop labelling the paper trend log as real money: `expectancy_vs_fee.py:101`, `fee_audit.py:97-115` (hardcoded $5 stake), add `real.closed` row to `book_units.py`. Design in `designs/T0.5.md` §4; its own PR. Useful before `real.closed` exists: relabel + print "no real closes recorded yet" | T0.5 | review (#18) |
+| T0.10 | Readers stop labelling the paper trend log as real money: `expectancy_vs_fee.py:101`, `fee_audit.py:97-115` (hardcoded $5 stake), add `real.closed` row to `book_units.py`. Design in `designs/T0.5.md` §4; its own PR. Useful before `real.closed` exists: relabel + print "no real closes recorded yet" | T0.5 | review (branch `loop/T0.10-real-vs-paper-labels` pushed 2026-10-08; PR not auto-opened — no `gh`/token on the runner, open at github.com/lengseang/livresignals-agent/pull/new/loop/T0.10-real-vs-paper-labels) |
 | T0.11 | `per_symbol_net.py:41` still reads `trend-state.json` `log` under the name `trend_follower` (paper universe presented as the trend book). Same defect class as T0.10, one reader further out: split into `trend_paper_universe` + `real_closed`. Found while shipping T0.10 | T0.10 | todo |
 
 ## Phase 1: Research (docs only)
