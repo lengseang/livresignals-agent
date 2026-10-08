@@ -3,6 +3,36 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-10-08 · T0.11 per-symbol reader splits real from paper
+- **Need check:** repo-only. Read `trend-state.json` (has `log` 28 recs and
+  `real.closed` 1 rec), `per_symbol_net.py`, `book_units.py`, and the T0.10
+  readers/design. No external facts, no prod files.
+- **Orientation:** T0.10 is in `review` (dep satisfied for picking), so T0.11 was
+  the first pickable `todo`. Branch cut from the tip of the unmerged T0.10 branch
+  (a stack), per LOOP §1.5.
+- **Done:** `scripts/per_symbol_net.py` — SOURCES now names the paper `log`
+  `trend_paper_universe` (not `trend_follower`) and reads the REAL money book from
+  the nested path `real.closed`; a `_dig()` key-path reader; a new
+  `_print_real_book()` that reports the real book in DOLLARS, UNKNOWN-tolerant
+  (never $0.00); `real_closed` excluded from the combined percent aggregate (it is
+  dollars, and mixing it into a percent verdict answers neither question);
+  `book_units.BOOKS` gains `trend_paper_universe` (`ret`/fraction).
+- **Evidence:** `venv/bin/python -m pytest tests/loop` → **362 passed, 3 skipped**;
+  full `tests` → **532 passed, 3 skipped, 0 failed**; `compileall` clean. New:
+  `tests/loop/test_per_symbol_split.py` (9). Live run of `per_symbol_net.py` now
+  prints `TREND REAL MONEY BOOK` first — *"no real closes with a known PnL yet
+  (1 UNKNOWN — not counted)"* — and per-book attribution in the bad-symbol list
+  says `trend_paper_universe`, not `trend_follower`.
+- **Learned:** the same fix as T0.10 was needed three lines away from where T0.10
+  stopped. The unit defect (paper presented as real) and the naming defect (log
+  called `trend_follower`) travel together; the readers were fixed one at a time
+  because each has its own PR. The honesty rule now holds in this reader too: the
+  real book's one close is UNKNOWN (its entry was BOOKED), and it is counted, not
+  zeroed.
+- **Discovered:** T0.12 — the script prints one coin under two names
+  (`NEAR/USDT` vs `NEARUSDT`; regime_trader stores no slash), so the combined view
+  splits a symbol across two rows.
+
 ## 2026-10-08 · T0.10 readers report real vs paper, separately
 - **Need check:** repo-only. Read `trend-state.json` (has `real.closed`, 1 record), the three
   readers, and `designs/T0.5.md` §4. No external facts, no prod files.
