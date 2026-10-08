@@ -59,6 +59,11 @@ BOOKS: dict[str, tuple[str, str]] = {
     "unified_trader": ("pnl", "dollars"),
     "regime_trader": ("ret", "fraction"),
     "trend_follower": ("ret", "fraction"),
+    # The trend PAPER universe (T0.10/T0.11): the same `trend-state.json` -> `log`
+    # records that `trend_follower` used to name, but named as what it is — a
+    # 53-symbol paper log with candle-close exits, not the trend book that holds
+    # money. Same field and unit as trend_follower; the name is the fix.
+    "trend_paper_universe": ("ret", "fraction"),
     "live_executor": ("ret", "fraction"),
     "bybit_demo_trader": ("ret", "fraction"),
     # The REAL book's closed records (T0.10). `pnl_usd` is DOLLARS and is only

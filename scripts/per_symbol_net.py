@@ -20,6 +20,15 @@ For each symbol, per book: how many trades, the gross return per trade, and the
 return NET of the measured 0.1594% round-trip fee. A symbol whose net is negative
 loses money regardless of its win rate, and no signal improvement changes that —
 only trading it less, or larger, does.
+
+TWO BOOKS IN ONE FILE (T0.10/T0.11)
+-----------------------------------
+`trend-state.json` holds a PAPER universe (`log`, 53 symbols, candle-close
+exits) and the REAL money book (`real.closed`). They are reported separately:
+the paper universe under `trend_paper_universe`, the real book in DOLLARS with
+its UNKNOWN closes counted, never zeroed. Before T0.11 the paper `log` was read
+under the name `trend_follower` and the paper universe was presented as the
+trend book.
 """
 from __future__ import annotations
 
@@ -37,14 +46,35 @@ from book_units import as_percent          # noqa: E402
 
 FEE_RT = 0.1594          # percent, round trip
 
+# (book, file, key-path). The key-path is a tuple so a book nested inside
+# another (the trend REAL money book lives at real.closed) is addressed
+# explicitly rather than flattened into a name that lies about what it is.
+#
+# T0.11: `trend-state.json` holds TWO different books. `log` is the 53-symbol
+# PAPER universe (candle-close exits, no money) and must be named as paper, not
+# as "trend_follower". The trend book that holds real money is `real.closed`,
+# read through the `real_closed` book (pnl_usd = NET DOLLARS, or UNKNOWN).
+# Before this, one entry read the paper `log` under the name `trend_follower`
+# and the paper universe was reported as the trend book.
 SOURCES = [
-    ("trend_follower", "trend-state.json", "log"),
-    ("unified_trader", "unified-paper.json", "closed"),
-    ("adaptive_engine", "adaptive-state.json", "closed_trades"),
-    ("regime_trader", "regime-state.json", "log"),
-    ("futures_executor", "futures-trades.json", "closed"),
-    ("live_executor", "live-trades.json", "closed"),
+    ("trend_paper_universe", "trend-state.json", ("log",)),
+    ("real_closed", "trend-state.json", ("real", "closed")),
+    ("unified_trader", "unified-paper.json", ("closed",)),
+    ("adaptive_engine", "adaptive-state.json", ("closed_trades",)),
+    ("regime_trader", "regime-state.json", ("log",)),
+    ("futures_executor", "futures-trades.json", ("closed",)),
+    ("live_executor", "live-trades.json", ("closed",)),
 ]
+
+
+def _dig(d: dict, path: tuple):
+    """Follow a key-path, returning [] when any level is missing/not a list."""
+    cur = d
+    for k in path:
+        if not isinstance(cur, dict):
+            return []
+        cur = cur.get(k)
+    return cur if isinstance(cur, list) else []
 
 
 def tstat(xs):
@@ -56,10 +86,48 @@ def tstat(xs):
     return 0.0 if sd == 0 else m / (sd / math.sqrt(n))
 
 
+def _print_real_book(recs: list) -> None:
+    """The trend REAL money book, in DOLLARS, UNKNOWN-tolerant (T0.10/T0.11).
+
+    `pnl_usd` is already NET of the fill fee when present; it is null when the
+    entry, exit or fee was unknown at close, so those records are UNKNOWN, never
+    $0.00. This block never invents a per-symbol percent from the paper log — a
+    real close with no priced PnL is shown as UNKNOWN and excluded.
+    """
+    import book_units                      # local import; scripts/ on sys.path
+    known = [r for r in recs if isinstance(r.get("pnl_usd"), (int, float))]
+    n_unknown = len(recs) - len(known)
+    print("  TREND REAL MONEY BOOK  (trend-state.json -> real.closed)")
+    if not recs:
+        print("    no real closes recorded yet.")
+        print()
+        return
+    if not known:
+        print(f"    no real closes with a known PnL yet "
+              f"({n_unknown} UNKNOWN — not counted).")
+        print()
+        return
+    per_sym = defaultdict(list)
+    for r in known:
+        per_sym[r.get("symbol") or r.get("pair") or "?"].append(r["pnl_usd"])
+    total = sum(r["pnl_usd"] for r in known)
+    wins = sum(1 for r in known if r["pnl_usd"] > 0)
+    note = f"  ({n_unknown} of {len(recs)} UNKNOWN — not counted)" if n_unknown else ""
+    print(f"    {len(known)} priced closes | net {total:+.4f} USD | "
+          f"win {wins / len(known) * 100:.0f}%{note}")
+    for sym, usd in sorted(per_sym.items(), key=lambda kv: sum(kv[1])):
+        print(f"      {sym:<12} n={len(usd):<3} net {sum(usd):+8.4f} USD")
+    s = book_units.summarise_dollars("real_closed", recs)
+    print(f"    (avg {s['avg_usd']:+.4f} USD/trade; "
+          f"unknown carried as UNKNOWN, never averaged in as 0)")
+    print()
+
+
 def main():
     per_book = defaultdict(lambda: defaultdict(list))
     skipped = defaultdict(int)
-    for book, fname, key in SOURCES:
+    real_recs = []                      # the trend REAL money book (raw records)
+    for book, fname, keypath in SOURCES:
         p = BASE / "data" / fname
         if not p.exists():
             continue
@@ -67,7 +135,10 @@ def main():
             d = json.loads(p.read_text())
         except Exception:
             continue
-        for rec in (d.get(key) or []):
+        recs = _dig(d, keypath)
+        if book == "real_closed":
+            real_recs = recs
+        for rec in recs:
             if not isinstance(rec, dict):
                 continue
             sym = rec.get("symbol") or rec.get("pair") or "?"
@@ -87,9 +158,19 @@ def main():
           f"money at any win rate")
     print()
 
-    # aggregate across books, but keep the per-book split visible for the worst
+    # The REAL money book first, reported in DOLLARS and honest about UNKNOWN
+    # (T0.10/T0.11). It must not be folded into the percent aggregation below:
+    # those are paper/percent books, this one is real fills with a net pnl_usd.
+    _print_real_book(real_recs)
+
+    # aggregate across books, but keep the per-book split visible for the worst.
+    # real_closed is EXCLUDED: it is the real money book, already reported in
+    # dollars above. Mixing its trades into a percent verdict across paper books
+    # answers neither question (T0.11).
     agg = defaultdict(list)
     for book, syms in per_book.items():
+        if book == "real_closed":
+            continue
         for sym, rs in syms.items():
             agg[sym].extend(rs)
 
