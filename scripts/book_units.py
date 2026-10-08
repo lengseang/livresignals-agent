@@ -61,6 +61,11 @@ BOOKS: dict[str, tuple[str, str]] = {
     "trend_follower": ("ret", "fraction"),
     "live_executor": ("ret", "fraction"),
     "bybit_demo_trader": ("ret", "fraction"),
+    # The REAL book's closed records (T0.10). `pnl_usd` is DOLLARS and is only
+    # present when entry, exit AND fee were all known at close (see
+    # _close_real in trend_follower.py). A null here means UNKNOWN, never zero —
+    # summarise_dollars counts those separately rather than averaging them in.
+    "real_closed": ("pnl_usd", "dollars"),
 }
 
 
@@ -75,6 +80,17 @@ def as_percent(book: str, record: dict) -> float | None:
             f"unknown book {book!r} — add it to BOOKS with its field and unit. "
             f"Guessing the unit is how the -251% drawdown was invented.")
     field, unit = BOOKS[book]
+
+    # real_closed stores a NET DOLLAR pnl (`pnl_usd`) plus the fill prices. Its
+    # percent must come from the PRICES, never from pnl_usd divided by `qty`
+    # (qty is a base-asset amount, not a USD notional — that division would be
+    # the exact unit confusion this module exists to prevent).
+    if book == "real_closed":
+        entry, exit_ = record.get("entry"), record.get("exit")
+        if (isinstance(entry, (int, float)) and isinstance(exit_, (int, float))
+                and entry):
+            return (exit_ - entry) / entry * 100
+        return None
 
     # Prefer an explicitly stored return when the book has one. For
     # adaptive_engine, `ret_pct` supersedes the dollar `pnl` and is exact —
@@ -151,4 +167,44 @@ def summarise(book: str, records: list[dict]) -> dict | None:
         "cumulative": cum,
         "max_drawdown": dd,
         "expectancy": cum / n,
+    }
+
+
+def summarise_dollars(book: str, records: list[dict]) -> dict:
+    """Dollar summary for a DOLLARS-denominated book, UNKNOWN-tolerant.
+
+    A record whose pnl is null is UNKNOWN, not break-even: it is counted in
+    `n_total` and `n_unknown` but excluded from every money figure. This is the
+    T0.10 rule — a total must never be printed without the count of trades it
+    could not price, or "unknown" silently reads as "zero".
+
+    Returns a dict always (never None): `n_known == 0` is a fact the caller
+    must render as "no real closes recorded yet", not as `$0.00`.
+    """
+    if book not in BOOKS:
+        raise KeyError(
+            f"unknown book {book!r} — add it to BOOKS with its field and unit.")
+    field, unit = BOOKS[book]
+    if unit != "dollars":
+        raise ValueError(f"{book!r} is not a dollars book (unit={unit!r})")
+
+    known = [x for x in (r.get(field) for r in records)
+             if isinstance(x, (int, float))]
+    n_total = len(records)
+    n_known = len(known)
+    n_unknown = n_total - n_known
+    wins = [x for x in known if x > 0]
+    losses = [x for x in known if x <= 0]
+    total = sum(known)
+    return {
+        "n_total": n_total,
+        "n_known": n_known,
+        "n_unknown": n_unknown,
+        "n_wins": len(wins),
+        "n_losses": len(losses),
+        "win_rate": (len(wins) / n_known * 100) if n_known else None,
+        "total_usd": total if n_known else None,
+        "avg_usd": (total / n_known) if n_known else None,
+        "avg_win_usd": (sum(wins) / len(wins)) if wins else None,
+        "avg_loss_usd": (sum(losses) / len(losses)) if losses else None,
     }

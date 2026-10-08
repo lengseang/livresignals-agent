@@ -38,6 +38,85 @@ SYMS = ["ARB/USDT", "NEAR/USDT", "DOGE/USDT", "SOL/USDT", "LINK/USDT",
         "TRX/USDT"]
 
 
+def books_from_trend(trend: dict) -> dict:
+    """Per-book fee application for the trend state (T0.10).
+
+    Two DIFFERENT books live in one file and must never be merged:
+      * `real.closed` — the REAL money book. `pnl_usd` is already net of the
+        actual fill fee, so we report it as-is and count fee-UNKNOWN records
+        instead of pricing them at a guessed rate.
+      * `log` — the PAPER universe (53 symbols, candle-close exits). Fees are
+        applied at the measured per-side rate because no fee was ever charged.
+
+    Until T0.10 this block read only `log`, called it "the trend book (the one
+    holding real money)" and priced it at a hardcoded $5 stake (SIZE_USD is
+    5.5). Every "real" trend number downstream was therefore a paper number.
+    """
+    applied = {}
+
+    # --- the REAL money book: from the fills, net already known or UNKNOWN ---
+    real_closed = (trend.get("real") or {}).get("closed") or []
+    known = [r for r in real_closed if isinstance(r.get("pnl_usd"), (int, float))]
+    n_unknown = len(real_closed) - len(known)
+    if not known:
+        applied["trend_real_closed"] = {
+            "trades": len(real_closed),
+            "trades_priced": 0,
+            "trades_unknown": n_unknown,
+            "note": ("no real closes recorded yet" if not real_closed
+                     else "no real closes with a known PnL yet"),
+        }
+    else:
+        total = sum(r["pnl_usd"] for r in known)
+        fees_known = sum(r["fee_usd"] for r in known
+                         if isinstance(r.get("fee_usd"), (int, float)))
+        applied["trend_real_closed"] = {
+            "trades": len(real_closed),
+            "trades_priced": len(known),
+            "trades_unknown": n_unknown,
+            "net_usd": round(total, 4),
+            "avg_usd": round(total / len(known), 4),
+            "fees_usd_known": round(fees_known, 6),
+            "note": "net of fill fees; UNKNOWN trades excluded, not zeroed",
+        }
+
+    # --- the PAPER universe: same rate model as before, but labelled paper ---
+    log = trend.get("log", [])
+    if log:
+        stake = 5.0
+        gross_pct = sum(t.get("ret", 0) for t in log) / len(log)
+        gross_usd = sum(t.get("ret", 0) for t in log) * stake
+        fee_usd = len(log) * stake * per_side_rate() * 2      # both sides
+        applied["trend_paper_universe"] = {
+            "trades": len(log),
+            "gross_avg_pct": round(gross_pct * 100, 3),
+            "net_avg_pct": round(gross_pct * 100 - per_side_rate() * 200, 3),
+            "gross_usd": round(gross_usd, 4),
+            "fees_usd": round(fee_usd, 4),
+            "net_usd": round(gross_usd - fee_usd, 4),
+            "note": "PAPER — 53 symbols, candle-close exits, no real money",
+        }
+    return applied
+
+
+def per_side_rate() -> float:
+    """Measured per-side fee rate, or the documented 0.1% default."""
+    return _PER_SIDE[0]
+
+
+_PER_SIDE = [0.001]   # updated in main() from the measured fills
+
+
+def _apply():
+    """Read trend-state.json and return the per-book fee application (pure)."""
+    try:
+        trend = json.loads((DATA / "trend-state.json").read_text())
+    except Exception as e:  # noqa: BLE001
+        print(f"  trend book: {e}")
+        return {}
+    return books_from_trend(trend)
+
+
 def main() -> int:
     from trading.exchange.live_client import make_live_exchange
     ex = make_live_exchange()
@@ -92,27 +171,10 @@ def main() -> int:
 
     # measured per-side rate, used to charge fees against the books
     per_side = (sum(per_trade_rates) / len(per_trade_rates)) if per_trade_rates else 0.001
+    _PER_SIDE[0] = per_side
 
-    # apply to the trend book (the one holding real money)
-    applied = {}
-    try:
-        trend = json.loads((DATA / "trend-state.json").read_text())
-        log = trend.get("log", [])
-        if log:
-            stake = 5.0
-            gross_pct = sum(t.get("ret", 0) for t in log) / len(log)
-            gross_usd = sum(t.get("ret", 0) for t in log) * stake
-            fee_usd = len(log) * stake * per_side * 2      # both sides
-            applied["trend_closed"] = {
-                "trades": len(log),
-                "gross_avg_pct": round(gross_pct * 100, 3),
-                "net_avg_pct": round(gross_pct * 100 - per_side * 200, 3),
-                "gross_usd": round(gross_usd, 4),
-                "fees_usd": round(fee_usd, 4),
-                "net_usd": round(gross_usd - fee_usd, 4),
-            }
-    except Exception as e:  # noqa: BLE001
-        print(f"  trend book: {e}")
+    # apply to each book separately — real fills vs the paper universe (T0.10)
+    applied = _apply()
 
     doc = {
         "as_of_utc": datetime.now(timezone.utc).isoformat(),
@@ -144,9 +206,17 @@ def main() -> int:
     print(f"  vs assumed 0.1%/side -> "
           f"{'LOWER (assumption was safe)' if rate < 0.001 else 'HIGHER (assumption too kind!)'}")
     for k, v in applied.items():
-        print(f"  {k}: gross {v['gross_avg_pct']:+.2f}%/trade -> "
-              f"net {v['net_avg_pct']:+.2f}%/trade  "
-              f"(${v['gross_usd']:+.2f} -> ${v['net_usd']:+.2f})")
+        if k == "trend_real_closed":
+            if v.get("trades_priced"):
+                print(f"  {k}: {v['trades_priced']} priced closes, "
+                      f"net ${v['net_usd']:+.4f} "
+                      f"({v['trades_unknown']} UNKNOWN)")
+            else:
+                print(f"  {k}: {v['note']}")
+        elif v.get("trades"):
+            print(f"  {k}: gross {v['gross_avg_pct']:+.2f}%/trade -> "
+                  f"net {v['net_avg_pct']:+.2f}%/trade  "
+                  f"(${v['gross_usd']:+.2f} -> ${v['net_usd']:+.2f})")
     return 0
 
 

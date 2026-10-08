@@ -3,6 +3,30 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-10-08 · T0.10 readers report real vs paper, separately
+- **Need check:** repo-only. Read `trend-state.json` (has `real.closed`, 1 record), the three
+  readers, and `designs/T0.5.md` §4. No external facts, no prod files.
+- **Orientation:** the writer side (F3, `trend_follower` `real.closed`) is already on `main`; the
+  readers never followed. That makes T0.10 the first pickable `todo` (dep T0.5 is `review`).
+- **Done:** `scripts/book_units.py` (`real_closed` book, `summarise_dollars`, price-derived
+  percent for the real book), `scripts/fee_audit.py` (`books_from_trend` → `trend_real_closed` +
+  `trend_paper_universe`, no hardcoded $5 stake on the real path), `scripts/expectancy_vs_fee.py`
+  (relabelled `log` → "trend_follower (paper universe)", new `real_closed_lines`, wrapped in a
+  `main()` guard so the helper is importable).
+- **Evidence:** `pytest tests/loop` → **353 passed, 3 skipped**; full `pytest tests` →
+  **523 passed, 3 skipped, 0 failed**. `compileall scripts/` clean. Live run of
+  `expectancy_vs_fee.py` now prints the paper universe as 🔴 (gross −2.17%/trade, t=−2.25) and a
+  separate REAL MONEY BOOK line: *"no real closes with a known PnL yet (1 UNKNOWN)"*. `fee_audit.py`
+  prints the same UNKNOWN note for `trend_real_closed` and −2.33%/trade for the labelled paper book.
+- **New tests:** `tests/loop/test_real_vs_paper_labels.py` (12) — assert the UNKNOWN-is-not-zero
+  rule, the empty-book "no real closes" text, and that `real_closed` percent comes from prices, not
+  `pnl_usd/qty`.
+- **Learned:** the one real close in the book has `pnl_usd: null` because its entry was `BOOKED`
+  (the pre-fill candle price), so the net cannot be computed honestly. Before T0.10 the reader
+  fabricated a number from the paper log instead; the honest answer is "1 UNKNOWN". The honesty
+  rule (LOOP §3.2) is now enforced by tests, not just by convention.
+- **Discovered:** T0.11 — `per_symbol_net.py:41` reads the same paper `log` as `trend_follower`.
+
 ## 2026-09-26 · T2.6 full-history backfill + replay plan (owner request)
 - **Owner idea:** pull all history and replay it through the live scan/signal code, beginning to end.
 - **Need check (sizing, measured):** 30 days of aggTrades for 15 coins = 1.5 GB (BTC 358 MB/month), so all-time trades

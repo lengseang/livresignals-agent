@@ -98,7 +98,10 @@ BOOKS = [
      dict(pct_key="ret_pct")),
     ("regime-state.json", "log", "regime_trader (DEMO, L/S)",
      dict(frac_key="ret")),
-    ("trend-state.json", "log", "trend_follower (REAL $)",
+    # The REAL book's paper UNIVERSE (53 symbols, priced at candle close). The
+    # label said "REAL $" until T0.10 — it is a paper log and readers must not
+    # present it as the money book. The money book is real.closed, below.
+    ("trend-state.json", "log", "trend_follower (paper universe)",
      dict(frac_key="ret")),
     ("futures-trades.json", "closed", "futures_executor (demo)",
      dict(usd_key="pnl", size_key="notional")),
@@ -114,67 +117,108 @@ def tstat(xs):
     return 0.0 if sd == 0 else m / (sd / math.sqrt(n))
 
 
-print("=" * 100)
-print("EXPECTANCY vs FEE — a book must beat the toll to exist")
-print("=" * 100)
-print(f"  fee per round trip: {FEE_RT*100:.4f}%   "
-      f"(-> {FEE_RT_NOBNB*100:.4f}% when the BNB runway ends)")
-print()
-hdr = (f"  {'book':34s} {'n':>5s} {'skip':>5s} {'avg gross':>10s} {'net/trade':>10s} "
-       f"{'t':>6s} {'win%':>6s}  verdict")
-print(hdr)
-print("  " + "-" * 96)
+def real_closed_lines(recs: list) -> list[str]:
+    """The REAL money book (trend-state real.closed), reported honestly (T0.10).
 
-rows = []
-for fname, key, label, kw in BOOKS:
-    d = load(fname)
-    if not d:
-        print(f"  {label:34s}  (file missing)")
-        continue
-    recs = d.get(key) or []
-    rs, skipped, derived = to_rates(recs, **kw)
-    if not rs:
-        print(f"  {label:34s} {len(recs):5d} {skipped:5d}   no usable returns")
-        continue
-    n = len(rs)
-    avg = sum(rs) / n
-    net = avg - FEE_RT
-    t = tstat(rs)
-    wr = sum(1 for x in rs if x > 0) / n * 100
-    if net <= 0 and abs(t) < 2:
-        v = "DEAD — no edge, pays fees"
-    elif net <= 0 and t < -2:
-        v = "DEAD — significantly NEGATIVE"
-    elif net <= 0:
-        v = "loses to fees"
-    elif abs(t) < 2:
-        v = "alive, unproven"
-    else:
-        v = "positive & significant"
-    rows.append((label, n, skipped, avg, net, t, wr, v, derived))
-    dnote = f" ({derived} derived)" if derived else ""
-    print(f"  {label:34s} {n:5d} {skipped:5d} {avg*100:+9.3f}% {net*100:+9.3f}% "
-          f"{t:+6.2f} {wr:5.1f}% {v}{dnote}")
+    `pnl_usd` is already NET of fees when it is present, and null when entry,
+    exit or fee were unknown at close — so those records are UNKNOWN, never
+    $0.00. Every money figure is printed next to the count it could not price.
+    """
+    n_total = len(recs)
+    known = [r for r in recs if isinstance(r.get("pnl_usd"), (int, float))]
+    n_unknown = n_total - len(known)
+    unknown_note = (f"  ({n_unknown} of {n_total} UNKNOWN — not counted)"
+                    if n_unknown else "")
+    if not known:
+        if n_total == 0:
+            return ["  trend_follower (REAL $): no real closes recorded yet."]
+        return [f"  trend_follower (REAL $): no real closes with a known PnL "
+                f"yet ({n_unknown} UNKNOWN)."]
+    total = sum(r["pnl_usd"] for r in known)
+    wins = [r["pnl_usd"] for r in known if r["pnl_usd"] > 0]
+    wr = len(wins) / len(known) * 100
+    out = [f"  trend_follower (REAL $): {len(known)} priced closes | "
+           f"net {total:+.4f} USD | win {wr:.0f}%{unknown_note}"]
+    for r in known:
+        out.append(f"     {r.get('symbol', '?'):11s} {r['pnl_usd']:+8.4f} USD  "
+                   f"({r.get('exit_status', '?')}/{r.get('entry_status', '?')})")
+    return out
 
-print()
-print("=" * 100)
-print("DIAGNOSIS — highest-cost book first")
-print("=" * 100)
-for label, n, skipped, avg, net, t, wr, v, derived in sorted(rows, key=lambda r: r[4]):
-    if v.startswith("DEAD") or v == "loses to fees":
-        print(f"  🔴 {label}")
-        print(f"     {n} trades | gross {avg*100:+.3f}%/trade | win {wr:.0f}% | "
-              f"fee {FEE_RT*100:.3f}% | NET {net*100:+.3f}%/trade | t={t:+.2f}")
-        if abs(t) < 2:
-            print(f"     t≈0 => the gross edge is indistinguishable from ZERO.")
-            print(f"     The signal carries no information; fees do the damage. "
-                  f"Fewer, larger trades is the only lever.")
+
+def main() -> None:
+    print("=" * 100)
+    print("EXPECTANCY vs FEE — a book must beat the toll to exist")
+    print("=" * 100)
+    print(f"  fee per round trip: {FEE_RT*100:.4f}%   "
+          f"(-> {FEE_RT_NOBNB*100:.4f}% when the BNB runway ends)")
+    print()
+    hdr = (f"  {'book':34s} {'n':>5s} {'skip':>5s} {'avg gross':>10s} {'net/trade':>10s} "
+           f"{'t':>6s} {'win%':>6s}  verdict")
+    print(hdr)
+    print("  " + "-" * 96)
+
+    rows = []
+    for fname, key, label, kw in BOOKS:
+        d = load(fname)
+        if not d:
+            print(f"  {label:34s}  (file missing)")
+            continue
+        recs = d.get(key) or []
+        rs, skipped, derived = to_rates(recs, **kw)
+        if not rs:
+            print(f"  {label:34s} {len(recs):5d} {skipped:5d}   no usable returns")
+            continue
+        n = len(rs)
+        avg = sum(rs) / n
+        net = avg - FEE_RT
+        t = tstat(rs)
+        wr = sum(1 for x in rs if x > 0) / n * 100
+        if net <= 0 and abs(t) < 2:
+            v = "DEAD — no edge, pays fees"
+        elif net <= 0 and t < -2:
+            v = "DEAD — significantly NEGATIVE"
+        elif net <= 0:
+            v = "loses to fees"
+        elif abs(t) < 2:
+            v = "alive, unproven"
         else:
-            print(f"     t={t:+.2f} => significantly NEGATIVE. The signal is "
-                  f"actively wrong, not merely weak.")
-    else:
-        print(f"  ✅ {label}: gross {avg*100:+.3f}%, net {net*100:+.3f}%, "
-              f"t={t:+.2f}, win {wr:.0f}%")
+            v = "positive & significant"
+        rows.append((label, n, skipped, avg, net, t, wr, v, derived))
+        dnote = f" ({derived} derived)" if derived else ""
+        print(f"  {label:34s} {n:5d} {skipped:5d} {avg*100:+9.3f}% {net*100:+9.3f}% "
+              f"{t:+6.2f} {wr:5.1f}% {v}{dnote}")
 
-print()
-print(f"  break-even gross return required: {FEE_RT*100:.4f}% per trade.")
+    print()
+    print("=" * 100)
+    print("DIAGNOSIS — highest-cost book first")
+    print("=" * 100)
+    for label, n, skipped, avg, net, t, wr, v, derived in sorted(rows, key=lambda r: r[4]):
+        if v.startswith("DEAD") or v == "loses to fees":
+            print(f"  🔴 {label}")
+            print(f"     {n} trades | gross {avg*100:+.3f}%/trade | win {wr:.0f}% | "
+                  f"fee {FEE_RT*100:.3f}% | NET {net*100:+.3f}%/trade | t={t:+.2f}")
+            if abs(t) < 2:
+                print(f"     t≈0 => the gross edge is indistinguishable from ZERO.")
+                print(f"     The signal carries no information; fees do the damage. "
+                      f"Fewer, larger trades is the only lever.")
+            else:
+                print(f"     t={t:+.2f} => significantly NEGATIVE. The signal is "
+                      f"actively wrong, not merely weak.")
+        else:
+            print(f"  ✅ {label}: gross {avg*100:+.3f}%, net {net*100:+.3f}%, "
+                  f"t={t:+.2f}, win {wr:.0f}%")
+
+    print()
+    print("=" * 100)
+    print("REAL MONEY BOOK (fills, net of fees; not the paper universe)")
+    print("=" * 100)
+    trend = load("trend-state.json") or {}
+    for ln in real_closed_lines((trend.get("real") or {}).get("closed") or []):
+        print(ln)
+
+    print()
+    print(f"  break-even gross return required: {FEE_RT*100:.4f}% per trade.")
+
+
+if __name__ == "__main__":
+    main()
