@@ -29,6 +29,15 @@ the paper universe under `trend_paper_universe`, the real book in DOLLARS with
 its UNKNOWN closes counted, never zeroed. Before T0.11 the paper `log` was read
 under the name `trend_follower` and the paper universe was presented as the
 trend book.
+
+ONE COIN, ONE ROW (T0.12)
+-------------------------
+The books do not spell symbols the same way: trend/unified/adaptive write
+`NEAR/USDT`; `regime_trader` trades Bybit linear perps and stores the venue
+symbol verbatim (`NEARUSDT`). Grouping on the raw key split one coin across two
+rows, halving its n and its t. `norm_symbol()` canonicalises the key FORMAT
+(never the identity) before grouping; a key whose quote we do not recognise is
+left exactly as written.
 """
 from __future__ import annotations
 
@@ -45,6 +54,40 @@ sys.path.insert(0, str(BASE / "src"))
 from book_units import as_percent          # noqa: E402
 
 FEE_RT = 0.1594          # percent, round trip
+
+# Quotes we can split off a concatenated venue symbol. Ordered LONGEST FIRST so
+# `USDT` is tested before `USD`. This list is explicit and is a property of the
+# venues we read, not of any value's magnitude (book_units.py's rule).
+QUOTES = ("USDT", "USDC", "USD", "BTC", "ETH", "EUR")
+
+
+def norm_symbol(key) -> str:
+    """Canonicalise a symbol key so one coin is one row (T0.12).
+
+    The books do not spell symbols the same way: trend/unified/adaptive write
+    `NEAR/USDT`; `regime_trader` trades Bybit linear perps and stores the venue
+    symbol verbatim, `NEARUSDT` (see `SYMS` in regime_trader.py). Grouping on
+    the raw key splits one coin into two rows, halving its n and its t.
+
+    Format only — never identity guessing:
+      - a key that already has a `/` keeps it, upper-cased on both sides;
+      - a key with no `/` gets a known quote split off the END and rejoined;
+      - a key whose quote we do not know is returned UNCHANGED (upper-cased).
+        A symbol we cannot parse is shown as written, never invented into a
+        slash form (LOOP §3.2: no synthetic value). Under-merging two rows is
+        recoverable; wrongly merging two different assets is not.
+    """
+    if not isinstance(key, str):
+        return "?" if key is None else str(key)
+    k = key.strip().upper()
+    if "/" in k:
+        base, _, quote = k.partition("/")
+        return f"{base}/{quote}" if base and quote else k
+    for q in QUOTES:
+        if k.endswith(q) and len(k) > len(q):
+            return f"{k[:-len(q)]}/{q}"
+    return k
+
 
 # (book, file, key-path). The key-path is a tuple so a book nested inside
 # another (the trend REAL money book lives at real.closed) is addressed
@@ -109,7 +152,8 @@ def _print_real_book(recs: list) -> None:
         return
     per_sym = defaultdict(list)
     for r in known:
-        per_sym[r.get("symbol") or r.get("pair") or "?"].append(r["pnl_usd"])
+        per_sym[norm_symbol(r.get("symbol") or r.get("pair") or "?")].append(
+            r["pnl_usd"])
     total = sum(r["pnl_usd"] for r in known)
     wins = sum(1 for r in known if r["pnl_usd"] > 0)
     note = f"  ({n_unknown} of {len(recs)} UNKNOWN — not counted)" if n_unknown else ""
@@ -141,7 +185,7 @@ def main():
         for rec in recs:
             if not isinstance(rec, dict):
                 continue
-            sym = rec.get("symbol") or rec.get("pair") or "?"
+            sym = norm_symbol(rec.get("symbol") or rec.get("pair") or "?")
             try:
                 pc = as_percent(book, rec)
             except KeyError:
