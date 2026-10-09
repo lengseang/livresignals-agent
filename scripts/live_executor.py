@@ -418,9 +418,37 @@ def manage() -> dict:
     placed the SELL but got OOM-killed before _save(). Without this, the
     ghost position would stay 'open' forever and block new trades. We archive
     it at the real exit price pulled from recent trade history.
+
+    ATOMICITY (2026-10-09): this whole read-modify-write now holds the SAME
+    flock that open_long uses. Previously manage() read state, spent seconds on
+    network calls (tickers, sells, trade history), then wrote its in-memory
+    snapshot back — so a buy that completed in that window was silently
+    overwritten and became a ghost position with no stop, not counted in
+    max_open. That is exactly how the 2026-10-08 LINK buy was lost: the exchange
+    held 0.43 LINK while the ledger held nothing. The lock closes the window.
     """
     if not live_enabled():
         return {"ok": False, "reason": "live disabled"}
+    lock_path = ROOT / "data" / ".live_open.lock"
+    try:
+        import fcntl
+        lfh = open(lock_path, "w")
+        fcntl.flock(lfh.fileno(), fcntl.LOCK_EX)
+    except Exception:
+        lfh = None
+    try:
+        return _manage_locked()
+    finally:
+        try:
+            if lfh is not None:
+                fcntl.flock(lfh.fileno(), fcntl.LOCK_UN)
+                lfh.close()
+        except Exception:
+            pass
+
+
+def _manage_locked() -> dict:
+    """The body of manage(); the caller holds the state lock."""
     s = _load()
     events = []
     try:
