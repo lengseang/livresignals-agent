@@ -3,6 +3,51 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-10-09 · T0.13 the real book's ledger disagrees with the exchange
+- **Need check:** repo-only code + one **read-only** exchange read. Read
+  `trend-state.json`, `real_pnl.py` (which already reads the exchange as ground
+  truth), the T0.5/T0.6 designs, `live_executor.py` (read-only), the crontab
+  (read). No prod file written, no order path touched, no writer imported.
+- **Orientation:** T0.12 is in `review` (dep satisfied), so a new task was
+  pickable. While orienting I checked the live `real.open` against the exchange
+  and found the drift below, so I filed and built T0.13 rather than a doc-only
+  pick.
+- **Finding:** `trend-state.json -> real.open` claims ARB (34.8), NEAR (2.3),
+  LINK (0.43). The exchange holds **none** of them — only dust (ADA/BNB/SUI/XRP)
+  plus ~$20 free USDT. `trend_follower` therefore logs `real positions: 3/3`
+  every run and stands idle: three phantom slots, real money not working. LINK
+  was sold by hand 2026-10-08 (commit `07262d2`); the ledger never learned.
+- **Done:** `scripts/real_position_drift.py` — read-only monitor, pure core
+  (`classify`/`reconcile`/`render`) over a `{ASSET: qty}` dict, exits 1 on drift.
+  `docs/loop/designs/T0.13.md`. `tests/loop/test_real_position_drift.py` (19).
+- **Evidence:** RED first — the first `reconcile()` treated "asset absent from a
+  good balance read" as UNKNOWN; the test written straight from the live state
+  (`test_reconcile_reproduces_the_live_2026_10_09_drift`) failed with
+  `['UNKNOWN','UNKNOWN','UNKNOWN']` vs the expected `['MISSING',...]`. Fixed by
+  making the caller state `balances_known` (absent on a *successful* read is a
+  real zero — Binance omits zero balances). A second failure,
+  `test_main_exit_0_on_match`, caught `load_real_open` using a bound default
+  (`state_path=STATE`) that ignored a monkeypatched `STATE` — the test was right
+  and the code was wrong; fixed to resolve `STATE` at call time. GREEN now:
+  `pytest tests/loop` → **393 passed, 3 skipped** (baseline 374 + 19).
+  `compileall` clean. Live read-only run against the real exchange:
+  ```
+  MISSING  ARB/USDT    ledger=34.8  exchange=0
+  MISSING  LINK/USDT   ledger=0.43  exchange=0
+  MISSING  NEAR/USDT   ledger=2.3   exchange=0
+  exit=1
+  ```
+- **Learned:** the most dangerous wrong number is the one inside our own
+  bookkeeping, because every report trusts it. `real_pnl.py` already says
+  "ground truth beats bookkeeping"; this task applies that same rule to the
+  open-position ledger, which had no such check. Also: two "obvious" test
+  failures were both the code being wrong, not the test — the repo's warning
+  about weakening a test to make it pass applied directly.
+- **Discovered / escalated:** E8 — schedule the monitor and reconcile
+  `real.open` (crontab + writer are the owner's; the three phantom positions are
+  live now). Not fixed here and not mine to fix: the DOGE `real.closed` record's
+  `pnl_usd: null` despite a computable `pnl_gross_usd: 0.0851`.
+
 ## 2026-10-09 · T0.12 one coin, one row in per_symbol_net
 - **Need check:** repo-only. Read `per_symbol_net.py`, `book_units.py`, the
   T0.11 tests, and the state files themselves (`trend-state.json`,

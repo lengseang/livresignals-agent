@@ -1,6 +1,22 @@
 # Escalations: waiting on the owner
 
-Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
+Newest first. The owner answers inline under **Answer:**; the next iteration picks
+it up.
+
+## E8 · The real book is idle on three phantom positions (T0.13) — reconcile the ledger
+`data/trend-state.json -> real.open` claims ARB (34.8), NEAR (2.3), LINK (0.43).
+The exchange holds **none** of them (dust ADA/BNB/SUI/XRP + ~$20 USDT). So
+`trend_follower` logs `real positions: 3/3 | REAL=ON` every 4h and will not size a
+new signal — real money has been standing idle. LINK was sold by hand 2026-10-08
+(commit `07262d2`); the ledger never learned, and ARB/NEAR are long gone.
+- What I can do (done): T0.13 ships a read-only monitor
+  (`scripts/real_position_drift.py`) that reports the drift and exits 1. See
+  `docs/loop/designs/T0.13.md`.
+- What only you can do: (a) schedule that monitor (crontab is yours); (b)
+  reconcile `real.open` — clear the three phantom entries so the book can trade
+  again. Rewriting a real-money ledger is a writer change (`trend_follower.py`),
+  both owner-gated, so the loop stops here.
+**Answer:**
 
 ## E7 · Pause `futures_executor` until its signal is re-tested net of fees? (T1.5, PR #13)
 It trades **3x real futures** (every 10 min in `crontab.backup`, no enable flag) on the 15m SHARP + EMA200 signal. The
