@@ -3,6 +3,41 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-10-09 · T0.12 one coin, one row in per_symbol_net
+- **Need check:** repo-only. Read `per_symbol_net.py`, `book_units.py`, the
+  T0.11 tests, and the state files themselves (`trend-state.json`,
+  `regime-state.json`, `unified-paper.json`, `adaptive-state.json`). No external
+  facts, no prod files, no writer touched.
+- **Orientation:** T0.11 is in `review` (dep satisfied for picking), so T0.12 was
+  the first pickable `todo`. Branch cut from the tip of the unmerged T0.11 branch
+  (a stack), per LOOP §1.5.
+- **Done:** `scripts/per_symbol_net.py` gains `norm_symbol()` (an explicit
+  `QUOTES` tuple, longest-first) and applies it wherever `main()` and
+  `_print_real_book()` produce a symbol key. `docs/loop/designs/T0.12.md`.
+- **Evidence:** RED first — 12 tests run against the T0.11-tip script: **12
+  failed** (the real-book case printed `NEARUSDT n=1` on its own line). GREEN:
+  `pytest tests/loop/test_symbol_normalise.py` → **12 passed**; full
+  `pytest tests/loop` → **374 passed, 3 skipped**; `compileall` clean. Live run
+  of `per_symbol_net.py` before/after, real data: `NEAR` was two rows
+  (`NEARUSDT` n=22 t=+0.94 ⏳ + `NEAR/USDT` n=373 t=+3.52) → now `NEAR/USDT`
+  n=395 **t=+2.21 ✅**; `SOL` merges 11 regime trades into 107; the `books:`
+  attribution for SOL/XRP/AVAX/DOT now names `regime_trader`.
+- **Learned:** the merge is not cosmetic — it is what moves NEAR's edge from
+  "unproven (t=+0.94)" to significant (t=+2.21), because the regime book's 22
+  trades were being counted as a separate coin. The same defect class as
+  T0.10/T0.11 (a reader trusts the field as written instead of the fact it
+  stands for), now in the *name* rather than the unit. Fixed in the reader, not
+  the writer: `regime_trader.py` is on the never-edit list and its venue
+  symbols must stay verbatim for Bybit reconciliation.
+- **Anti-slop:** my first `unknown quote` test asserted `AAATUSD` stays whole;
+  that was wrong — `USD` **is** on the list, so it correctly splits. Fixed the
+  test to assert the stated rule (`NEARBRL`/`NEARJPY` unchanged; `NEARTUSD`
+  splits at `USD` because `TUSD` is not listed) rather than bend the code to a
+  bad test. Recorded in the design's failure-modes section.
+- **Discovered:** none new — the per-symbol readers are now consistent
+  (T0.10/11/12); `fee_audit.py` and `expectancy_vs_fee.py` do not aggregate per
+  symbol, so they do not share this bug.
+
 ## 2026-10-08 · T0.11 per-symbol reader splits real from paper
 - **Need check:** repo-only. Read `trend-state.json` (has `log` 28 recs and
   `real.closed` 1 rec), `per_symbol_net.py`, `book_units.py`, and the T0.10
