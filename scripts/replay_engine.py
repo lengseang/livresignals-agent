@@ -83,6 +83,7 @@ class Position:
     best_px: float = 0.0
     worst_px: float = 0.0        # the field the paper book was missing
     bars_held: int = 0
+    side: str = "long"           # "long" | "short" — a short inverts exit logic
 
 
 @dataclass
@@ -247,7 +248,7 @@ class ReplayEngine:
     def _accept(self, decisions: Iterable[Decision]) -> list[Decision]:
         out = []
         for d in decisions:
-            if d.action == "enter_long" and d.symbol not in self.open:
+            if d.action in ("enter_long", "enter_short") and d.symbol not in self.open:
                 if len(self.open) + len(out) < self.max_open:
                     out.append(d)
             elif d.action == "exit" and d.symbol in self.open:
@@ -275,6 +276,20 @@ class ReplayEngine:
                     opened_ms=bars[0].open_time, tag=d.tag,
                     hold_bars=d.hold_bars,
                     best_px=px, worst_px=px,
+                )
+            elif d.action == "enter_short":
+                # A short SELLS to open, so the fill is the SELL side: worse = lower.
+                # Stop is ABOVE the entry and target BELOW — both inverted vs long.
+                px = self.costs.sell_fill(fill_px)
+                qty = self.notional / px
+                self.open[d.symbol] = Position(
+                    symbol=d.symbol, entry_px=px, qty=qty,
+                    stop_px=px * (1 + d.stop_frac) if d.stop_frac else None,
+                    target_px=px * (1 - d.target_frac) if d.target_frac else None,
+                    opened_ms=bars[0].open_time, tag=d.tag,
+                    hold_bars=d.hold_bars,
+                    best_px=px, worst_px=px,
+                    side="short",
                 )
             elif d.action == "exit" and d.symbol in self.open:
                 pos = self.open.pop(d.symbol)
@@ -305,6 +320,24 @@ class ReplayEngine:
             pos.best_px = max(pos.best_px, b.high)
             pos.worst_px = min(pos.worst_px, b.low)
 
+            if getattr(pos, "side", "long") == "short":
+                # A short profits when price FALLS. Stop is ABOVE (hit by the high),
+                # target is BELOW (hit by the low). Adverse-first still applies: if
+                # the bar contains both, the STOP wins, because we cannot know order.
+                if pos.stop_px is not None and b.high >= pos.stop_px:
+                    self.open.pop(sym)
+                    self._close(pos, self.costs.buy_fill(pos.stop_px), b.close_time, "SL")
+                    continue
+                if pos.target_px is not None and b.low <= pos.target_px:
+                    self.open.pop(sym)
+                    self._close(pos, self.costs.buy_fill(pos.target_px), b.close_time, "TP")
+                    continue
+                if pos.hold_bars is not None and pos.bars_held >= pos.hold_bars:
+                    self.open.pop(sym)
+                    self._close(pos, self.costs.buy_fill(b.close), b.close_time, "TIME")
+                    continue
+                continue
+
             if pos.stop_px is not None and b.low <= pos.stop_px:
                 self.open.pop(sym)
                 self._close(pos, self.costs.sell_fill(pos.stop_px), b.close_time, "SL")
@@ -319,7 +352,11 @@ class ReplayEngine:
                 continue
 
     def _close(self, pos: Position, exit_px: float, ms: int, reason: str) -> None:
-        pnl = (exit_px - pos.entry_px) * pos.qty
+        if getattr(pos, "side", "long") == "short":
+            # profit when the exit is BELOW the entry
+            pnl = (pos.entry_px - exit_px) * pos.qty
+        else:
+            pnl = (exit_px - pos.entry_px) * pos.qty
         self.closed.append(ClosedTrade(
             symbol=pos.symbol, tag=pos.tag, entry_px=pos.entry_px, exit_px=exit_px,
             qty=pos.qty, opened_ms=pos.opened_ms, closed_ms=ms, reason=reason,
