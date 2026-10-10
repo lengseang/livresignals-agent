@@ -129,7 +129,8 @@ def exits():
 
 def run_one(con, tf, entry_fn, stop, target, hold, start, end, cache=None):
     eng = ReplayEngine(con, SYMBOLS, tf, ms(start), ms(end), costs=COST,
-                       notional=NOTIONAL, max_open=MAX_OPEN, bars_cache=cache)
+                       notional=NOTIONAL, max_open=MAX_OPEN, bars_cache=cache,
+                       min_coverage=0.9)
 
     def decide(feeds, openpos):
         out = []

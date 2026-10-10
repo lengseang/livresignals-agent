@@ -29,6 +29,18 @@ from locked_feed import LockedFeed, LookAheadError, tf_ms
 
 
 # ---------------------------------------------------------------------------
+# the window-coverage guard
+# ---------------------------------------------------------------------------
+
+class CoverageError(RuntimeError):
+    """The requested replay window is not covered by the data for one or more
+    symbols, beyond the tolerance passed as min_coverage.
+
+    Raised instead of silently testing a window that is mostly empty — the failure
+    that produced a bogus PF 1.64 on 2026-10-10 (see ReplayEngine.__init__)."""
+
+
+# ---------------------------------------------------------------------------
 # cost model
 # ---------------------------------------------------------------------------
 
@@ -111,13 +123,33 @@ class ReplayEngine:
     def __init__(self, con: sqlite3.Connection, symbols: list[str], timeframe: str,
                  start_ms: int, end_ms: int, costs: Costs | None = None,
                  notional: float = 5.0, max_open: int = 10,
-                 bars_cache: dict | None = None):
+                 bars_cache: dict | None = None,
+                 min_coverage: float = 0.0,
+                 strict: bool = False):
+        """min_coverage: the fraction of the requested window each symbol must
+        actually have bars for, or the run refuses to start.
+
+        WHY THIS EXISTS (2026-10-10). The bear-cross hunt was run over
+        "IS 2017-2023" and reported PF 1.64. But the DB holds no BTC/ETH/SOL data
+        before 2022-01, and ARB none before 2023-03. The engine, with
+        allow_empty_before=True, silently used whatever bars existed and reported
+        a number as if the window were full. The corrected window killed the
+        result: 4 of 5 configs failed and the survivor made +$0.93 over 134
+        trades, i.e. nothing. A window that is 80% empty for a symbol is not a
+        test of that symbol — it is a test of the 20% that happens to exist, and
+        nobody was told.
+
+        min_coverage=0.0 keeps the old behaviour (permissive) so existing callers
+        do not change. New hunts should pass e.g. 0.9 and let it refuse loudly.
+        strict=True raises CoverageError instead of returning a report.
+        """
         self.tf = timeframe
         self.step = tf_ms(timeframe)
         self.costs = costs or Costs()
         self.notional = notional
         self.max_open = max_open
         self.end_ms = end_ms
+        self.start_ms = start_ms
         self.feeds: dict[str, LockedFeed] = {}
         for s in symbols:
             # allow_empty_before: a symbol whose data starts later than the window
@@ -136,6 +168,54 @@ class ReplayEngine:
         # times across a sweep — dict.values() churn showed up in profiling)
         self._feeds_list = list(self.feeds.values())
         self.pending: list[Decision] = []      # decided at t, filled at t+1 open
+
+        self.coverage = self._measure_coverage()
+        if min_coverage > 0.0:
+            bad = {s: c for s, c in self.coverage.items() if c < min_coverage}
+            if bad:
+                detail = ", ".join(f"{s} {c*100:.0f}%" for s, c in sorted(bad.items()))
+                msg = (f"window {timeframe} is not covered by the data for "
+                       f"{len(bad)} symbol(s), below {min_coverage*100:.0f}%: {detail}")
+                if strict:
+                    raise CoverageError(msg)
+                # warn once per (timeframe, start, end) per process, not once per
+                # config — a sweep builds hundreds of engines and the same warning
+                # hundreds of times buries the log
+                import sys as _sys
+                key = (timeframe, start_ms, end_ms)
+                seen = getattr(ReplayEngine, "_cov_warned", None)
+                if seen is None:
+                    seen = ReplayEngine._cov_warned = set()
+                if key not in seen:
+                    seen.add(key)
+                    print(f"  !! COVERAGE WARNING: {msg}", file=_sys.stderr)
+
+    def _measure_coverage(self) -> dict[str, float]:
+        """Fraction of [start, end] each symbol actually has bars for.
+
+        A symbol whose data begins after the window start has coverage < 1.0. This
+        is the number that was silently ignored in every hunt before 2026-10-10.
+        """
+        span = max(1, self.end_ms - self.start_ms)
+        out: dict[str, float] = {}
+        for s, f in self.feeds.items():
+            bars = f._bars
+            if not bars:
+                out[s] = 0.0
+                continue
+            # coverage = the portion of the window that falls within the symbol's
+            # actual data span, clipped to [start, end]
+            first = max(bars[0].open_time, self.start_ms)
+            last = min(bars[-1].close_time, self.end_ms)
+            covered = max(0, last - first)
+            out[s] = min(1.0, covered / span)
+        return out
+
+    def coverage_report(self) -> str:
+        """One line per symbol, worst first — for a hunt banner or a log."""
+        rows = sorted(self.coverage.items(), key=lambda kv: kv[1])
+        return "\n".join(f"    {s:12} {c*100:5.1f}%" for s, c in rows)
+
 
     # -- the clock --------------------------------------------------------
 
@@ -490,6 +570,37 @@ def _selftest() -> int:
             return []
         return [(t.reason, round(t.pnl, 6)) for t in e.run(d)]
     chk("determinism: two identical runs agree", runonce() == runonce())
+
+    # --- rule 4: the window-coverage guard
+    # The failure this catches (2026-10-10): BTC has no data before 2022-01, yet a
+    # hunt ran "IS 2017-2023" and reported a result. The guard must SEE that.
+    fake_start = 1483228800000     # 2017-01-01
+    fake_end = 1672531200000       # 2023-01-01, ~6y window
+    eng_cov = ReplayEngine(con, ["BTC/USDT", "ETH/USDT"], "4h", fake_start, fake_end)
+    worst = min(eng_cov.coverage.values())
+    chk("coverage: a mostly-empty window reports low coverage (<0.6)",
+        worst < 0.6)
+    chk("coverage: BTC/ETH over 2017-2023 is NOT ~full (the bug that fired)",
+        eng_cov.coverage.get("BTC/USDT", 1.0) < 0.9)
+
+    # strict mode must REFUSE the same window
+    refused = False
+    try:
+        ReplayEngine(con, ["BTC/USDT"], "4h", fake_start, fake_end,
+                     min_coverage=0.9, strict=True)
+    except CoverageError:
+        refused = True
+    chk("coverage: strict=True REFUSES a window the data does not cover", refused)
+
+    # an HONEST window must pass at the same threshold
+    honest_ok = True
+    try:
+        ReplayEngine(con, ["BTC/USDT", "ETH/USDT"], "4h",
+                     1640995200000, 1696118400000,        # 2022-01-01 .. 2023-10-01
+                     min_coverage=0.9, strict=True)
+    except CoverageError:
+        honest_ok = False
+    chk("coverage: strict=True ACCEPTS a window the data does cover", honest_ok)
 
     print()
     if fails:
