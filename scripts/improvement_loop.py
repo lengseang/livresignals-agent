@@ -160,9 +160,18 @@ def _suggest(paper, live, regimes, edges=None):
                 "idea": f"Edge '{e['edge']}' DECAYING: {e['win_rate']}% WR / {e['n']} trades / {e['net_pnl']:+.2f} net. Tighten its entry (deeper dip / lower RSI) or stand it down — it is losing edge.",
             })
     # 5. Unique/outside-the-box ideas (always add a couple)
+    # TESTED-NEGATIVE (2026-10-10): the volume-spike idea below was run through
+    # hunt.py's IS/OOS funnel (dip_vol + brk_vol families, 24 candidates, at
+    # exchange cost). 0 of 24 beat PF 1.0 in the screen window, so none reached
+    # IS/OOS. Evidence: docs/proposals/volume-gate-negative.md and
+    # reports/hunt/2026-10-10T011755Z_15m.json. Reported as a closed result, not
+    # re-proposed as an open idea, so the loop stops repeating it.
     out.append({
-        "priority": 4, "type": "explore",
-        "idea": "Explore: add a volume-spike confirmation (capitulation often comes on high volume, not just high vol) — test vol AND volume z-score > 2 as an extra gate.",
+        "priority": 4, "type": "explore_result",
+        "idea": "CLOSED (tested NEGATIVE 2026-10-10): volume-spike confirmation "
+                "(volume z-score > 2 as an extra gate) adds no edge — 0/24 "
+                "candidates beat PF 1.0 at cost. See "
+                "docs/proposals/volume-gate-negative.md. Do not retest this form.",
     })
     out.append({
         "priority": 4, "type": "explore",
