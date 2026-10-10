@@ -124,6 +124,58 @@ def make_breakout(look):
     return f
 
 
+def _vol_z(bars, win):
+    """Volume z-score of the newest CLOSED bar vs the prior `win` bars.
+
+    Returns None when there is not enough history or the window is degenerate
+    (zero variance). Volume is read from `b.volume`, which LockedFeed exposes on
+    the same immutable Bar the replay engine fills from — so this cannot peek:
+    the newest bar is only ever the last closed one the feed has revealed.
+    """
+    if len(bars) < win + 2:
+        return None
+    vols = [b.volume for b in bars[-(win + 1):-1]]
+    n = len(vols)
+    if n < 2:
+        return None
+    mu = sum(vols) / n
+    var = sum((v - mu) ** 2 for v in vols) / n
+    sd = var ** 0.5
+    if sd <= 0:
+        return None
+    return (bars[-1].volume - mu) / sd
+
+
+def make_dip_vol(hi_n, rsi_max, red_min, vz_min, vz_win):
+    """Capitulation dip PLUS a volume-spike confirmation.
+
+    This is the improvement_loop's top-ranked 'explore' suggestion made testable
+    (2026-10-09): capitulation often arrives on high volume, not merely a high
+    drawdown. Same dip rule as make_dip, with an extra gate that the triggering
+    bar's volume z-score (over the prior vz_win bars) is >= vz_min.
+    """
+    base = make_dip(hi_n, rsi_max, red_min)
+
+    def f(bars):
+        if not base(bars):
+            return False
+        z = _vol_z(bars, vz_win)
+        return z is not None and z >= vz_min
+    return f
+
+
+def make_brk_vol(look, vz_min, vz_win):
+    """Breakout PLUS a volume-spike confirmation (volume-confirmed breakout)."""
+    base = make_breakout(look)
+
+    def f(bars):
+        if not base(bars):
+            return False
+        z = _vol_z(bars, vz_win)
+        return z is not None and z >= vz_min
+    return f
+
+
 def build_candidates() -> list[dict]:
     """A FIXED, declared list. Not evolved, not sampled. Same every run."""
     out = []
@@ -144,6 +196,25 @@ def build_candidates() -> list[dict]:
         out.append({"fam": "brk", "params": (look,),
                     "mk": lambda look=look: make_breakout(look),
                     "name": f"breakout {look}bar-high"})
+    # volume-confirmed families (2026-10-10): the improvement_loop's top-ranked
+    # 'explore' suggestion — capitulation/breakout arrive on a volume spike, not
+    # just a price move. Small, declared grid (no evolution): a two-level volume
+    # z threshold x a two-level window on the existing dip/breakout rules.
+    VZ_WINS = (24, 96)
+    VZ_MINS = (1.0, 2.0)
+    for hi_n, rsi_max, red_min in itertools.product([90, 200], [30, 35], [3]):
+        for vz_win, vz_min in itertools.product(VZ_WINS, VZ_MINS):
+            out.append({"fam": "dip_vol", "params": (hi_n, rsi_max, red_min, vz_min, vz_win),
+                        "mk": lambda hi_n=hi_n, rsi_max=rsi_max, red_min=red_min,
+                              vz_min=vz_min, vz_win=vz_win:
+                              make_dip_vol(hi_n, rsi_max, red_min, vz_min, vz_win),
+                        "name": f"dipvol hi{hi_n} rsi{rsi_max} red{red_min} z{vz_min} w{vz_win}"})
+    for look in (20, 50):
+        for vz_win, vz_min in itertools.product(VZ_WINS, VZ_MINS):
+            out.append({"fam": "brk_vol", "params": (look, vz_min, vz_win),
+                        "mk": lambda look=look, vz_min=vz_min, vz_win=vz_win:
+                              make_brk_vol(look, vz_min, vz_win),
+                        "name": f"brkvol {look}bar z{vz_min} w{vz_win}"})
     return out
 
 
@@ -308,6 +379,10 @@ def main() -> int:
     ap.add_argument("--top", type=int, default=15)
     ap.add_argument("--save", action="store_true")
     ap.add_argument("--max-candidates", type=int, default=999)
+    ap.add_argument("--only-fam", default=None,
+                    help="comma-separated family filter for build_candidates(), "
+                         "e.g. 'dip_vol,brk_vol' to test only the volume-gated "
+                         "entries without re-running the whole declared list")
     ap.add_argument("--funnel", action="store_true",
                     help="3-stage funnel: screen on SCREEN_YEAR, full IS on the "
                          "top N, OOS only on survivors. ~10x faster than the flat sweep.")
@@ -317,6 +392,12 @@ def main() -> int:
     con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
     CACHE: dict = {}                      # parse each series ONCE for the whole sweep
     cands = build_candidates()[:args.max_candidates]
+    if args.only_fam:
+        want = {s.strip() for s in args.only_fam.split(",") if s.strip()}
+        cands = [c for c in cands if c["fam"] in want]
+        if not cands:
+            print(f"hunt: --only-fam {args.only_fam!r} matched no candidate family")
+            return 2
     exs = list(exits())
     print(f"hunt: {len(cands)} entries x {len(exs)} exits = {len(cands)*len(exs)} configs")
     print(f"split: IS {IS_START}..{IS_END}  |  OOS {OOS_START}..{OOS_END}")
