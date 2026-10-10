@@ -190,7 +190,16 @@ def _book_pnl(p: dict, exit_px: float) -> float:
     return p["pnl_net"]
 
 
-def _paper_open(sig: dict) -> None:
+def _paper_open(sig: dict, regime: str | None = None) -> None:
+    """Open a PAPER position on a VALIDATED signal.
+
+    `regime` (added 2026-10-10): the Judge computes a regime every cycle but the
+    paper openers never persisted it, so `by_regime` collapsed to a single "?"
+    bucket holding the whole book (0/2778 trades carried a regime) and the
+    improvement loop could not read per-regime decay AT ALL. Stamping it here is
+    the one-line fix for that data gap — same shape as the edge tag added the
+    same day. Optional/defaulted so no existing caller or test breaks.
+    """
     if _symbol_disabled(sig.get("symbol", "")):
         return
     s = {}
@@ -228,6 +237,7 @@ def _paper_open(sig: dict) -> None:
     s["open"].append({
         "symbol": sig["symbol"], "tf": sig["tf"], "entry": round(sig["close"], 4),
         "tp": tp, "sl": sl, "size": 5.0, "edge": "validated",
+        "regime": regime or "?",
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     })
     PAPER_STATE.write_text(json.dumps(s, indent=2))
@@ -360,7 +370,7 @@ def _paper_check(ex) -> None:
     PAPER_STATE.write_text(json.dumps(s, indent=2))
 
 
-def _pullback_open(sig: dict) -> bool:
+def _pullback_open(sig: dict, regime: str | None = None) -> bool:
     """UPTREND PULLBACK edge — fits grinding/rising markets where dips are small.
     Entry: STRONG uptrend + small pullback + RSI 45-62 (see _is_pullback).
     Paper always; real when trade-all-signals is on (owner mandate).
@@ -387,6 +397,7 @@ def _pullback_open(sig: dict) -> bool:
     s["open"].append({
         "symbol": sig["symbol"], "tf": sig["tf"], "entry": round(sig["close"], 6),
         "tp": tp, "sl": sl, "size": 5.0, "loose": True, "edge": "pullback",
+        "regime": regime or "?",
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     })
     PAPER_STATE.write_text(json.dumps(s, indent=2))
@@ -453,7 +464,7 @@ def _is_pullback(sig: dict) -> bool:
 
 
 
-def _paper_loose_open(sig: dict) -> bool:
+def _paper_loose_open(sig: dict, regime: str | None = None) -> bool:
     """Open a PAPER+REAL position on a shallower dip that does NOT meet the strict
     real-money validated bar. Timeframe-aware thresholds so SHORT timeframes fire
     OFTEN (5m dips happen many times/day; 30m deep dips are rare). Owner mandate:
@@ -487,6 +498,7 @@ def _paper_loose_open(sig: dict) -> bool:
     s["open"].append({
         "symbol": sig["symbol"], "tf": sig["tf"], "entry": round(sig["close"], 6),
         "tp": tp, "sl": sl, "size": 5.0, "loose": True, "edge": "loose",
+        "regime": regime or "?",
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     })
     PAPER_STATE.write_text(json.dumps(s, indent=2))
@@ -494,11 +506,13 @@ def _paper_loose_open(sig: dict) -> bool:
     return True
 
 
-def _imported_strategy_open(sig: dict) -> bool:
+def _imported_strategy_open(sig: dict, regime: str | None = None) -> bool:
     """Open a PAPER position for an IMPORTED public strategy (owner: copy other
     people's strategies + trade in parallel). Paper-only: each strategy's edge
     tag ('supertrend','rsi2','bollinger','ema-cross') flows into the
     improvement_loop per-edge stats, which promote proven winners to real.
+    `regime` (2026-10-10) is stamped for per-regime attribution, same as the
+    native openers.
     """
     s = {}
     if PAPER_STATE.exists():
@@ -541,6 +555,7 @@ def _imported_strategy_open(sig: dict) -> bool:
     s["open"].append({
         "symbol": sig["symbol"], "tf": sig["tf"], "entry": round(sig["close"], 6),
         "tp": tp, "sl": sl, "size": 5.0, "edge": edge, "imported": True,
+        "regime": regime or "?",
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     })
     PAPER_STATE.write_text(json.dumps(s, indent=2))
@@ -674,6 +689,10 @@ def main():
     print(f"JUDGE: {verdict['action']} | regime={verdict['regime']['regime']} "
           f"| hunt={verdict.get('hunt')} | real={verdict.get('real_allowed')}")
     hunt_edge = verdict.get("hunt")  # which edge the Judge says to prioritize
+    # The Judge's regime for THIS cycle — stamped onto every paper trade opened
+    # below so the improvement loop can attribute decay per regime (fixes the
+    # 0/2778 regime gap; see _paper_open docstring).
+    regime = (verdict.get("regime") or {}).get("regime", "?")
 
     # 0c) FUTURES LEG (2026-09-09): same elite signals (15m SHARP on SOL/XRP),
     # executed on USDT-M futures at 3x with hard caps. Check/manage open futures
@@ -698,7 +717,7 @@ def main():
         for sym in _ordered_syms(ex):
             for tf in _ordered_tfs():
                 for isig in _all_imported(ex, sym, tf):
-                    if _imported_strategy_open(isig):
+                    if _imported_strategy_open(isig, regime):
                         paper_fired += 1
     except Exception as e:  # imported-track must never break the main loop
         print(f"  (imported strategies pass skipped: {str(e)[:80]})")
@@ -738,7 +757,7 @@ def main():
                 paper_took = False
                 if not any(p["symbol"] == sym and p.get("tf") == tf for p in
                            (json.loads(PAPER_STATE.read_text()).get("open", []) if PAPER_STATE.exists() else [])):
-                    _paper_open(sig)
+                    _paper_open(sig, regime)
                     paper_fired += 1
                     paper_took = True
                 real_took = False
@@ -772,7 +791,7 @@ def main():
                     if r.get("ok"):
                         fired_real.append(sym)
                         print(f"  >>> LOOSE REAL {sym} {tf}: real opened (all-signals mode)")
-                if _paper_loose_open(sig):
+                if _paper_loose_open(sig, regime):
                     paper_fired += 1
             # PULLBACK edge: uptrend small-dip — fits grinding markets. Paper always.
             elif _is_pullback(sig):
@@ -781,7 +800,7 @@ def main():
                     if r.get("ok"):
                         fired_real.append(sym)
                         print(f"  >>> PULLBACK REAL {sym} {tf}: real opened (all-signals mode)")
-                if _pullback_open(sig):
+                if _pullback_open(sig, regime):
                     paper_fired += 1
 
     print(f"scan done: paper signals fired={paper_fired}, real fired={len(fired_real)}")
