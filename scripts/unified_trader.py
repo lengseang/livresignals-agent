@@ -227,7 +227,8 @@ def _paper_open(sig: dict) -> None:
     sl = round(sig["close"] * (1 - stop), 4)
     s["open"].append({
         "symbol": sig["symbol"], "tf": sig["tf"], "entry": round(sig["close"], 4),
-        "tp": tp, "sl": sl, "size": 5.0, "ts_utc": datetime.now(timezone.utc).isoformat(),
+        "tp": tp, "sl": sl, "size": 5.0, "edge": "validated",
+        "ts_utc": datetime.now(timezone.utc).isoformat(),
     })
     PAPER_STATE.write_text(json.dumps(s, indent=2))
     print(f"  PAPER OPEN {sig['symbol']} @ {sig['close']:.4f} TP {tp} SL {sl}")
@@ -485,7 +486,7 @@ def _paper_loose_open(sig: dict) -> bool:
     sl = round(sig["close"] * (1 - stop), 6)
     s["open"].append({
         "symbol": sig["symbol"], "tf": sig["tf"], "entry": round(sig["close"], 6),
-        "tp": tp, "sl": sl, "size": 5.0, "loose": True,
+        "tp": tp, "sl": sl, "size": 5.0, "loose": True, "edge": "loose",
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     })
     PAPER_STATE.write_text(json.dumps(s, indent=2))

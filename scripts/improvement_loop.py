@@ -97,27 +97,87 @@ def analyze() -> dict:
         })
 
     # Generate suggestions (ranked)
-    suggestions = _suggest(paper_stats, live_stats, regime_rows, edge_rows)
+    edge_meta = _edge_freshness(paper)
+    suggestions = _suggest(paper_stats, live_stats, regime_rows, edge_rows, edge_meta)
 
+    # EDGE-TAG RECENCY (added 2026-10-10). The per-edge section above is the
+    # loop's "accuracy-improvement core", but it is only as fresh as the most
+    # recent trade that CARRIES an `edge` tag. Found on 2026-10-10: the last
+    # edge-tagged trade in unified-paper.json was 2026-09-13, while the book ran
+    # to 2026-10-10 — the two ACTIVE openers (validated + loose) wrote no edge
+    # field, so ~87% of trades fell back to loose/validated and the "DECAYING
+    # edge 'supertrend'" verdicts were computed on a ~4-week-stale 362-trade
+    # subset. Report the freshness explicitly so a frozen edge feed is LOUD,
+    # never a silent stale verdict. (Openers now stamp edge; this guards the
+    # whole class of "the feed stopped and nobody noticed".)
     return {
         "generated_at_utc": now,
         "paper": paper_stats,
         "live": live_stats,
         "by_regime": regime_rows,
         "by_edge": edge_rows,
+        "edge_meta": edge_meta,
         "suggestions": suggestions,
     }
 
 
-def _suggest(paper, live, regimes, edges=None):
+def _edge_freshness(trades: list) -> dict:
+    """How fresh is the per-edge attribution, and how stale is the regime feed?
+
+    Returns {'tagged': n, 'tagged_pct': %, 'last_tagged_utc': iso|None,
+             'stale_days': float|None, 'stale': bool, 'note': str}
+    """
+    tagged = [t for t in trades if t.get("edge")]
+    out = {"tagged": len(tagged),
+           "tagged_pct": round(len(tagged) / len(trades) * 100, 1) if trades else 0.0,
+           "last_tagged_utc": None, "stale_days": None, "stale": False, "note": ""}
+    if tagged:
+        stamps = sorted(t.get("ts_utc", "") for t in tagged)
+        last = stamps[-1] or None
+        out["last_tagged_utc"] = last
+        if last:
+            try:
+                dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                days = (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0
+                out["stale_days"] = round(days, 1)
+                out["stale"] = days > 2.0
+            except Exception:  # noqa: BLE001 — a bad stamp must not crash the loop
+                pass
+    if out["tagged_pct"] < 50 or out["stale"]:
+        out["note"] = (f"per-edge stats are NOT current: {out['tagged']}/{len(trades)} "
+                       f"trades tagged ({out['tagged_pct']}%), last tag "
+                       f"{out['last_tagged_utc']} ({out['stale_days']}d ago). "
+                       f"Edge promote/demote verdicts below are STALE — read them "
+                       f"as historical, not as the live book.")
+    return out
+
+
+def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     out = []
     edges = edges or []
+    # 0. EDGE-FEED FRESHNESS (2026-10-10). If the per-edge attribution has
+    # stopped updating, EVERY per-edge verdict below is stale and must not be
+    # read as the live state of the book. This is the guard for the defect
+    # found today: the two active openers wrote no `edge` tag for ~4 weeks, so
+    # the loop's "core" section reported a frozen subset as if it were current.
+    if edge_meta and edge_meta.get("stale"):
+        out.append({
+            "priority": 1, "type": "stale_edge_data",
+            "idea": (f"STALE per-edge feed: last edge-tagged trade "
+                     f"{edge_meta['last_tagged_utc']} ({edge_meta['stale_days']}d ago), "
+                     f"only {edge_meta['tagged_pct']}% of trades tagged. Per-edge "
+                     f"promote/demote verdicts below are HISTORICAL — do not act on "
+                     f"them as current. Fix the opener tagging before trusting them."),
+        })
     # 1. Sample size gate
     if not paper or paper["n"] < 20:
         out.append({
             "priority": 1, "type": "wait_for_data",
             "idea": "Not enough trades yet (need ~30) to trust any tuning. Keep paper running; do not change params on <30 trades.",
         })
+        out.sort(key=lambda s: s["priority"])
         return out
     # 2. Edge drift
     if paper["win_rate"] < 55:
@@ -136,8 +196,27 @@ def _suggest(paper, live, regimes, edges=None):
             "priority": 2, "type": "rr_tune",
             "idea": f"Profit factor {paper['profit_factor']} < 1.5. Consider raising TP:SL ratio (2:1 -> 2.5:1) or tightening the stop.",
         })
-    # 4. Per-regime decay
-    for r in regimes:
+    # 4. Per-regime decay.
+    # GUARD (2026-10-10): the paper book records NO regime field (verified:
+    # 0/2778 trades carry `regime`), so by_regime collapses to a single "?"
+    # bucket holding the WHOLE book. A "Regime ? at 47.8% — stand down" line is
+    # not a regime signal; it just restates the book's own win rate with a
+    # question mark, and cannot be acted on. Emit an honest data-gap note
+    # instead of a fake actionable one. (The judge computes a real regime per
+    # cycle but the paper openers do not persist it — stamping it is the fix.)
+    unknown_regime = [r for r in regimes if r["regime"] == "?"]
+    named_regime = [r for r in regimes if r["regime"] != "?"]
+    if unknown_regime and not named_regime:
+        out.append({
+            "priority": 3, "type": "regime_data_gap",
+            "idea": ("NO regime attribution on paper trades (all "
+                     f"{unknown_regime[0]['n']} fall in '?'), so per-regime decay "
+                     "cannot be read. The judge computes a regime each cycle but the "
+                     "paper openers do not persist it. Regime analysis is DISABLED "
+                     "until trades carry a regime tag — do not treat the '?' line as "
+                     "a stand-down signal."),
+        })
+    for r in named_regime:
         if r["n"] >= 10 and r["win_rate"] < 50:
             out.append({
                 "priority": 3, "type": "regime_disable",
