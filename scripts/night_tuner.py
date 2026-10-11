@@ -27,6 +27,16 @@ DATA = ROOT / "data"
 ENV = ROOT / "config" / "live-small-account.env"
 REPORT = ROOT / "reports" / "night-tuner.json"
 
+# Honest net-of-cost reader for the paper book. Before 2026-10-11 this tuner
+# summed GROSS `pnl` into a field it labelled `net` — so it could report a paper
+# edge as healthy/PROMOTE on a number the exchange would have taken back, and
+# feed that into a real-money stop decision. Imported so it tracks the writer.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from paper_net import net_of as _paper_net_of
+except Exception:  # noqa: BLE001 — a broken import must not kill the tuner
+    _paper_net_of = None
+
 # Hard bounds — the tuner may NEVER exceed these (owner risk envelope)
 HARD = {
     "LIVE_STOP_PCT": (0.008, 0.03),      # 0.8% .. 3.0%
@@ -49,10 +59,33 @@ def _load(p: Path, default):
     return default
 
 
-def _stats(rows: list) -> dict | None:
+def _stats(rows: list, net: bool = False) -> dict | None:
+    """Win-rate + P&L for a set of trades.
+
+    `net=True` (paper books only) charges the MEASURED round-trip cost via
+    paper_net, so the field named `net` is actually net. Live rows keep raw
+    `pnl`: a real fill's P&L is already net of the fee the exchange charged, so
+    applying a modelled cost on top would double-count it.
+
+    `net_of` is authoritative: it uses a recorded `pnl_net` if present, else
+    derives from `size`, else falls back to gross AND counts the record so the
+    caller can see the field is not fully costed.
+    """
     if not rows:
         return None
     w = sum(1 for t in rows if t.get("pnl", 0) > 0)
+    if net and _paper_net_of is not None:
+        nets = [_paper_net_of(t) for t in rows]
+        total = sum(v for v, _ in nets)
+        uncosted = sum(1 for _, costed in nets if not costed)
+        out = {
+            "n": len(rows),
+            "win_rate": round(w / len(rows) * 100, 1),
+            "net": round(total, 4),
+        }
+        if uncosted:
+            out["uncosted"] = uncosted
+        return out
     return {
         "n": len(rows),
         "win_rate": round(w / len(rows) * 100, 1),
@@ -87,8 +120,8 @@ def analyze() -> dict:
 
     report = {
         "ts": now.isoformat(),
-        "paper_24h": _stats(p24),
-        "paper_72h": _stats(p72),
+        "paper_24h": _stats(p24, net=True),
+        "paper_72h": _stats(p72, net=True),
         "live_24h": _stats(l24),
         "adjustments": [],
         "flaws_found": [],
@@ -102,7 +135,7 @@ def analyze() -> dict:
         e = t.get("edge") or ("native" if not t.get("imported") else "imported")
         by_edge[e].append(t)
     for e, rows in sorted(by_edge.items(), key=lambda x: -len(x[1])):
-        st = _stats(rows)
+        st = _stats(rows, net=True)
         if not st or st["n"] < 6:
             continue
         verdict = "OK"
@@ -148,7 +181,7 @@ def analyze() -> dict:
 
     # stop: if live 72h WR ok but avg loss too big vs win, widen slightly;
     # if SL-heavy (WR<45%), tighten slightly to cut bleed
-    p_all = _stats(p72) or {}
+    p_all = _stats(p72, net=True) or {}
     if p_all.get("n", 0) >= 15 and p_all["win_rate"] < 50 and p_all["net"] < 0:
         cur = _env_float("LIVE_STOP_PCT", 0.015)
         new = max(HARD["LIVE_STOP_PCT"][0], cur - STEP["LIVE_STOP_PCT"])

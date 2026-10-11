@@ -20,6 +20,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 
+# The paper book's honest net-of-cost reader. Imported rather than re-derived so
+# this loop cannot drift from the writer (unified_trader) or from self_improve,
+# which already reports NET. See scripts/paper_net.py for the missing-field trap.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from paper_net import net_of as _paper_net_of, PAPER_COST_RT as _PAPER_COST_RT
+except Exception:  # noqa: BLE001 — never let the reader import kill the loop
+    _paper_net_of = None
+    _PAPER_COST_RT = None
+
 
 def _load_json(path: Path, default):
     if path.exists():
@@ -42,32 +52,62 @@ def analyze() -> dict:
     paper = unified.get("closed", [])
     real = live.get("closed", [])
 
+    def _pnl_of(t):
+        """NET-of-cost pnl for a paper trade, falling back to gross only when
+        the cost is genuinely unrecoverable (and flagging that in the report).
+
+        Reads the same basis as self_improve / unified_trader via paper_net.
+        Falls back to gross if paper_net could not be imported, so a broken
+        import degrades to the old behaviour rather than crashing the loop."""
+        if _paper_net_of is None:
+            return t.get("pnl", 0) or 0, False
+        v, costed = _paper_net_of(t)
+        return v, costed
+
     def _stats(trades):
         if not trades:
             return None
-        wins = [t for t in trades if t.get("pnl", 0) > 0]
-        losses = [t for t in trades if t.get("pnl", 0) <= 0]
+        # NET is the number the exchange will actually pay. Since 2026-10-11 the
+        # measured round trip (0.16092%) is 5.4x the 0.03% the book used to
+        # charge, so a gross headline flips this book from +$19 to a LOSS. Every
+        # promote/demote verdict below must be read on NET — gross is carried
+        # alongside purely so the haircut is visible, never as the verdict basis.
+        pnls = [t.get("pnl", 0) or 0 for t in trades]
+        nets = [_pnl_of(t)[0] for t in trades]
+        uncosted = sum(1 for t in trades if not _pnl_of(t)[1])
+        wins = [p for p in pnls if p > 0]
+        netwins = [n for n in nets if n > 0]
+        netlosses = [n for n in nets if n <= 0]
         n = len(trades)
-        wr = len(wins) / n if n else 0
-        total_pnl = sum(t.get("pnl", 0) for t in trades)
-        gp = sum(t.get("pnl", 0) for t in wins)
-        gl = abs(sum(t.get("pnl", 0) for t in losses))
-        pf = gp / gl if gl > 0 else (float("inf") if gp > 0 else 0.0)
-        ev = total_pnl / n if n else 0
-        return {"n": n, "win_rate": round(wr * 100, 1), "ev": round(ev, 4),
-                "profit_factor": round(pf, 2), "total_pnl": round(total_pnl, 4)}
+        total_pnl = sum(pnls)
+        net_total = sum(nets)
+        gp = sum(p for p in pnls if p > 0)
+        gl = abs(sum(p for p in pnls if p <= 0))
+        ngp = sum(netwins)
+        ngl = abs(sum(netlosses))
+        pf = ngp / ngl if ngl > 0 else (float("inf") if ngp > 0 else 0.0)
+        ev = net_total / n if n else 0
+        return {"n": n, "win_rate": round(len(netwins) / n * 100, 1),
+                "win_rate_gross": round(len(wins) / n * 100, 1),
+                "ev": round(ev, 4), "ev_gross": round(total_pnl / n, 4) if n else 0,
+                "profit_factor": round(pf, 2),
+                "total_pnl": round(net_total, 4),
+                "gross_pnl": round(total_pnl, 4),
+                "uncosted": uncosted}
 
     paper_stats = _stats(paper)
     live_stats = _stats(real)
 
-    # Per-regime breakdown (paper)
+    # Per-regime breakdown (paper). P&L is NET so a regime that only looks good
+    # gross (i.e. its edge is smaller than the round-trip fee) reads as the loss
+    # it is. Win-rate stays GROSS-signed for continuity with the by_edge table.
     by_regime = {}
     for t in paper:
         r = by_regime.setdefault(t.get("regime", "?"), {"wins": 0, "n": 0, "pnl": []})
         r["n"] += 1
-        if t.get("pnl", 0) > 0:
+        if (t.get("pnl", 0) or 0) > 0:
             r["wins"] += 1
-        r["pnl"].append(t.get("pnl", 0))
+        r["pnl"].append(_pnl_of(t)[0])
     regime_rows = []
     for r, d in by_regime.items():
         regime_rows.append({
@@ -76,15 +116,20 @@ def analyze() -> dict:
             "avg_pnl": round(sum(d["pnl"]) / d["n"], 4) if d["n"] else 0,
         })
 
-    # Per-EDGE breakdown (the key learning signal — which strategy actually wins)
+    # Per-EDGE breakdown (the key learning signal — which strategy actually wins).
+    # NET-of-cost, so an edge whose gross edge is thinner than the fee is called
+    # out as losing rather than promoted. `gross_pnl` is carried for the reader
+    # who wants to see the haircut; the promote/demote rules read net_pnl.
     by_edge = {}
     for t in paper:
         e = t.get("edge") or ("loose" if t.get("loose") else "validated")
-        e = by_edge.setdefault(e, {"wins": 0, "n": 0, "pnl": 0.0, "symbols": set()})
+        e = by_edge.setdefault(e, {"wins": 0, "n": 0, "pnl": 0.0, "gross": 0.0,
+                                   "symbols": set()})
         e["n"] += 1
-        e["pnl"] += t.get("pnl", 0)
+        e["pnl"] += _pnl_of(t)[0]
+        e["gross"] += t.get("pnl", 0) or 0
         e["symbols"].add(t.get("symbol", "?"))
-        if t.get("pnl", 0) > 0:
+        if (t.get("pnl", 0) or 0) > 0:
             e["wins"] += 1
     edge_rows = []
     for e, d in sorted(by_edge.items(), key=lambda kv: -kv[1]["n"]):
@@ -93,6 +138,7 @@ def analyze() -> dict:
             "win_rate": round(d["wins"] / d["n"] * 100, 1) if d["n"] else 0,
             "avg_pnl": round(d["pnl"] / d["n"], 4) if d["n"] else 0,
             "net_pnl": round(d["pnl"], 4),
+            "gross_pnl": round(d["gross"], 4),
             "symbols": sorted(d["symbols"])[:6],
         })
 
@@ -112,6 +158,8 @@ def analyze() -> dict:
     # whole class of "the feed stopped and nobody noticed".)
     return {
         "generated_at_utc": now,
+        "pnl_basis": "net",
+        "paper_cost_rt": _PAPER_COST_RT,
         "paper": paper_stats,
         "live": live_stats,
         "by_regime": regime_rows,
@@ -223,20 +271,25 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
                 "idea": f"Regime {r['regime']} at {r['win_rate']}% over {r['n']} trades — consider standing down in this regime.",
             })
     # 4b. PER-EDGE promotion/demotion — the accuracy-improvement core.
-    # Edges with n>=10 that hold WR>=58% + positive EV graduate toward real;
+    # Edges with n>=10 that hold WR>=58% + positive NET EV graduate toward real;
     # edges that decay below 45% get flagged for threshold tightening or removal.
+    #
+    # NOTE (2026-10-11): these rules read NET (net_pnl / avg_pnl are net of the
+    # measured round trip). Before this date they read gross, so an edge whose
+    # true edge was smaller than the fee was reported as profitable. `gross_pnl`
+    # is carried in each row so the haircut stays visible.
     for e in edges:
         if e["n"] < 10:
             continue
         if e["win_rate"] >= 58 and e["avg_pnl"] > 0:
             out.append({
                 "priority": 2, "type": "edge_promote",
-                "idea": f"Edge '{e['edge']}' PROVEN: {e['win_rate']}% WR / {e['n']} trades / +${e['net_pnl']:.2f} net on {','.join(e['symbols'][:4])}. Keep trading real on this; it carries the account.",
+                "idea": f"Edge '{e['edge']}' PROVEN (net): {e['win_rate']}% WR / {e['n']} trades / +${e['net_pnl']:.2f} net (gross +${e.get('gross_pnl', 0):.2f}) on {','.join(e['symbols'][:4])}. Keep trading real on this; it carries the account.",
             })
         elif e["win_rate"] < 45:
             out.append({
                 "priority": 2, "type": "edge_decay",
-                "idea": f"Edge '{e['edge']}' DECAYING: {e['win_rate']}% WR / {e['n']} trades / {e['net_pnl']:+.2f} net. Tighten its entry (deeper dip / lower RSI) or stand it down — it is losing edge.",
+                "idea": f"Edge '{e['edge']}' DECAYING (net): {e['win_rate']}% WR / {e['n']} trades / {e['net_pnl']:+.2f} net (gross {e.get('gross_pnl', 0):+.2f}). Tighten its entry (deeper dip / lower RSI) or stand it down — it is losing edge.",
             })
     # 5. Unique/outside-the-box ideas (always add a couple)
     # TESTED-NEGATIVE (2026-10-10): the volume-spike idea below was run through
