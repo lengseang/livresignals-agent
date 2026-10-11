@@ -163,7 +163,48 @@ def _validated(sig: dict) -> dict | None:
 # `pnl` stays the GROSS number so every existing consumer, threshold and
 # comparison keeps working unchanged. `pnl_net` is the new, honest figure, and
 # `cost` records what was charged. Nothing else about the book changes.
-PAPER_COST_RT = float(os.environ.get("PAPER_COST_RT", "0.0003"))
+#
+# MEASURED-COST FIX (2026-10-11). The 0.0003 above was a HARDCODED constant
+# taken from "30 real fills" whose recovered fees were ~zero. It went stale the
+# moment the exchange's real fees were actually measured: `fee_audit.py` (cron
+# 09:50 daily) now reports `measured_round_trip_pct = 0.16092%` — 5.4x the
+# charged 0.03%. So the book was NOT "deliberately conservative"; it was
+# OPTIMISTIC by ~0.13%/trade. On 2123 trades that is ~$13.8 of hidden cost —
+# enough to flip the reported +$18.98 net to about -$3.35. (Same class of defect
+# as the stale edge feed and the missing regime tag: a frozen assumption the
+# live measurement has since overtaken.)
+#
+# Resolution: PREFER the measured round-trip from data/fee-audit.json. An
+# explicit PAPER_COST_RT env var still wins (operator override); the stale
+# 0.0003 is kept only as the last-resort fallback when no audit file exists.
+def _measured_round_trip() -> float | None:
+    """The exchange's ACTUAL round-trip cost fraction, from the fee audit.
+
+    Percent in the file (0.16092) -> fraction (0.0016092). None when the audit
+    is missing/unreadable, so callers fall back rather than silently taking 0.
+    """
+    try:
+        p = ROOT / "data" / "fee-audit.json"
+        if not p.exists():
+            return None
+        tot = json.loads(p.read_text()).get("totals", {})
+        pct = float(tot.get("measured_round_trip_pct") or 0.0)
+        return pct / 100.0 if pct > 0 else None
+    except Exception:  # noqa: BLE001 — a bad audit file must not crash the trader
+        return None
+
+
+_CONSERVATIVE_FALLBACK_RT = 0.0003
+_MEASURED_RT = _measured_round_trip()
+if os.environ.get("PAPER_COST_RT") is not None:
+    PAPER_COST_RT = float(os.environ["PAPER_COST_RT"])          # explicit override
+    _COST_SOURCE = "env PAPER_COST_RT"
+elif _MEASURED_RT is not None:
+    PAPER_COST_RT = _MEASURED_RT                                 # measured (preferred)
+    _COST_SOURCE = "fee-audit.json measured_round_trip_pct"
+else:
+    PAPER_COST_RT = _CONSERVATIVE_FALLBACK_RT                    # last resort
+    _COST_SOURCE = "hardcoded fallback (no fee-audit.json)"
 
 # PAPER_CHARGE_COST=0 disables charging entirely (records pnl_net == pnl).
 PAPER_CHARGE_COST = os.environ.get("PAPER_CHARGE_COST", "1") not in ("0", "false", "False")

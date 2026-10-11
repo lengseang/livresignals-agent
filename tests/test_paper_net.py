@@ -7,6 +7,7 @@ record with NO `pnl_net` and NO `size`, which must be reported as UNCOSTED, not
 silently averaged in as zero.
 """
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -87,9 +88,33 @@ def test_per_symbol_net_groups_and_signs():
 
 
 def test_cost_rt_matches_unified_trader_default():
-    """The reader's cost must not silently drift from the writer's."""
+    """The reader's cost must not silently drift from the writer's.
+
+    Since 2026-10-11 both resolve the SAME way: env override -> measured
+    `data/fee-audit.json` round trip -> the 0.0003 fallback. Asserting a literal
+    is no longer enough — the two must AGREE on whichever basis is active, and
+    the active basis must be the measured one when the audit exists.
+    """
     pn = _load()
     src = (SCRIPTS / "unified_trader.py").read_text(encoding="utf-8")
-    assert 'PAPER_COST_RT", "0.0003"' in src, \
-        "unified_trader default changed — update paper_net.PAPER_COST_RT to match"
-    assert pn.PAPER_COST_RT == 0.0003
+    # both read the measured value from the same file...
+    assert "measured_round_trip_pct" in src, \
+        "unified_trader no longer reads the measured round trip"
+    assert "measured_round_trip_pct" in (
+        SCRIPTS / "paper_net.py").read_text(encoding="utf-8"), \
+        "paper_net no longer reads the measured round trip"
+
+    # ...and resolve to the SAME number in this checkout.
+    import importlib.util as _ilu
+    spec = _ilu.spec_from_file_location("ut_drift", SCRIPTS / "unified_trader.py")
+    ut = _ilu.module_from_spec(spec)
+    sys.modules["ut_drift"] = ut
+    spec.loader.exec_module(ut)
+    assert abs(pn.PAPER_COST_RT - ut.PAPER_COST_RT) < 1e-12, \
+        f"reader {pn.PAPER_COST_RT} != writer {ut.PAPER_COST_RT}"
+
+    audit = json.loads((BASE / "data" / "fee-audit.json").read_text())
+    pct = audit.get("totals", {}).get("measured_round_trip_pct")
+    if pct:
+        assert abs(pn.PAPER_COST_RT - pct / 100.0) < 1e-9
+        assert pn.PAPER_COST_RT != 0.0003, "stale constant is still in force"

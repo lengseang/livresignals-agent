@@ -24,14 +24,43 @@ exists to stop. So this module:
     uses, when `size` is present, else
   * falls back to gross and COUNTS the record as uncosted, never as a zero.
 
-`PAPER_COST_RT` mirrors `unified_trader.PAPER_COST_RT` (0.0003 = 0.03% round
-trip, the low end of the 30 real fills). It is a module constant so the two do
-not silently drift; `unified_trader` remains the writer of record.
+`PAPER_COST_RT` mirrors `unified_trader.PAPER_COST_RT`, which since 2026-10-11
+resolves to the MEASURED exchange round trip from `data/fee-audit.json`
+(0.16092% at the time of writing) rather than the stale 0.0003 constant. This
+reader resolves it the SAME way — env override, then the audit file, then the
+old constant — so the two cannot silently drift; `unified_trader` remains the
+writer of record.
 """
 from __future__ import annotations
 
-# Must match unified_trader.PAPER_COST_RT (the writer). 0.03% round trip.
-PAPER_COST_RT = 0.0003
+import json
+import os
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _measured_round_trip() -> float | None:
+    """Fractional round-trip cost from data/fee-audit.json, or None if absent."""
+    try:
+        p = _ROOT / "data" / "fee-audit.json"
+        if not p.exists():
+            return None
+        pct = float(json.loads(p.read_text()).get("totals", {})
+                    .get("measured_round_trip_pct") or 0.0)
+        return pct / 100.0 if pct > 0 else None
+    except Exception:  # noqa: BLE001 — a bad audit file must not crash the reader
+        return None
+
+
+# Same precedence as unified_trader._book_pnl's PAPER_COST_RT.
+_MEASURED_RT = _measured_round_trip()
+if os.environ.get("PAPER_COST_RT") is not None:
+    PAPER_COST_RT = float(os.environ["PAPER_COST_RT"])
+elif _MEASURED_RT is not None:
+    PAPER_COST_RT = _MEASURED_RT
+else:
+    PAPER_COST_RT = 0.0003  # last-resort fallback (no audit, no override)
 
 
 def net_of(record: dict, cost_rt: float = PAPER_COST_RT) -> tuple[float, bool]:
