@@ -73,23 +73,21 @@ def analyze() -> dict:
         # promote/demote verdict below must be read on NET — gross is carried
         # alongside purely so the haircut is visible, never as the verdict basis.
         pnls = [t.get("pnl", 0) or 0 for t in trades]
-        nets = [_pnl_of(t)[0] for t in trades]
-        uncosted = sum(1 for t in trades if not _pnl_of(t)[1])
-        wins = [p for p in pnls if p > 0]
-        netwins = [n for n in nets if n > 0]
-        netlosses = [n for n in nets if n <= 0]
+        costed = [_pnl_of(t) for t in trades]
+        nets = [v for v, _ in costed]
+        uncosted = sum(1 for _, ok in costed if not ok)
+        netwins = [x for x in nets if x > 0]
+        netlosses = [x for x in nets if x <= 0]
         n = len(trades)
         total_pnl = sum(pnls)
         net_total = sum(nets)
-        gp = sum(p for p in pnls if p > 0)
-        gl = abs(sum(p for p in pnls if p <= 0))
         ngp = sum(netwins)
         ngl = abs(sum(netlosses))
         pf = ngp / ngl if ngl > 0 else (float("inf") if ngp > 0 else 0.0)
-        ev = net_total / n if n else 0
         return {"n": n, "win_rate": round(len(netwins) / n * 100, 1),
-                "win_rate_gross": round(len(wins) / n * 100, 1),
-                "ev": round(ev, 4), "ev_gross": round(total_pnl / n, 4) if n else 0,
+                "win_rate_gross": round(sum(1 for p in pnls if p > 0) / n * 100, 1),
+                "ev": round(net_total / n, 4),
+                "ev_gross": round(total_pnl / n, 4),
                 "profit_factor": round(pf, 2),
                 "total_pnl": round(net_total, 4),
                 "gross_pnl": round(total_pnl, 4),
