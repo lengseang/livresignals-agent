@@ -145,6 +145,8 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │                                                                 │
 │ 3. ALWAYS compare to BTC buy&hold.                              │
 │    If you don't beat it, you have no edge.                      │
+│    ENFORCED: research_loop gates every "NEW BEST" on             │
+│    beating buy&hold (fail-safe on missing benchmark).            │
 │                                                                 │
 │ 4. ALWAYS include fees (0.144% round trip).                     │
 │    Our gross edge is ~0; fees were 100% of the loss.            │
