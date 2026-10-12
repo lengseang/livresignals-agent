@@ -243,6 +243,8 @@ def _paper_open(sig: dict, regime: str | None = None) -> None:
     """
     if _symbol_disabled(sig.get("symbol", "")):
         return
+    if _edge_disabled("validated"):
+        return
     s = {}
     if PAPER_STATE.exists():
         try:
@@ -418,6 +420,8 @@ def _pullback_open(sig: dict, regime: str | None = None) -> bool:
     """
     if not _is_pullback(sig):
         return False
+    if _edge_disabled("pullback"):
+        return False
     s = {}
     if PAPER_STATE.exists():
         try:
@@ -469,6 +473,31 @@ def _symbol_disabled(sym: str) -> bool:
     return False
 
 
+def _edge_disabled(edge: str) -> bool:
+    """True if this EDGE is on the autonomous disable list in
+    data/signals-state.json (key 'disabled').
+
+    🔴 FIX (2026-10-12): the self-improve engine writes proven-losing edges to
+    `disabled`, and `_imported_strategy_open` has always honoured that list —
+    but the THREE NATIVE openers (`validated`, `loose`, `pullback`) never read
+    it. So when the engine disabled edge 'loose' on 2026-10-11 02:40, loose
+    paper positions kept opening: 44 closed AFTER the disable and 4 were still
+    open at audit time. The disable was COSMETIC for every native edge — the
+    exact "disabled strategies actually stop opening (not cosmetic)" defect the
+    imported-track comment claims was fixed. This is the single reader all
+    openers must go through so an edge disable is enforced everywhere.
+    """
+    if not edge:
+        return False
+    try:
+        st = ROOT / "data" / "signals-state.json"
+        if st.exists():
+            return edge in json.loads(st.read_text()).get("disabled", [])
+    except Exception:  # noqa: BLE001 — a bad state file must not block trading
+        pass
+    return False
+
+
 def _is_loose(sig: dict) -> bool:
     """Pure loose-signal test (no side effects) — used by scan loop for REAL
     firing, and by _paper_loose_open. Keeps real-vs-paper gates identical.
@@ -515,6 +544,8 @@ def _paper_loose_open(sig: dict, regime: str | None = None) -> bool:
     if not _is_loose(sig):
         return False
     if _symbol_disabled(sig.get("symbol", "")):
+        return False
+    if _edge_disabled("loose"):
         return False
     s = {}
     if PAPER_STATE.exists():

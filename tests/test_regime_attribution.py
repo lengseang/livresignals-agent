@@ -32,10 +32,19 @@ def _sig():
 
 
 def _redirect_state(tmp_path, monkeypatch):
-    """Point the openers' PAPER_STATE at a fresh temp file."""
+    """Point the openers' PAPER_STATE at a fresh temp file.
+
+    ALSO isolate ROOT so `_edge_disabled` (added 2026-10-12) can never read the
+    live data/signals-state.json — these tests exercise the regime stamp, not
+    the disable list, and the live list currently disables 'loose'/'validated'.
+    """
     p = tmp_path / "unified-paper.json"
     p.write_text(json.dumps({"open": [], "closed": []}))
     monkeypatch.setattr(ut, "PAPER_STATE", p)
+    (tmp_path / "data").mkdir(exist_ok=True)
+    (tmp_path / "data" / "signals-state.json").write_text(
+        json.dumps({"disabled": [], "promoted": [], "disabled_symbols": []}))
+    monkeypatch.setattr(ut, "ROOT", tmp_path)
     return p
 
 
