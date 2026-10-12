@@ -17,12 +17,26 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location(
+
+# `unified_trader` is a real-money module on tests/loop/conftest.py's
+# BLOCKED_MODULES list; that guard FAILS any loop test if the module is already
+# resident in sys.modules. Importing it at module scope (the original form)
+# poisoned all 341 tests/loop/ tests whenever the full suite ran together.
+# Load it once here, but let each test evict it so collection order is
+# irrelevant. See _load_ut().
+_SPEC = importlib.util.spec_from_file_location(
     "unified_trader", ROOT / "scripts" / "unified_trader.py")
-ut = importlib.util.module_from_spec(_spec)
-sys.modules["unified_trader"] = ut
-_spec.loader.exec_module(ut)
+
+
+def _load_ut():
+    """Fresh, isolated unified_trader import; caller must evict it after use."""
+    ut = importlib.util.module_from_spec(_SPEC)
+    sys.modules["unified_trader"] = ut
+    _SPEC.loader.exec_module(ut)
+    return ut
 
 
 def _sig():
@@ -31,51 +45,62 @@ def _sig():
             "dd": -0.02, "rsi": 28.0, "mom": -1.0}
 
 
-def _redirect_state(tmp_path, monkeypatch):
-    """Point the openers' PAPER_STATE at a fresh temp file.
+@pytest.fixture()
+def ut(tmp_path, monkeypatch):
+    """Loaded unified_trader with PAPER_STATE + ROOT redirected to a temp dir.
 
-    ALSO isolate ROOT so `_edge_disabled` (added 2026-10-12) can never read the
-    live data/signals-state.json — these tests exercise the regime stamp, not
-    the disable list, and the live list currently disables 'loose'/'validated'.
+    Evicts the module from sys.modules on teardown so tests/loop/'s
+    BLOCKED_MODULES guard (which fails on a resident real-money module) is
+    never tripped regardless of collection order.
     """
-    p = tmp_path / "unified-paper.json"
-    p.write_text(json.dumps({"open": [], "closed": []}))
-    monkeypatch.setattr(ut, "PAPER_STATE", p)
-    (tmp_path / "data").mkdir(exist_ok=True)
-    (tmp_path / "data" / "signals-state.json").write_text(
-        json.dumps({"disabled": [], "promoted": [], "disabled_symbols": []}))
-    monkeypatch.setattr(ut, "ROOT", tmp_path)
-    return p
+    was_present = "unified_trader" in sys.modules
+    mod = _load_ut()
+    try:
+        data = tmp_path / "data"
+        data.mkdir(exist_ok=True)
+        (data / "signals-state.json").write_text(
+            json.dumps({"disabled": [], "promoted": [], "disabled_symbols": []}))
+        p = tmp_path / "unified-paper.json"
+        p.write_text(json.dumps({"open": [], "closed": []}))
+        monkeypatch.setattr(mod, "PAPER_STATE", p)
+        # Isolate ROOT so `_edge_disabled` (2026-10-12) can never read the live
+        # signals-state.json — these tests pin the regime stamp, not the
+        # disable list (which currently disables 'loose'/'validated').
+        monkeypatch.setattr(mod, "ROOT", tmp_path)
+        yield mod, p
+    finally:
+        if not was_present:
+            sys.modules.pop("unified_trader", None)
 
 
-def test_paper_open_stamps_the_judge_regime(tmp_path, monkeypatch):
-    p = _redirect_state(tmp_path, monkeypatch)
-    ut._paper_open(_sig(), regime="bull")
+def test_paper_open_stamps_the_judge_regime(ut):
+    mod, p = ut
+    mod._paper_open(_sig(), regime="bull")
     rec = json.loads(p.read_text())["open"][0]
     assert rec["regime"] == "bull", rec
 
 
-def test_paper_loose_open_stamps_the_judge_regime(tmp_path, monkeypatch):
-    p = _redirect_state(tmp_path, monkeypatch)
+def test_paper_loose_open_stamps_the_judge_regime(ut):
+    mod, p = ut
     # loose needs dd<=-0.011 and rsi<=58 — the _sig above qualifies.
-    ut._paper_loose_open(_sig(), regime="bear")
+    mod._paper_loose_open(_sig(), regime="bear")
     rec = json.loads(p.read_text())["open"][0]
     assert rec["regime"] == "bear", rec
 
 
-def test_missing_regime_is_the_sentinel_not_a_fabricated_one(tmp_path, monkeypatch):
+def test_missing_regime_is_the_sentinel_not_a_fabricated_one(ut):
     """No regime supplied -> '?' (visibly missing), never a guess."""
-    p = _redirect_state(tmp_path, monkeypatch)
-    ut._paper_open(_sig())  # no regime kwarg
+    mod, p = ut
+    mod._paper_open(_sig())  # no regime kwarg
     rec = json.loads(p.read_text())["open"][0]
     assert rec["regime"] == "?", rec
 
 
-def test_openers_still_work_without_the_regime_argument(tmp_path, monkeypatch):
+def test_openers_still_work_without_the_regime_argument(ut):
     """Defaulted param: existing callers/tests must not break."""
-    p = _redirect_state(tmp_path, monkeypatch)
-    ut._paper_open(_sig())
+    mod, p = ut
+    mod._paper_open(_sig())
     sig2 = _sig()
     sig2["tf"] = "30m"  # distinct (symbol, tf) so the dup-guard allows it
-    ut._paper_loose_open(sig2)
+    mod._paper_loose_open(sig2)
     assert len(json.loads(p.read_text())["open"]) == 2

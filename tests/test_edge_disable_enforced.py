@@ -24,18 +24,29 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 
 @pytest.fixture()
 def trader(tmp_path, monkeypatch):
-    """Import unified_trader with DATA/state redirected to a temp dir."""
+    """Import unified_trader with DATA/state redirected to a temp dir.
+
+    `unified_trader` is on tests/loop/conftest.py's BLOCKED_MODULES real-money
+    list, and that guard fails any loop test if the module is already resident
+    in sys.modules. So we import it scoped to this fixture and EVICT it on
+    teardown — a stray top-level import here would poison every tests/loop/
+    test that runs later in the same session.
+    """
     sys.path.insert(0, str(SCRIPTS))
+    was_present = "unified_trader" in sys.modules
     mod = importlib.import_module("unified_trader")
-    # Redirect the state file the openers read and write.
-    state = tmp_path / "signals-state.json"
-    paper = tmp_path / "unified-paper.json"
-    monkeypatch.setattr(mod, "PAPER_STATE", paper, raising=False)
-    monkeypatch.setattr(mod, "ROOT", tmp_path, raising=False)
-    (tmp_path / "data").mkdir(exist_ok=True)
-    monkeypatch.setattr(mod, "PAPER_STATE", tmp_path / "data" / "unified-paper.json",
-                        raising=False)
-    return mod, tmp_path / "data" / "signals-state.json", tmp_path / "data" / "unified-paper.json"
+    try:
+        data = tmp_path / "data"
+        data.mkdir(exist_ok=True)
+        paper = data / "unified-paper.json"
+        monkeypatch.setattr(mod, "PAPER_STATE", paper, raising=False)
+        monkeypatch.setattr(mod, "ROOT", tmp_path, raising=False)
+        yield mod, data / "signals-state.json", paper
+    finally:
+        # Leave sys.modules exactly as we found it, so the tests/loop/ guard
+        # (BLOCKED_MODULES ∩ sys.modules) stays clean.
+        if not was_present:
+            sys.modules.pop("unified_trader", None)
 
 
 def _write_state(p: Path, disabled: list[str]) -> None:
