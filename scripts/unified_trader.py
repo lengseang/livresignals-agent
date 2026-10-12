@@ -936,8 +936,21 @@ def _real_tier_ok(sym: str, risk_off: bool = False, sig: dict | None = None,
     HTF FILTER (2026-09-10): additionally require the 1h trend to be intact
     (the only filter that tested positive across all experiments).
     Everything else (loose dips, memes, non-elite symbols) = paper only.
-    risk_off further requires the coin itself to have momentum (checked by caller)."""
+    risk_off further requires the coin itself to have momentum (checked by caller).
+
+    🔴 FIX (2026-10-12): the self-improve SYMBOL disable (`disabled_symbols` in
+    data/signals-state.json) was enforced on the PAPER openers but NOT here — so
+    a symbol the system had stood down could still take REAL money. This was
+    latent while the list held only ARB (never ELITE); it became live the moment
+    SOL/USDT was added, because SOL IS in ELITE_SYMS. Evidence: the real book has
+    two SOL closes on 2026-10-12 (04:16 STALL +0.0693, 11:56 TIME -0.018) while
+    SOL sat on the disabled list. A disable that the money path ignores is
+    cosmetic — same defect class as the edge-disable fixed the same day.
+    This is the single chokepoint every real-order call site already passes
+    through (lines ~840/858/870), so one check covers all of them."""
     if sym not in ELITE_SYMS:
+        return False
+    if _symbol_disabled(sym):
         return False
     if sig is not None:
         if not sig.get("sharp"):

@@ -254,6 +254,23 @@ def futures_open(symbol_spot: str, sig: dict | None = None) -> dict:
     if abs(_daily_loss()) >= DAILY_LOSS_CAP:
         return {"ok": False, "err": f"daily loss cap -${DAILY_LOSS_CAP} hit — halted for today"}
 
+    # --- SYMBOL disable (2026-10-12) ---
+    # Same state file as futures_sharp_dip_paused. The self-improve engine stands
+    # symbols down via `disabled_symbols`; unified_trader's paper openers honour it
+    # but the futures branch calls futures_open() DIRECTLY. SOL/USDT is BOTH in the
+    # futures allowlist (SPOT_TO_FUT) AND was added to disabled_symbols — so without
+    # this check the venue was the one path still trading a symbol the system had
+    # stood down. Enforce HERE so EVERY caller is protected (fail-OPEN on a
+    # read/parse error, matching sharp_dip_paused: a corrupt file must not stall).
+    try:
+        if SIGNALS_STATE.exists():
+            _st = json.loads(SIGNALS_STATE.read_text(encoding="utf-8"))
+            if symbol_spot in _st.get("disabled_symbols", []):
+                return {"ok": False,
+                        "err": f"{symbol_spot} on self-improve disabled_symbols list"}
+    except Exception:
+        pass
+
     # --- research pause (2026-10-06) ---
     # unified_trader's 2x/hour futures branch calls futures_open() DIRECTLY,
     # bypassing futures_scan()'s gate. Enforce the pause HERE too so EVERY
