@@ -58,6 +58,53 @@ def test_edge_freshness_ok_when_recent_and_dense():
     assert meta["tagged_pct"] == 100.0
 
 
+def test_healthily_tagged_book_is_not_flagged_stale():
+    """THE REAL-WORLD CASE (2026-10-13). A book with a large LEGACY untagged
+    population and a healthy, recent, fully-tagged tail must NOT be flagged.
+
+    Mirrors the real book: the legacy era (untagged, older) is followed by a
+    continuous tagged era, with a single transition trade on the changeover day.
+    Before the fix, `tagged_pct` was `tagged / len(all trades)`, and the legacy
+    tail could never be tagged — so the guard fired on every run forever even
+    while the live feed was provably healthy (stale_days 0.8). This test fails
+    on that code.
+    """
+    now = datetime.now(timezone.utc)
+    # Legacy era: 2751 trades, all written before any opener stamped `edge`.
+    legacy = [_trade((now - timedelta(days=200 - i % 45)).isoformat())
+              for i in range(2751)]
+    # The one transition trade that slipped through untagged on the changeover.
+    transition = _trade((now - timedelta(days=3)).isoformat())
+    # Tagged era: 137 recent trades, every one tagged (the live feed, healthy).
+    tagged = [_trade((now - timedelta(hours=i / 4)).isoformat(), edge="validated")
+              for i in range(137)]
+    meta = il._edge_freshness(legacy + [transition] + tagged)
+    assert meta["stale"] is False, meta
+    assert meta["stale_days"] < 2
+    assert meta["tagged_pct"] < 50          # whole-book figure is still low …
+    assert meta["recent_tagged_pct"] >= 95  # … but the recent feed is healthy
+    assert meta["recent_n"] >= 100          # window is meaningful, not 1 trade
+    assert meta["note"] == "", meta
+
+
+def test_recent_untagged_tail_still_flags():
+    """The guard keeps its teeth: a healthy legacy base does NOT excuse a
+    recent tail that stopped being tagged."""
+    now = datetime.now(timezone.utc)
+    legacy = [_trade((now - timedelta(days=200 - i % 45)).isoformat())
+              for i in range(500)]
+    # Continuous tagged era, then it stops: 60 recent untagged trades at the top.
+    good = [_trade((now - timedelta(days=20 - i / 6)).isoformat(), edge="loose")
+            for i in range(60)]
+    bad_tail = [_trade((now - timedelta(hours=i)).isoformat())
+                for i in range(60)]
+    meta = il._edge_freshness(legacy + good + bad_tail)
+    assert meta["recent_n"] >= 60, meta
+    assert meta["recent_tagged_pct"] < 50, meta
+    assert meta["note"], meta
+    assert "NOT current" in meta["note"]
+
+
 def test_stale_feed_raises_a_priority_1_suggestion():
     now = datetime.now(timezone.utc)
     stale = il._edge_freshness(

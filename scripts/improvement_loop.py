@@ -171,12 +171,60 @@ def _edge_freshness(trades: list) -> dict:
     """How fresh is the per-edge attribution, and how stale is the regime feed?
 
     Returns {'tagged': n, 'tagged_pct': %, 'last_tagged_utc': iso|None,
-             'stale_days': float|None, 'stale': bool, 'note': str}
+             'stale_days': float|None, 'stale': bool, 'note': str,
+             'recent_n': n, 'recent_tagged': n, 'recent_tagged_pct': %}
+
+    WHY THERE ARE TWO TAGGING FIGURES (2026-10-13)
+    ----------------------------------------------
+    `tagged_pct` is over the WHOLE book and is only ever a reported total. It is
+    NOT the staleness input. The book permanently holds a large LEGACY
+    population written before the 2026-10-10 fix that made the active openers
+    stamp `edge`; those trades can never acquire a tag, so a whole-book rate is
+    bounded above by taggable/(taggable+legacy) and shrinks as the book grows.
+    On 2026-10-13 that read 499/2923 = 17.1% — permanently below the 50%
+    threshold — so the guard emitted a priority-class STALE note on EVERY run
+    even while `stale_days` was 0.8 (the live feed was demonstrably healthy).
+    A warning that is always on is indistinguishable from no warning, and it
+    MASKS the genuine freeze this guard exists to catch.
+
+    The staleness question ("is the feed still being fed?") is a CURRENT
+    question, so it is judged on `recent_tagged_pct`: the tagging rate from the
+    newest trade that slipped through UNTAGGED onward (inclusive). That boundary
+    is the last point at which tagging demonstrably failed, so every legacy
+    trade — which lies strictly before it — is excluded, while a fresh untagged
+    trade lands *inside* the window and counts against the rate. It is detected
+    data-drivenly rather than by a hard-coded date, so it self-maintains if the
+    tagging scheme is ever reset. Being inclusive of the boundary trade is what
+    stops a single new untagged trade from resetting the window past itself and
+    hiding.
     """
     tagged = [t for t in trades if t.get("edge")]
     out = {"tagged": len(tagged),
            "tagged_pct": round(len(tagged) / len(trades) * 100, 1) if trades else 0.0,
-           "last_tagged_utc": None, "stale_days": None, "stale": False, "note": ""}
+           "last_tagged_utc": None, "stale_days": None, "stale": False, "note": "",
+           "recent_n": 0, "recent_tagged": 0, "recent_tagged_pct": None}
+
+    # The post-tagging-fix window starts at the newest UNTAGGED trade. Everything
+    # strictly before it is history the current writers could not have tagged;
+    # everything at or after it should be tagged. If nothing is untagged the
+    # whole book is the window.
+    #
+    # If that window is too small to be meaningful (a lone untagged trade at the
+    # very top, or a quiet stretch), fall back to the whole-book rate — the
+    # pre-fix behaviour — so the guard can only ever be STRICTER, never falsely
+    # quiet. A 1-trade window must not decide anything.
+    MIN_RECENT = 30
+    untagged = [t for t in trades if not t.get("edge")]
+    boundary = max((str(t.get("ts_utc", "")) for t in untagged), default="")
+    recent = ([t for t in trades if str(t.get("ts_utc", "")) >= boundary]
+              if boundary else list(trades))
+    if len(recent) < MIN_RECENT:
+        recent = list(trades)
+    out["recent_n"] = len(recent)
+    out["recent_tagged"] = sum(1 for t in recent if t.get("edge"))
+    out["recent_tagged_pct"] = (
+        round(out["recent_tagged"] / out["recent_n"] * 100, 1) if out["recent_n"] else None)
+
     if tagged:
         stamps = sorted(t.get("ts_utc", "") for t in tagged)
         last = stamps[-1] or None
@@ -191,12 +239,19 @@ def _edge_freshness(trades: list) -> dict:
                 out["stale"] = days > 2.0
             except Exception:  # noqa: BLE001 — a bad stamp must not crash the loop
                 pass
-    if out["tagged_pct"] < 50 or out["stale"]:
-        out["note"] = (f"per-edge stats are NOT current: {out['tagged']}/{len(trades)} "
-                       f"trades tagged ({out['tagged_pct']}%), last tag "
-                       f"{out['last_tagged_utc']} ({out['stale_days']}d ago). "
-                       f"Edge promote/demote verdicts below are STALE — read them "
-                       f"as historical, not as the live book.")
+    # Judge on the RECENT tagging rate. Fall back to the whole-book rate only
+    # when the recent window is empty (undefined) — that keeps the pre-fix
+    # behaviour in the degenerate case, so the guard can be stricter, never
+    # falsely quiet.
+    judging_pct = (out["recent_tagged_pct"] if out["recent_tagged_pct"] is not None
+                   else out["tagged_pct"])
+    if judging_pct < 50 or out["stale"]:
+        out["note"] = (f"per-edge stats are NOT current: {out['recent_tagged']}/"
+                       f"{out['recent_n']} recent trades tagged "
+                       f"({judging_pct}%), last tag {out['last_tagged_utc']} "
+                       f"({out['stale_days']}d ago). Edge promote/demote verdicts "
+                       f"below are STALE — read them as historical, not as the "
+                       f"live book.")
     return out
 
 

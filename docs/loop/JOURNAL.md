@@ -3,6 +3,41 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-10-13 · the per-edge freshness guard could never clear (permanent alarm)
+
+- **Task:** autonomous improvement pass (cron). No board task; a defect found
+  while reading the improvement layer.
+- **Need check:** no external facts — all evidence is the real book
+  `data/unified-paper.json` and the live `improvement_loop.py`. No prod files
+  touched (the loop is paper/report-only).
+- **Found:** `_edge_freshness()` raised its "per-edge stats are NOT current …
+  STALE" note on every run. On 2026-10-13 10:40 the report carried BOTH
+  `"stale": false` (last tag 0.8d old — healthy) AND the STALE note. The
+  `tagged_pct < 50` gate read the WHOLE book (499/2923 = 17.1%), but 2751/2923
+  trades are LEGACY — written before the 2026-10-10 fix that made the active
+  openers stamp `edge` — and can never acquire a tag. So the rate is permanently
+  below 50% and the alarm can never clear. A warning that is always on is
+  indistinguishable from no warning, and it MASKS the genuine freeze the guard
+  exists to catch.
+- **Done:** judge staleness on a RECENT tagging rate, measured from the newest
+  untagged trade onward (inclusive), with a `MIN_RECENT=30` fallback to the
+  whole-book rate so it can only ever be stricter. Whole-book `tagged_pct` stays
+  as a reported total. Design:
+  `docs/proposals/edge-freshness-permanent-alarm-2026-10-13.md`. Two alternatives
+  (earliest-tag boundary, fixed time window) were tried on the real book and
+  rejected — recorded in the design.
+- **Evidence:** `venv/bin/python -m pytest tests/test_improvement_loop_freshness.py`
+  → `7 passed`. Mutation check: reverting the judging input to `tagged_pct`
+  makes `test_healthily_tagged_book_is_not_flagged_stale` FAIL. Full suite
+  `586 passed, 3 skipped`. E2E on the real book: `note` is now `""`,
+  `recent_tagged_pct=99.3`, and the priority-1 `stale_edge_data` suggestion no
+  longer fires (only the genuine `edge_decay` remains).
+- **Learned:** a ratio whose denominator includes immutable history is a ratio
+  that can never recover. When a guard's job is "is this STILL being fed?", its
+  input must be scoped to the population the current writers could have produced
+  — not to the whole corpus. Same family as the window-coverage guard
+  (2026-10-10): assert the input is present and CURRENT, not merely non-empty.
+
 ## 2026-09-26 · T2.6 full-history backfill + replay plan (owner request)
 - **Owner idea:** pull all history and replay it through the live scan/signal code, beginning to end.
 - **Need check (sizing, measured):** 30 days of aggTrades for 15 coins = 1.5 GB (BTC 358 MB/month), so all-time trades
