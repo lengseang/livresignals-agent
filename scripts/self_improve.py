@@ -46,7 +46,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from paper_net import summarise as paper_summarise, per_symbol_net  # noqa: E402
+from paper_net import summarise as paper_summarise, per_symbol_net, net_of as paper_net_of  # noqa: E402
 
 BASE = Path(__file__).resolve().parents[1]
 DATA = BASE / "data"
@@ -118,6 +118,31 @@ def stats(trades: list, pnl_key: str = "pnl") -> dict:
     w = sum(1 for t in trades if (t.get(pnl_key) or 0) > 0)
     pnl = sum((t.get(pnl_key) or 0) for t in trades)
     return {"n": n, "wr": w / n * 100, "pnl": pnl, "ev": pnl / n}
+
+
+def stats_net_of(trades: list) -> dict:
+    """NET-of-cost stats for a set of paper trades — the disable/promote basis.
+
+    WHY (2026-10-13): the per-edge disable gate below WRITES the list that
+    `unified_trader` honours on the real-money path, but it read GROSS `pnl`.
+    With the measured round trip at ~0.16%, an edge whose true edge is thinner
+    than the fee was kept alive by the flattered figure: edge 'loose' reads
+    +0.14 gross (kept) but -0.35 net (a loser). This is the exact class of
+    silent-unit bug the improvement layer was fixed for on 2026-10-11; this
+    reader is the same fix, applied to the one gate that was missed.
+
+    Returns {'n', 'wr', 'pnl', 'ev', 'gross'} where 'wr'/'pnl'/'ev' are NET and
+    'gross' is carried so the haircut stays visible in the report.
+    """
+    n = len(trades)
+    if not n:
+        return {"n": 0, "wr": 0.0, "pnl": 0.0, "ev": 0.0, "gross": 0.0}
+    nets = [paper_net_of(t)[0] for t in trades]
+    gross = sum((t.get("pnl") or 0) for t in trades)
+    w = sum(1 for x in nets if x > 0)
+    net = sum(nets)
+    return {"n": n, "wr": w / n * 100, "pnl": net, "ev": net / n,
+            "gross": gross}
 
 
 def dedupe(trades: list, keys) -> list:
@@ -438,15 +463,27 @@ def main() -> None:
         if e and e != "?":
             by_edge.setdefault(e, []).append(t)
     for e, ts in by_edge.items():
-        st = stats(ts)
+        # Judge on NET, not gross (2026-10-13). Same class of defect the
+        # improvement layer was fixed for on 2026-10-11 — but this gate, which
+        # WRITES the disable list that unified_trader honours on the real-money
+        # path, was left reading gross `pnl`. At gross, edge 'loose' reads
+        # +0.14 (kept); at net it is -0.35 (a loser). The measured round trip is
+        # 0.16%, so any edge whose true edge is thinner than the fee was being
+        # kept alive by the flattered figure. Gross is carried in the message so
+        # the haircut stays visible; the VERDICT reads net.
+        st = stats_net_of(ts)
         if st["n"] >= 15 and st["wr"] < 42 and st["pnl"] < 0:
             if e not in state["disabled"]:
                 state["disabled"].append(e)
-                changes.append(f"disabled edge '{e}' (n={st['n']} wr={st['wr']:.0f}% pnl={st['pnl']:+.2f})")
+                changes.append(
+                    f"disabled edge '{e}' (n={st['n']} wr={st['wr']:.0f}% "
+                    f"net={st['pnl']:+.2f}, gross {st['gross']:+.2f})")
         elif st["n"] >= 10 and st["wr"] >= 60 and st["pnl"] > 0:
             if e not in state["promoted"]:
                 state["promoted"].append(e)
-                findings.append(f"promotion candidate '{e}' (n={st['n']} wr={st['wr']:.0f}%)")
+                findings.append(
+                    f"promotion candidate '{e}' (n={st['n']} wr={st['wr']:.0f}% "
+                    f"net={st['pnl']:+.2f})")
     STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
     # 4) write report
