@@ -167,6 +167,27 @@ def windows():
     return out
 
 
+def split_half(con, fn, action, stop, target, hold, split_ms):
+    """The gate hunt5 was missing: a candidate must be net>0 AND PF>1.0 in
+    BOTH independent halves of the full period, not just in the down windows.
+
+    Why: the single-regime gate let 27% of configs pass (65 of ~240) versus the
+    ~1% the same discipline yields elsewhere. A candidate positive in one half
+    only is a regime artefact and is rejected regardless of the total. See
+    docs/proposals/hunt5-split-half-verdict-2026-10-13.md.
+
+    Returns (ok, is_res, oos_res); ok is False if either half lacks a sample.
+    """
+    a, b = ms(START), ms(END)
+    isr = run(con, fn, action, stop, target, hold, a, split_ms, {})
+    oos = run(con, fn, action, stop, target, hold, split_ms, b, {})
+    if not isr or not oos or isr["n"] < 30 or oos["n"] < 30:
+        return False, isr, oos
+    ok = (isr["net"] > 0 and isr["pf"] > 1.0
+          and oos["net"] > 0 and oos["pf"] > 1.0)
+    return ok, isr, oos
+
+
 def basket(con, a, b):
     rs = []
     for s in SYMS:
@@ -247,17 +268,32 @@ def main():
         # A finding: net-positive in down regimes, PF>1, beats basket most windows,
         # and does not bleed badly in up regimes.
         if dn_net > 0 and dn_pf > 1.0 and dn["beat"] >= dn["wins"] * 0.7 and up_net > -25:
+            # The gate hunt5 was missing: split-half. A finding must hold in both
+            # halves, not just the down windows. See split_half() docstring.
+            split_ms = ms(START) + (ms(END) - ms(START)) // 2
+            ok, isr, oos = split_half(con, fn, action, stop, target, hold, split_ms)
             f = {"ts": dt.datetime.now(dt.timezone.utc).isoformat(),
                  "name": name, "action": action,
                  "stop": stop, "target": target, "hold": hold,
                  "dn_n": dn["n"], "dn_net": round(dn_net, 3), "dn_pf": round(dn_pf, 3),
                  "dn_beat": f"{dn['beat']}/{dn['wins']}",
                  "up_net": round(up_net, 3),
-                 "worst": round(min(up_net, dn_net), 3)}
+                 "worst": round(min(up_net, dn_net), 3),
+                 "split_half_ok": ok,
+                 "is_net": round(isr["net"], 3) if isr else None,
+                 "is_pf": round(isr["pf"], 3) if isr else None,
+                 "oos_net": round(oos["net"], 3) if oos else None,
+                 "oos_pf": round(oos["pf"], 3) if oos else None}
+            if not ok:
+                print(f"  reject   {name:24} sl{stop*100:.0f}% h{hold:<4} "
+                      f"split-half FAILS (IS {f['is_net']} pf {f['is_pf']} / "
+                      f"OOS {f['oos_net']} pf {f['oos_pf']})")
+                continue                       # not recorded: one-half artefact
             findings.append(f)
             print(f"  FINDING  {name:24} sl{stop*100:.0f}% h{hold:<4} "
                   f"down n={dn['n']:4} PF {dn_pf:4.2f} net ${dn_net:+7.2f} "
-                  f"beat {dn['beat']}/{dn['wins']} | up ${up_net:+6.2f}")
+                  f"beat {dn['beat']}/{dn['wins']} | up ${up_net:+6.2f} "
+                  f"| IS ${f['is_net']:+.2f}/{f['is_pf']:.2f} OOS ${f['oos_net']:+.2f}/{f['oos_pf']:.2f}")
 
     print(f"\n  {len(findings)} findings from {len(cands)} configs "
           f"({time.time()-t0:.0f}s)")
