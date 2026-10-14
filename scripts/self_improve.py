@@ -186,11 +186,46 @@ def _plan_disables(by_edge: dict, already_disabled) -> tuple[list, str | None]:
     return flagged, flagged.pop()  # keep the strongest; the rest still go
 
 
-def dedupe(trades: list, keys) -> list:
+def _identity(t: dict) -> tuple:
+    """A stable identity for a closed trade, so `dedupe` removes only TRUE
+    re-bookings and never two distinct trades.
+
+    🔴 WHY (2026-10-14, overnight shift): the old key was
+    `("symbol", "entry", "exit", "close_ts_utc")`, truncated to 16 chars each.
+    On the PAPER book that is a catastrophe: paper records carry `exit=None`
+    and `close_ts_utc=None` (only 2 of 2941 records set them), so the key
+    DEGENERATES TO `(symbol, entry)` — every trade ever opened at the same
+    price on a symbol, months apart, with different TP/SL and different
+    outcomes, collapsed into ONE. Measured: `paper_c` came out at n=2229 when
+    the book holds 2941 distinct closes — 712 real trades (24%) silently
+    dropped, hiding +7.14 gross / ~+2.7 net. It flipped decisions: edge
+    'momentum' read n=24 wr=29% net=-0.18 (DISABLE) truncated vs n=30 wr=40%
+    net=+0.19 (keep) on the full set; 'rsi2' sat at n=5 (below the n>=15
+    floor, never judged) vs n=27 wr=56% true.
+
+    The lesson loop already uses the correct identity: symbol|ts_utc|entry|
+    size|pnl (all fields present and 1:1 with a trade). This key mirrors that.
+    `ts_utc` is the OPEN time and is present on every paper record; a trade
+    identity must include an opening timestamp or same-price re-entries merge.
+    """
+    ts = t.get("open_ts_utc") or t.get("ts_utc") or ""
+    size = t.get("size", t.get("size_usdt"))
+    return (t.get("symbol"), ts, str(t.get("entry")), str(size))
+
+
+def dedupe(trades: list, keys=None) -> list:
+    """Remove TRUE duplicate re-bookings (same trade written twice).
+
+    Default identity is `_identity` (symbol + open time + entry + size). A
+    caller may still pass explicit `keys`; if it does, they are used verbatim
+    WITHOUT truncation (the 16-char truncation of an ISO timestamp collapsed
+    records to minute resolution and was part of the same defect).
+    """
     seen = set()
     out = []
     for t in trades:
-        k = tuple(str(t.get(x, ""))[:16] for x in keys)
+        k = _identity(t) if keys is None else tuple(
+            str(t.get(x, "")) for x in keys)
         if k in seen:
             continue
         seen.add(k)
@@ -389,8 +424,13 @@ def main() -> None:
     paper = load_json(DATA / "unified-paper.json", {"open": [], "closed": []})
     fut = load_json(DATA / "futures-trades.json", {"open": [], "closed": []})
 
-    live_c = dedupe(live.get("closed", []), ("symbol", "entry", "exit", "close_ts_utc"))
-    paper_c = dedupe(paper.get("closed", []), ("symbol", "entry", "exit", "close_ts_utc"))
+    # Identity-based dedupe (2026-10-14). The previous key
+    # ("symbol","entry","exit","close_ts_utc") degenerates on the PAPER book
+    # (exit/close_ts_utc are None there) to (symbol, entry) and dropped 712 of
+    # 2941 real trades. `dedupe` now defaults to a stable symbol+open-time+
+    # entry+size identity that only collapses true re-bookings.
+    live_c = dedupe(live.get("closed", []))
+    paper_c = dedupe(paper.get("closed", []))
     fut_c = fut.get("closed", [])
 
     ls, ps, fs = stats(live_c), stats(paper_c), stats(fut_c)
