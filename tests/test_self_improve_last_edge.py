@@ -16,11 +16,12 @@ froze at 2026-10-12T18:16, and the live scan has fired hundreds of signals since
 ("paper signals fired=14", "=8", "=3") with zero PAPER OPEN lines. The learning
 track was dead for ~1.5 days while the engine kept reporting metrics.
 
-The fix is a last-edge guard: a disable is only safe while something REMAINS to
-carry the book. If applying the rule would leave zero enabled edges, the
-strongest candidate is kept (and the refusal is reported loudly).
+The fix is a last-edge FLOOR in `_plan_disables`: a disable is only safe while
+something REMAINS to carry the book. If applying the rule would leave zero
+enabled edges, the strongest candidate is kept and the rest still go.
 
-These tests pin (a) the guard's behaviour and (b) that it is WIRED into main().
+These tests drive `_plan_disables` (the real decision function) so a mutation
+that neuters the floor fails them — pinning behaviour, not source strings.
 Run:  ./venv/bin/python -m pytest tests/test_self_improve_last_edge.py -q
 """
 from __future__ import annotations
@@ -42,81 +43,81 @@ def _load(name):
 
 
 def _loser(edge, n=20, size=5.0, per_trade_pnl=-0.02):
-    """A trade set that trips the disable predicate at NET: negative net P&L,
-    WR 0% (every gross pnl <= 0 so a loss is booked)."""
+    """Trades that trip the disable predicate at NET: negative net P&L, WR 0%."""
     return [{"pnl": per_trade_pnl, "size": size, "symbol": "X/USDT",
              "edge": edge} for _ in range(n)]
 
 
 def test_should_disable_is_the_net_predicate():
-    """The extracted predicate reads NET stats, not gross."""
+    """The extracted predicate reads NET stats, and a tiny sample never trips."""
     si = _load("self_improve")
-    st = si.stats_net_of(_loser("thin"))
-    assert si._should_disable(st) is True
-    # A tiny sample (n<15) is never disabled — too little evidence.
-    st_small = si.stats_net_of(_loser("thin", n=5))
-    assert si._should_disable(st_small) is False
+    assert si._should_disable(si.stats_net_of(_loser("thin"))) is True
+    assert si._should_disable(si.stats_net_of(_loser("thin", n=5))) is False
 
 
 def test_predicate_alone_would_empty_a_book_of_losers():
-    """Document WHY the guard is needed: every edge trips the rule."""
+    """Document WHY the floor is needed: every edge trips the raw rule."""
     si = _load("self_improve")
     edges = ["validated", "loose", "momentum", "rsi2"]
     flagged = [e for e in edges if si._should_disable(si.stats_net_of(_loser(e)))]
-    assert flagged == edges, "the raw rule empties the whole book — hence the guard"
+    assert flagged == edges, "the raw rule empties the whole book — hence the floor"
 
 
-def test_guard_logic_keeps_exactly_one_when_all_would_be_disabled():
-    """Reproduce the guard's decision directly: with 3 losers enabled and all
-    flagged, exactly ONE must survive (and it must be retained, not disabled)."""
+def test_floor_keeps_exactly_one_when_all_would_be_disabled():
+    """All candidates flagged, nothing else enabled -> exactly one survives."""
     si = _load("self_improve")
     by_edge = {e: _loser(e) for e in ("validated", "loose", "momentum")}
-    disabled: list = []  # nothing disabled yet -> all three are candidates
-    would_disable = [e for e, ts in by_edge.items()
-                     if e not in disabled and si._should_disable(si.stats_net_of(ts))]
-    enabled_after = [e for e in by_edge if e not in disabled and e not in would_disable]
-    assert len(would_disable) == 3
-    assert enabled_after == [], "precondition: guard must be needed"
-    # apply the guard: keep the strongest (highest net, then n)
-    would_disable.sort(key=lambda e: (si.stats_net_of(by_edge[e])["pnl"],
-                                      si.stats_net_of(by_edge[e])["n"]))
-    survivor = would_disable.pop()
-    remaining_enabled = [e for e in by_edge if e != survivor]
+    to_disable, survivor = si._plan_disables(by_edge, already_disabled=[])
+    assert survivor is not None, "the floor MUST fire when it would empty the book"
     assert survivor in by_edge
-    assert len(remaining_enabled) == 2  # the rest still go
-    # the book is NOT emptied
-    assert survivor not in [e for e in would_disable]
+    assert survivor not in to_disable, "the survivor must be held back"
+    assert len(to_disable) == 2, "the other two still go"
+    # book not emptied: survivor + one other disabled edge leaves it tradeable
+    assert {survivor} | set(to_disable) == set(by_edge)
 
 
-def test_guard_not_triggered_when_another_edge_stays_enabled():
-    """If a healthy edge remains enabled, the guard must NOT fire — a genuine
-    loser still gets disabled normally."""
+def test_floor_keeps_the_strongest_candidate():
+    """The survivor is the least-bad edge (highest net, then n)."""
+    si = _load("self_improve")
+    by_edge = {
+        "worst": _loser("worst", per_trade_pnl=-0.10),   # very negative net
+        "best": _loser("best", per_trade_pnl=-0.001),    # near break-even net
+    }
+    to_disable, survivor = si._plan_disables(by_edge, already_disabled=[])
+    assert survivor == "best", "must keep the edge closest to viable"
+    assert to_disable == ["worst"]
+
+
+def test_floor_not_triggered_when_another_edge_stays_enabled():
+    """A healthy edge remains -> a genuine loser is disabled normally."""
     si = _load("self_improve")
     good = [{"pnl": 0.5, "size": 5.0, "symbol": "G/USDT", "edge": "good"}
             for _ in range(20)]
     by_edge = {"good": good, "validated": _loser("validated")}
-    state_disabled: list = []
-    would_disable = [e for e, ts in by_edge.items()
-                     if e not in state_disabled and si._should_disable(si.stats_net_of(ts))]
-    enabled_after = [e for e in by_edge if e not in state_disabled
-                     and e not in would_disable]
-    assert would_disable == ["validated"]
-    assert enabled_after == ["good"], "guard must not fire while 'good' remains"
-    # normal path: validated is disabled
-    assert "validated" in would_disable
+    to_disable, survivor = si._plan_disables(by_edge, already_disabled=[])
+    assert to_disable == ["validated"], "the loser is disabled"
+    assert survivor is None, "the floor must NOT fire while 'good' remains"
 
 
-def test_main_contains_last_edge_guard_and_fail_loud():
-    """Pin the wiring so the guard and the frozen-book warning cannot be
-    silently removed from self_improve.main()."""
+def test_already_disabled_edges_do_not_count_as_openable():
+    """An edge already on the list cannot 'carry the book' — the floor must
+    still fire when the only non-flagged edge is something already disabled."""
+    si = _load("self_improve")
+    by_edge = {"dead": _loser("dead"), "last": _loser("last", per_trade_pnl=-0.01)}
+    # 'dead' is already disabled, so it cannot carry the book; 'last' is the
+    # only openable edge and must be protected.
+    to_disable, survivor = si._plan_disables(by_edge, already_disabled=["dead"])
+    assert survivor == "last"
+    assert to_disable == []
+
+
+def test_main_uses_the_shared_planner_and_reports_loudly():
+    """Pin the wiring: main() must call _plan_disables, and a frozen book must
+    be surfaced as a warning on the card, not buried in a log."""
     src = (SCRIPTS / "self_improve.py").read_text(encoding="utf-8")
-    assert "NEVER DISABLE THE LAST OPEN EDGE" in src, \
-        "the last-edge guard must be present in main()"
-    assert "enabled_after" in src, \
-        "the guard must compute the set of edges left enabled"
+    assert "_plan_disables(by_edge, state[\"disabled\"])" in src, \
+        "main() must use the shared, tested planner"
     assert "REFUSED to disable the last open edge" in src, \
         "the refusal must be reported (loud, on the card), not silent"
     assert "EVERY edge is disabled" in src, \
         "a frozen book must be surfaced as a warning, not buried in a log"
-    assert "if _should_disable(st):" in src, \
-        "the disable loop must read the shared predicate"

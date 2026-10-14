@@ -154,8 +154,36 @@ def _should_disable(st: dict) -> bool:
     the round trip is a proven loser. NOTE this predicate alone is NOT safe to
     apply to every edge — every edge is a net loser after the measured fee, so
     the CALLER must additionally guarantee it never disables the last open edge
-    (see step 3 in main(); the 2026-10-14 freeze)."""
+    (see `_plan_disables`, and the 2026-10-14 freeze)."""
     return st["n"] >= 15 and st["wr"] < 42 and st["pnl"] < 0
+
+
+def _plan_disables(by_edge: dict, already_disabled) -> tuple[list, str | None]:
+    """Decide which edges this run may disable — with a FLOOR, not just a rule.
+
+    Returns (to_disable, survivor). `to_disable` are the edges the predicate
+    flags and that are not already disabled; `survivor` is the strongest flagged
+    edge held back so the paper book can never be emptied (None when the guard
+    did not need to fire).
+
+    WHY (2026-10-14): `_should_disable` is TRUE for essentially every edge once
+    the ~0.16% round trip is charged, so applying it to the whole set disabled
+    ALL EIGHT edges — including the native openers 'loose' + 'validated'. Every
+    opener honours the list, so the book stopped opening: unified-paper.json
+    froze at 2026-10-12T18:16 while the scan fired signals into the void. A
+    disable is only safe while something REMAINS to carry the book, so if the
+    rule would leave zero enabled, keep the strongest candidate (highest net,
+    then n — closest to viable) and refuse the rest.
+    """
+    disabled = set(already_disabled or [])
+    flagged = [e for e, ts in by_edge.items()
+               if e not in disabled and _should_disable(stats_net_of(ts))]
+    remaining = [e for e in by_edge if e not in disabled and e not in flagged]
+    if not flagged or remaining:
+        return flagged, None  # guard not needed — something stays enabled
+    flagged.sort(key=lambda e: (stats_net_of(by_edge[e])["pnl"],
+                                stats_net_of(by_edge[e])["n"]))
+    return flagged, flagged.pop()  # keep the strongest; the rest still go
 
 
 def dedupe(trades: list, keys) -> list:
@@ -490,32 +518,14 @@ def main() -> None:
     # this engine kept reporting metrics and the improvement loop kept
     # "analysing" a frozen book as if it were current.
     #
-    # The rule that produced this is individually reasonable — n>=15, WR<42%,
-    # net<0 — and that is exactly the trap: EVERY edge is a net loser after the
-    # measured round trip, so running the rule to completion empties the set.
-    # A disable is only safe while something remains to carry the book, so the
-    # set of edges this run would leave ENABLED must be non-empty. If disabling
-    # a candidate would empty it, the candidate is the least-bad edge and is
-    # kept, loudly, rather than silently zeroing the book.
-    would_disable = [
-        e for e, ts in by_edge.items()
-        if e not in state["disabled"] and _should_disable(stats_net_of(ts))
-    ]
-    enabled_after = [e for e in by_edge if e not in state["disabled"]
-                     and e not in would_disable]
-    keep_last = False
-    survivor = None
-    if would_disable and not enabled_after:
-        # Keep the STRONGEST candidate (highest net, then n) — the one closest
-        # to viable — and refuse the rest as usual.
-        would_disable.sort(key=lambda e: (stats_net_of(by_edge[e])["pnl"],
-                                          stats_net_of(by_edge[e])["n"]))
-        survivor = would_disable.pop()
-        keep_last = True
+    # `_plan_disables` applies the rule WITH A FLOOR: it never returns a plan
+    # that leaves zero enabled edges (see its docstring for the full rationale).
+    to_disable, survivor = _plan_disables(by_edge, state["disabled"])
+    if survivor is not None:
         findings.append(
             f"REFUSED to disable the last open edge '{survivor}': disabling it "
             f"would leave ZERO enabled edges and freeze the paper book. Keeping "
-            f"the strongest candidate; the other {len(would_disable)} still go.")
+            f"the strongest candidate; the other {len(to_disable)} still go.")
 
     for e, ts in by_edge.items():
         # Judge on NET, not gross (2026-10-13). Same class of defect the
@@ -527,14 +537,11 @@ def main() -> None:
         # kept alive by the flattered figure. Gross is carried in the message so
         # the haircut stays visible; the VERDICT reads net.
         st = stats_net_of(ts)
-        if keep_last and e == survivor:
-            continue  # the last open edge is protected this run (see above)
-        if _should_disable(st):
-            if e not in state["disabled"]:
-                state["disabled"].append(e)
-                changes.append(
-                    f"disabled edge '{e}' (n={st['n']} wr={st['wr']:.0f}% "
-                    f"net={st['pnl']:+.2f}, gross {st['gross']:+.2f})")
+        if e in to_disable:
+            state["disabled"].append(e)
+            changes.append(
+                f"disabled edge '{e}' (n={st['n']} wr={st['wr']:.0f}% "
+                f"net={st['pnl']:+.2f}, gross {st['gross']:+.2f})")
         elif st["n"] >= 10 and st["wr"] >= 60 and st["pnl"] > 0:
             if e not in state["promoted"]:
                 state["promoted"].append(e)
