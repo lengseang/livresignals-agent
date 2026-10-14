@@ -254,8 +254,16 @@ class ReplayEngine:
         begins unconditionally — otherwise the clock stays 0 and nothing ever
         starts (a deadlock that spins forever).
 
-        PERFORMANCE: this runs once per bar per replay (millions of calls across a
-        sweep). The per-feed property reads are hoisted out of the inner loop and
+        RETURN CONTRACT (2026-10-14): True when the clock actually moved, False
+        when it CANNOT move again (every feed at its last bar). `run()` breaks on
+        False. Before this date the method returned True unconditionally and only
+        the `now > end_ms` check ended a replay; when the requested window reached
+        the end of the data, the clock stalled at the last bar's close and `run()`
+        spun forever (it hung the hunt5 split-half test suite — see
+        tests/loop/test_replay_termination.py). Exhaustion is termination.
+
+        PERFORMANCE: this runs once per bar per replay (millions of calls across
+        a sweep). The per-feed property reads are hoisted out of the inner loop and
         only the feeds that can actually move are touched — profiling showed the
         naive form spent 6.9s of an 8.7s pure-loop budget right here.
         """
@@ -266,7 +274,7 @@ class ReplayEngine:
             first = min((f for f in feeds if f._bars),
                         key=lambda f: f._bars[0].close_time, default=None)
             if first is None:
-                return False
+                return False                    # no data at all: nothing to advance
             first.advance()                      # idx -1 -> 0
             started = [first]
 
@@ -282,7 +290,10 @@ class ReplayEngine:
                     if c < now:
                         now = c
 
-        # advance every feed once, so they all reach now + one step together
+        # advance every feed once, so they all reach now + one step together.
+        # `moved` is the exhaustion signal: if not a single feed can step past
+        # its current bar, the replay is over and run() must stop.
+        moved = False
         for f in feeds:
             i = f._idx
             if i is None:
@@ -291,7 +302,8 @@ class ReplayEngine:
                 continue
             if f._bars[i].close_time <= now:
                 f.advance()
-        return True
+                moved = True
+        return moved
 
     # -- the loop ---------------------------------------------------------
 

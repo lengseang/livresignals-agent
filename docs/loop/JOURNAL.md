@@ -3,6 +3,39 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-10-14 · ReplayEngine.run() never terminated when the window reached the data end
+
+- **Task:** autonomous improvement pass (cron). No board task; a defect found
+  while running the test suite.
+- **Need check:** repo-only. All evidence is synthetic in-memory fixtures plus the
+  real `data/trading.db` read-only for the split-half confirmation. No prod file
+  touched (the replay engine is a research/report path; it places no orders).
+- **Found:** the full suite HANGS. `tests/loop/test_hunt5_gate.py` (added
+  2026-10-13 but left **untracked**, so it never ran in CI) stalls on its first
+  test forever. The hang is in `scripts/replay_engine.py`: `run()` exits only on
+  `now > self.end_ms` (strict), and `advance_all()` returned `True`
+  unconditionally — so when the requested window reaches or overshoots the last
+  bar's close, the clock stalls (it is the MIN cursor) and the loop spins forever.
+  hunt5's real sweep is masked (window ends 2026-10-01, before the data end), so
+  the first caller to hit it was the new test fixture.
+- **Done:** `advance_all()` now returns whether the clock actually MOVED
+  (`moved`), and returns `False` at exhaustion; `run()`'s existing
+  `if not self.advance_all(): break` terminates. Design + lesson:
+  `docs/proposals/replay-run-nontermination-2026-10-14.md`.
+- **Evidence:** RED first — `pytest tests/loop/test_replay_termination.py` hangs
+  at window offsets +1/+2/+10 bars past the last close (killed). GREEN after the
+  fix: 6 passed in 0.07s. Mutation check: restoring `return True` re-hangs.
+  `tests/loop/` → **351 passed, 3 skipped in 39.8s** (the 4 hunt5 gate tests now
+  pass). Full suite `pytest tests/` → **596 passed, 3 skipped**. Production
+  unchanged: split-half PASS candidate `volbreak 20 x2.0` still passes both
+  halves (IS +11.02/1.14, OOS +15.77/1.19).
+- **Learned:** a loop whose only exit is a strict inequality has a boundary it
+  never exits through — assert the PROGRESS condition, not just the clock
+  condition, and make a dependency's boolean mean exactly what the caller trusts
+  it for. Second lesson: an untracked test is not a test; `test_hunt5_gate.py`
+  was written, run once by hand, and never committed, so the hang it exposes was
+  invisible to CI for a day. Commit new tests with the change that motivates them.
+
 ## 2026-10-13 · the per-edge freshness guard could never clear (permanent alarm)
 
 - **Task:** autonomous improvement pass (cron). No board task; a defect found
