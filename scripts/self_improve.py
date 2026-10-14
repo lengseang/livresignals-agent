@@ -145,6 +145,19 @@ def stats_net_of(trades: list) -> dict:
             "gross": gross}
 
 
+def _should_disable(st: dict) -> bool:
+    """The per-edge disable predicate, extracted so the last-edge guard and the
+    disable loop read ONE definition and cannot drift apart.
+
+    Rule (unchanged since 2026-10-13, on the NET basis): an edge with a real
+    sample (n>=15) that wins less than 42% of the time and loses money net of
+    the round trip is a proven loser. NOTE this predicate alone is NOT safe to
+    apply to every edge — every edge is a net loser after the measured fee, so
+    the CALLER must additionally guarantee it never disables the last open edge
+    (see step 3 in main(); the 2026-10-14 freeze)."""
+    return st["n"] >= 15 and st["wr"] < 42 and st["pnl"] < 0
+
+
 def dedupe(trades: list, keys) -> list:
     seen = set()
     out = []
@@ -462,6 +475,48 @@ def main() -> None:
         e = t.get("edge")
         if e and e != "?":
             by_edge.setdefault(e, []).append(t)
+    # 🔴 NEVER DISABLE THE LAST OPEN EDGE (2026-10-14).
+    #
+    # Found 2026-10-14: over several nightly runs this step disabled EVERY edge
+    # it had ever seen — 'pullback', 'supertrend', 'ema-cross', 'bollinger',
+    # 'momentum', 'breakout' AND the two ACTIVE openers 'loose' + 'validated'
+    # (log: "APPLIED: disabled edge 'loose'" then "disabled edge 'validated'").
+    # The disable list is honoured by every opener (the 2026-10-12 fix routed
+    # all of them through `_edge_disabled`), so once 'validated' and 'loose'
+    # were on it the paper book STOPPED OPENING ENTIRELY: unified-paper.json
+    # froze at 2026-10-12T18:16 and the live scan has since fired hundreds of
+    # signals straight into the void ("paper signals fired=14", "=8", "=3" with
+    # zero PAPER OPEN lines). The learning track was dead for ~1.5 days while
+    # this engine kept reporting metrics and the improvement loop kept
+    # "analysing" a frozen book as if it were current.
+    #
+    # The rule that produced this is individually reasonable — n>=15, WR<42%,
+    # net<0 — and that is exactly the trap: EVERY edge is a net loser after the
+    # measured round trip, so running the rule to completion empties the set.
+    # A disable is only safe while something remains to carry the book, so the
+    # set of edges this run would leave ENABLED must be non-empty. If disabling
+    # a candidate would empty it, the candidate is the least-bad edge and is
+    # kept, loudly, rather than silently zeroing the book.
+    would_disable = [
+        e for e, ts in by_edge.items()
+        if e not in state["disabled"] and _should_disable(stats_net_of(ts))
+    ]
+    enabled_after = [e for e in by_edge if e not in state["disabled"]
+                     and e not in would_disable]
+    keep_last = False
+    survivor = None
+    if would_disable and not enabled_after:
+        # Keep the STRONGEST candidate (highest net, then n) — the one closest
+        # to viable — and refuse the rest as usual.
+        would_disable.sort(key=lambda e: (stats_net_of(by_edge[e])["pnl"],
+                                          stats_net_of(by_edge[e])["n"]))
+        survivor = would_disable.pop()
+        keep_last = True
+        findings.append(
+            f"REFUSED to disable the last open edge '{survivor}': disabling it "
+            f"would leave ZERO enabled edges and freeze the paper book. Keeping "
+            f"the strongest candidate; the other {len(would_disable)} still go.")
+
     for e, ts in by_edge.items():
         # Judge on NET, not gross (2026-10-13). Same class of defect the
         # improvement layer was fixed for on 2026-10-11 — but this gate, which
@@ -472,7 +527,9 @@ def main() -> None:
         # kept alive by the flattered figure. Gross is carried in the message so
         # the haircut stays visible; the VERDICT reads net.
         st = stats_net_of(ts)
-        if st["n"] >= 15 and st["wr"] < 42 and st["pnl"] < 0:
+        if keep_last and e == survivor:
+            continue  # the last open edge is protected this run (see above)
+        if _should_disable(st):
             if e not in state["disabled"]:
                 state["disabled"].append(e)
                 changes.append(
@@ -484,6 +541,15 @@ def main() -> None:
                 findings.append(
                     f"promotion candidate '{e}' (n={st['n']} wr={st['wr']:.0f}% "
                     f"net={st['pnl']:+.2f})")
+    # FAIL LOUD if the book is already frozen (belt-and-braces): if every edge
+    # is disabled the openers can never fire again, and no metric this engine
+    # reports afterwards is a measurement of anything. Surface it as a change
+    # so it lands on the card rather than in a log nobody reads.
+    if by_edge and all(e in state["disabled"] for e in by_edge):
+        changes.append(
+            "WARNING: EVERY edge is disabled — the paper book cannot open and "
+            "all per-edge metrics are frozen. Re-enable an edge in "
+            "data/signals-state.json to resume learning.")
     STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
     # 4) write report
