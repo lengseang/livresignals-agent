@@ -153,6 +153,13 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │                                                                 │
 │ 5. ALWAYS ask "what regime was the test period?"                │
 │    Long-only tested in a -60% market looks broken. It isn't.    │
+│                                                                 │
+│ 6. ALWAYS collapse duplicate WRITES before measuring.           │
+│    One physical dip is booked once per timeframe (5m/15m/30m):  │
+│    scripts/paper_book.collapse_multitf() removes ~500 phantom   │
+│    rows (17%) that flattered the book. A time-based dedupe key  │
+│    CANNOT see them — they differ in ts_utc. Key on the economic │
+│    fingerprint (exact entry + exact pnl), not on time.          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

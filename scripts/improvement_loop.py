@@ -29,6 +29,10 @@ try:
 except Exception:  # noqa: BLE001 — never let the reader import kill the loop
     _paper_net_of = None
     _PAPER_COST_RT = None
+try:
+    from paper_book import collapse_multitf as _collapse_multitf
+except Exception:  # noqa: BLE001 — never let the reader import kill the loop
+    _collapse_multitf = None
 
 
 def _load_json(path: Path, default):
@@ -51,6 +55,17 @@ def analyze() -> dict:
 
     paper = unified.get("closed", [])
     real = live.get("closed", [])
+
+    # MULTI-TIMEFRAME COLLAPSE (2026-10-15). The paper scan opens one position
+    # per (symbol, timeframe), and the same dip agrees on 5m/15m/30m, so one
+    # physical trade is written several times. Those copies share an exact entry
+    # and pnl but differ in `ts_utc` (sub-second), so no identity key built on
+    # time can merge them — and every per-edge / per-regime figure below was
+    # computed on the inflated union. Collapse to one row per fill. See
+    # scripts/paper_book.py and docs/proposals/paper-multitf-dedupe-2026-10-15.md.
+    multi_tf_removed = 0
+    if _collapse_multitf is not None:
+        paper, multi_tf_removed = _collapse_multitf(paper)
 
     def _pnl_of(t):
         """NET-of-cost pnl for a paper trade, falling back to gross only when
@@ -142,6 +157,7 @@ def analyze() -> dict:
 
     # Generate suggestions (ranked)
     edge_meta = _edge_freshness(paper)
+    edge_meta["multitf_collapsed"] = multi_tf_removed
     suggestions = _suggest(paper_stats, live_stats, regime_rows, edge_rows, edge_meta)
 
     # EDGE-TAG RECENCY (added 2026-10-10). The per-edge section above is the

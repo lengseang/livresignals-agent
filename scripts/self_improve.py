@@ -47,6 +47,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paper_net import summarise as paper_summarise, per_symbol_net, net_of as paper_net_of  # noqa: E402
+try:
+    from paper_book import collapse_multitf as _collapse_multitf
+except Exception:  # noqa: BLE001 — never let the reader kill the loop
+    _collapse_multitf = None
 
 BASE = Path(__file__).resolve().parents[1]
 DATA = BASE / "data"
@@ -431,6 +435,19 @@ def main() -> None:
     # entry+size identity that only collapses true re-bookings.
     live_c = dedupe(live.get("closed", []))
     paper_c = dedupe(paper.get("closed", []))
+
+    # MULTI-TIMEFRAME COLLAPSE (2026-10-15). `dedupe` removes byte-identical
+    # re-bookings; it cannot touch a fill written once PER TIMEFRAME, because
+    # those copies differ in `ts_utc` (sub-second) and often in `entry` by one
+    # tick, so each is a different key and all survive. Measured: 498 such pairs
+    # (476 cross-tf, 22 same-tf microsecond double-writes), all sharing an exact
+    # entry, an exact pnl and an exact exit reason. They inflated every per-edge
+    # / per-symbol sample by ~17% and double-counted $5.01 gross / ~$1.4 net.
+    # Collapse them here so the gates below read one row per physical trade.
+    multi_tf_removed = 0
+    if _collapse_multitf is not None:
+        paper_c, multi_tf_removed = _collapse_multitf(paper_c)
+
     fut_c = fut.get("closed", [])
 
     ls, ps, fs = stats(live_c), stats(paper_c), stats(fut_c)
@@ -446,6 +463,12 @@ def main() -> None:
         f"(gross {pnet['gross_pnl']:+.3f}, wr {pnet['wr_gross']:.0f}%)"
         + (f"; {pnet['uncosted']} record(s) uncosted" if pnet['uncosted'] else ""))
     findings.append(f"futures: n={fs['n']} wr={fs['wr']:.0f}% pnl={fs['pnl']:+.3f}")
+    # Surface the multi-timeframe collapse so a shrinking book is never silent.
+    if multi_tf_removed:
+        findings.append(
+            f"paper MULTI-TF COLLAPSE: removed {multi_tf_removed} duplicate "
+            f"record(s) — one fill booked once per timeframe (5m/15m/30m). "
+            f"Every per-edge sample below is on the collapsed book.")
 
     # 1b) per-symbol net edge — which symbols actually EARN after costs.
     #     A symbol whose net is negative loses money at any win rate; the owner
