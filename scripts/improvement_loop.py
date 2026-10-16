@@ -321,8 +321,25 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     # question mark, and cannot be acted on. Emit an honest data-gap note
     # instead of a fake actionable one. (The judge computes a real regime per
     # cycle but the paper openers do not persist it — stamping it is the fix.)
+    #
+    # GUARD (2026-10-16): ONE named regime beside a large "?" bucket is the SAME
+    # trap wearing a different mask. The `regime` field first reaches the paper
+    # book on 2026-10-10 and, measured 2026-10-16, EVERY tagged trade since then
+    # carries `RANGING` (18+54+29+27+14 = 142; no other value recorded). So the
+    # RANGING cohort IS the recent period, and "Regime RANGING at 40.8% — stand
+    # down" is just the book's last-week win rate relabelled as a regime effect.
+    # A single-valued conditioning variable cannot be contrasted against
+    # anything, so its 40.8% is not attributable to the regime; the loss may be
+    # regime, period, or both and this sample cannot tell them apart. Emitting
+    # the stand-down would drive a real decision on zero evidence — exactly what
+    # the "?" guard above exists to prevent. A per-regime verdict therefore
+    # requires AT LEAST TWO named regimes with a judgeable sample, so the named
+    # cohort is a proper subset of the period rather than a synonym for it.
+    # (Same principle as the edge-freshness guard's "a 1-trade window must not
+    # decide anything": a cohort that is the whole population decides nothing.)
     unknown_regime = [r for r in regimes if r["regime"] == "?"]
     named_regime = [r for r in regimes if r["regime"] != "?"]
+    judgeable = [r for r in named_regime if r["n"] >= 10]
     if unknown_regime and not named_regime:
         out.append({
             "priority": 3, "type": "regime_data_gap",
@@ -333,12 +350,30 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
                      "until trades carry a regime tag — do not treat the '?' line as "
                      "a stand-down signal."),
         })
-    for r in named_regime:
-        if r["n"] >= 10 and r["win_rate"] < 50:
+    elif len(judgeable) < 2:
+        # Exactly one regime value observed (or none large enough to judge): the
+        # "regime" cohort is a time-period alias, not a contrast. Refuse the
+        # per-regime verdict and say so with the numbers that show why.
+        only = named_regime[0] if named_regime else None
+        if only is not None:
             out.append({
-                "priority": 3, "type": "regime_disable",
-                "idea": f"Regime {r['regime']} at {r['win_rate']}% over {r['n']} trades — consider standing down in this regime.",
+                "priority": 3, "type": "regime_data_gap",
+                "idea": (f"Regime attribution covers only ONE value ('{only['regime']}', "
+                         f"n={only['n']} at {only['win_rate']}%), while "
+                         f"{unknown_regime[0]['n'] if unknown_regime else 0} trades carry no "
+                         "regime. A single-valued regime field cannot isolate a regime "
+                         "effect — the cohort IS the period it was recorded in, so its "
+                         "win rate is not attributable to the regime. NO per-regime "
+                         "stand-down verdict is issued until >=2 regimes are observed "
+                         "with n>=10 each."),
             })
+    if len(judgeable) >= 2:
+        for r in judgeable:
+            if r["win_rate"] < 50:
+                out.append({
+                    "priority": 3, "type": "regime_disable",
+                    "idea": f"Regime {r['regime']} at {r['win_rate']}% over {r['n']} trades — consider standing down in this regime.",
+                })
     # 4b. PER-EDGE promotion/demotion — the accuracy-improvement core.
     # Edges with n>=10 that hold WR>=58% + positive NET EV graduate toward real;
     # edges that decay below 45% get flagged for threshold tightening or removal.

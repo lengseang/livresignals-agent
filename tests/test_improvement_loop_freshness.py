@@ -126,8 +126,47 @@ def test_unknown_regime_is_a_data_gap_not_a_stand_down():
 
 
 def test_named_low_regime_still_warns():
-    """A REAL named regime below 50% must still produce the stand-down warning."""
-    regimes = [{"regime": "bear", "n": 30, "win_rate": 40.0, "avg_pnl": -0.01}]
+    """A REAL named regime below 50% must still produce the stand-down warning —
+    but ONLY when a second named regime exists to contrast it against."""
+    regimes = [
+        {"regime": "bear", "n": 30, "win_rate": 40.0, "avg_pnl": -0.01},
+        {"regime": "bull", "n": 45, "win_rate": 58.0, "avg_pnl": 0.01},
+    ]
     sugs = il._suggest({"n": 100, "win_rate": 50.0, "profit_factor": 1.2},
                        None, regimes, [], None)
     assert any(s["type"] == "regime_disable" for s in sugs), sugs
+
+
+def test_single_named_regime_is_a_data_gap_not_a_stand_down():
+    """THE REAL-WORLD CASE (2026-10-16). The `regime` field first reaches the
+    paper book on 2026-10-10 and EVERY tagged trade since carries `RANGING`
+    (142 of them, no other value). One named regime beside a large "?" bucket
+    means the RANGING cohort IS the recent period — "Regime RANGING at 40.8% —
+    stand down" is just the book's last-week win rate relabelled as a regime
+    effect, and cannot be attributed to the regime. The loop must refuse the
+    per-regime verdict (same trap the "?" guard prevents) rather than drive a
+    stand-down decision on zero contrast. Fails on the pre-2026-10-16 code,
+    which warned on any single named low regime.
+    """
+    regimes = [
+        {"regime": "?", "n": 2326, "win_rate": 47.5, "avg_pnl": -0.0009},
+        {"regime": "RANGING", "n": 142, "win_rate": 40.8, "avg_pnl": -0.0108},
+    ]
+    sugs = il._suggest({"n": 100, "win_rate": 50.0, "profit_factor": 1.2},
+                       None, regimes, [], None)
+    types = {s["type"] for s in sugs}
+    assert "regime_disable" not in types, sugs
+    gap = [s for s in sugs if s["type"] == "regime_data_gap"]
+    assert gap, sugs
+    assert "ONE value" in gap[0]["idea"], gap[0]["idea"]
+
+
+def test_one_named_regime_below_the_n_floor_does_not_warn():
+    """A single named regime too thin to judge (n<10) must not warn either."""
+    regimes = [
+        {"regime": "?", "n": 2326, "win_rate": 47.5, "avg_pnl": -0.0009},
+        {"regime": "RANGING", "n": 7, "win_rate": 20.0, "avg_pnl": -0.02},
+    ]
+    sugs = il._suggest({"n": 100, "win_rate": 50.0, "profit_factor": 1.2},
+                       None, regimes, [], None)
+    assert "regime_disable" not in {s["type"] for s in sugs}, sugs
