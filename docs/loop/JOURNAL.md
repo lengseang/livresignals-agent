@@ -3,6 +3,45 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-10-17 · the per-edge demote rule was blind to NET P&L — the book's largest loss drew no verdict
+
+- **Task:** autonomous improvement pass (cron). No board task; a defect found
+  while reading the improvement layer against the live book.
+- **Need check:** repo-only. All evidence is the real paper book
+  `data/unified-paper.json` and the live `scripts/improvement_loop.py`. No prod
+  file touched (the loop is paper/report-only).
+- **Found:** `improvement_loop._suggest`'s per-edge block carried a PROMOTE rule
+  (`WR>=58 & avg>0`) and a DEMOTE rule (`WR<45`). Both key on the win rate, so
+  45-58% is a dead zone. On the real book edge `validated` sits at 48.4% WR and
+  loses **-$2.81 net over 843 trades** — the LARGEST single loss in the book,
+  bigger than every edge the rule DID flag (supertrend -1.85, pullback -1.11,
+  bollinger -1.04, ema-cross -0.83, breakout -0.44) — and it drew NO suggestion.
+  Win rate and P&L are different questions: an edge can win half its trades and
+  still bleed if wins are small and losses large, which is what a dip opener
+  does when the dip keeps going. Same class as the 2026-10-11 (gross→net basis)
+  and 2026-10-13 (self_improve disable gate) fixes — but those swapped the
+  *units* while this predicate stayed keyed on the win rate.
+- **Done:** the demote verdict now judges NET alongside WR
+  (`elif e["win_rate"] < 45 or losing:`), with the promote bar deliberately NOT
+  relaxed (`and not losing` additionally stops a net-losing edge being called
+  PROVEN). A net-negative edge above the WR floor now says WHY it was caught
+  (the idea string carries "net-NEGATIVE despite a 48.4% win rate"). Design +
+  lesson: `docs/proposals/edge-decay-net-blindspot-2026-10-17.md`.
+- **Evidence:** RED first — `tests/test_improvement_edge_net_blindspot.py`
+  2 failed / 2 passed (the 48.4%-WR net-loser drew no verdict; a 62%-WR
+  net-loser was not flagged). GREEN after the fix: 4 passed. Mutation check:
+  restoring `elif e["win_rate"] < 45:` re-fails exactly those 2; file restored.
+  Full suite `pytest tests/` → **625 passed, 3 skipped**. E2E on the real book:
+  suggestions now include `p2 edge_decay: Edge 'validated' DECAYING (net): 48.4%
+  WR / 843 trades / -2.81 net (gross +3.43) — net-NEGATIVE despite a 48.4% win
+  rate`; `loose` (+4.38 net) is correctly left alone.
+- **Learned:** a verdict must be keyed on the quantity the decision is about.
+  "Is this edge declining?" is a P&L question; a win-rate threshold is a proxy
+  that fails exactly when the strategy has any payout asymmetry. Same shape as
+  the 2026-10-16 single-valued-regime lesson: test the *condition*, not the
+  *label* that happened to expose it. And: fixing the *basis* (gross→net) is not
+  the same as fixing the *predicate* — check both.
+
 ## 2026-10-14 · ReplayEngine.run() never terminated when the window reached the data end
 
 - **Task:** autonomous improvement pass (cron). No board task; a defect found

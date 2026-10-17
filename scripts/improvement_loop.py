@@ -382,18 +382,43 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     # measured round trip). Before this date they read gross, so an edge whose
     # true edge was smaller than the fee was reported as profitable. `gross_pnl`
     # is carried in each row so the haircut stays visible.
+    #
+    # NOTE (2026-10-17): the DEMOTE rule used to key on WIN RATE ALONE (WR<45),
+    # which left a blind spot between the promote bar (WR>=58) and the demote bar
+    # (WR<45) where an edge can lose real money invisibly. Measured on the real
+    # book that day: edge 'validated' sat at 48.4% WR, inside the blind spot,
+    # and lost $2.81 net over 843 trades — the LARGEST single loss in the book,
+    # bigger than every edge the rule DID flag (supertrend -1.85, pullback -1.11,
+    # bollinger -1.04, ema-cross -0.83, breakout -0.44) combined — yet it drew no
+    # suggestion at all. Win rate and P&L are not the same question: an edge can
+    # win half its trades and still bleed if the wins are small and the losses
+    # large, which is exactly what a dip opener does when the dip keeps going. A
+    # net-negative edge with a real sample is declining regardless of how often
+    # it wins, so NET is now judged alongside WR. The promote bar is deliberately
+    # NOT relaxed: a net-positive edge below WR 58 earns no promote, it is only
+    # spared the decay verdict (the repo's "promote slowly" rule).
     for e in edges:
         if e["n"] < 10:
             continue
-        if e["win_rate"] >= 58 and e["avg_pnl"] > 0:
+        net_pnl = e.get("net_pnl", 0) or 0
+        losing = net_pnl < 0
+        if e["win_rate"] >= 58 and e["avg_pnl"] > 0 and not losing:
             out.append({
                 "priority": 2, "type": "edge_promote",
                 "idea": f"Edge '{e['edge']}' PROVEN (net): {e['win_rate']}% WR / {e['n']} trades / +${e['net_pnl']:.2f} net (gross +${e.get('gross_pnl', 0):.2f}) on {','.join(e['symbols'][:4])}. Keep trading real on this; it carries the account.",
             })
-        elif e["win_rate"] < 45:
+        elif e["win_rate"] < 45 or losing:
+            why = (f"{e['win_rate']}% WR / {e['n']} trades / {net_pnl:+.2f} net"
+                   f" (gross {e.get('gross_pnl', 0):+.2f})")
+            if losing and e["win_rate"] >= 45:
+                # The blind-spot case: it wins often enough to pass the WR floor
+                # but still loses money — say WHY it was caught, so a reader who
+                # only sees the win rate understands the verdict.
+                why += (f" — net-NEGATIVE despite a {e['win_rate']}% win rate "
+                        f"(wins too small, losses too large)")
             out.append({
                 "priority": 2, "type": "edge_decay",
-                "idea": f"Edge '{e['edge']}' DECAYING (net): {e['win_rate']}% WR / {e['n']} trades / {e['net_pnl']:+.2f} net (gross {e.get('gross_pnl', 0):+.2f}). Tighten its entry (deeper dip / lower RSI) or stand it down — it is losing edge.",
+                "idea": f"Edge '{e['edge']}' DECAYING (net): {why}. Tighten its entry (deeper dip / lower RSI) or stand it down — it is losing edge.",
             })
     # 5. Unique/outside-the-box ideas (always add a couple)
     # TESTED-NEGATIVE (2026-10-10): the volume-spike idea below was run through
