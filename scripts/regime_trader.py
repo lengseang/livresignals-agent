@@ -11,6 +11,16 @@ LOGIC
   BEAR  (BTC < SMA200):  SHORT the weakest N coins by 30d momentum
   EXITS: SMA50 cross, hard stop, max hold
 
+  NOTE (2026-10-17): the regime SMA is champion-tunable (champion.json
+  `sma_r`), so the BULL/BEAR THRESHOLD is not pinned to 200 -- the constant
+  `SMA_REGIME` (150 unless champion overrides) is what the rule uses. The
+  docstring's SMA200 is the documented LABEL: `regime_label()` computes it
+  separately and main() prints a DIVERGES warning whenever the two disagree.
+  While `sma_r` was 150 the log said "BULL (BTC x vs SMA150 y)" while this
+  header claimed SMA200: same class of defect as the 2026-10-16 single-valued
+  regime field -- the strategy traded its own definition but advertised
+  another. See docs/proposals/regime-label-vs-rule-2026-10-17.md.
+
 Runs on the Bybit DEMO alongside bybit_demo_trader.py so the two can be
 compared live (long-only trend vs regime-adaptive). Separate state file.
 """
@@ -184,6 +194,74 @@ def _champion_override():
 
 
 _CH = _champion_override()
+
+# ---- REGIME LABEL vs REGIME RULE ----------------------------------------
+# The docstring at the top of this file says "BULL (BTC > SMA200) / BEAR (BTC
+# < SMA200)" and the live log prints "regime=BULL (BTC 81472 vs SMA200 72430)".
+# That sentence was only true by luck of the last champion promotion: the label
+# is derived from SMA_REGIME, which champion.json moved 150 -> 100 -> 200 during
+# 2026-09-20..27 (champion.py's variant grid still lists sma_r 200/100/150/120),
+# i.e. a key an automated optimizer flips on the live book defines the regime.
+# While it read 150 the log said "BULL (BTC x vs SMA150 y)" while the docstring
+# claimed SMA200 -- BTC sat ~12% ABOVE the level actually used. The invariant
+# that matters keeps holding: the label and the boolean that arms the SHORT leg
+# come from the same number, so the strategy always traded its own definition.
+# It just did not say what it traded.
+#
+# FIX (2026-10-17): the RULE keeps using SMA_REGIME (champion-tunable, measured,
+# unchanged behaviour), the LABEL is computed against the constant the docstring
+# names, and a divergence is printed on every status line, so a regime call can
+# never claim a level it did not use:
+#     SMA150 rule, documented 200 -> "regime=BULL(BEAR@SMA_RULE=150? no; BTC
+#     -1.2% vs SMA200) ... [DIVERGES: docstring SMA200, rule SMA150]"
+LABEL_SMA = 200
+
+
+def regime_label_for_rule(btc, sma_rule, label_sma=None):
+    """BEAR iff the last close is below the SMA the RULE uses -- plus, for the
+    status line, the DOCUMENTED label at `label_sma` (default LABEL_SMA) and a
+    `diverges` flag whenever the two disagree.
+
+    `regime` here is ALWAYS the rule's call: it is the boolean that arms the
+    short leg, so main() must read this key and nothing else.
+    """
+    if label_sma is None:
+        label_sma = LABEL_SMA
+    b = sma(btc, sma_rule)
+    out = {"regime": "UNKNOWN" if b is None else ("BEAR" if btc[-1] < b else "BULL"),
+           "rule_sma": sma_rule, "rule_level": b}
+    # label_* keys are always present (None when undefined) so callers can read
+    # lab["label_level"] without a KeyError on short or missing series.
+    lvl = sma(btc, label_sma)
+    out["label_sma"] = label_sma
+    out["label_level"] = lvl
+    out["label_regime"] = ("UNKNOWN" if lvl is None
+                           else ("BEAR" if btc[-1] < lvl else "BULL"))
+    out["diverges"] = bool(lvl is not None and b is not None
+                           and out["label_regime"] != out["regime"])
+    return out
+
+
+def regime_label(btc, sma_rule=None, label_sma=None):
+    """The DOCUMENTED label: BEAR iff close < SMA(label_sma=LABEL_SMA=200).
+
+    Says BOTH what we advertise (`regime`) and what the rule trades
+    (`rule_regime`), and prints a one-line DIVERGES warning when they differ.
+    """
+    if sma_rule is None:
+        sma_rule = SMA_REGIME
+    out = regime_label_for_rule(btc, sma_rule, label_sma)
+    out["rule_regime"] = out["regime"]
+    out["regime"] = out["label_regime"]
+    if out["diverges"]:
+        print("  REGIME LABEL DIVERGES: documented SMA%d says %s (BTC %.0f vs "
+              "%.0f), rule SMA%d says %s (vs %.0f). Trading the RULE; the label "
+              "is the documented definition."
+              % (out["label_sma"], out["label_regime"], btc[-1],
+                 out["label_level"], sma_rule, out["rule_regime"],
+                 out["rule_level"]))
+    return out
+
 # NOT overridable by champion.json, deliberately: any key the champion file can
 # write is a key an automated optimizer can flip on the live book. Partial
 # scale-out is unmeasured (see the note at SCALE_OUT_FRAC), so it must not be
@@ -412,7 +490,20 @@ def main():
         return
     b200 = sma(btc, SMA_REGIME)
     bear = btc[-1] < b200
+    # regime = "BEAR" is the RULE's own call (same boolean that arms the short
+    # leg. `lab` carries the rule's own level so the status line below can
+    # never advertise a level the rule did not use. Kept as the same simple
+    # string on purpose: the signal ledger's `regime` field stays "BULL"/"BEAR".
+    # main() trades the RULE's. (First draft of this fix called
+    # regime_label() here -- the documented label -- while `bear` came from
+    # SMA_REGIME, i.e. it would have announced BEAR and bought. A test pins
+    # this call site; do not "simplify" it back.)
+    lab = regime_label_for_rule(btc, SMA_REGIME)
     regime = "BEAR" if bear else "BULL"
+    if lab["label_level"] is not None:
+        vs_label = btc[-1] / lab["label_level"] - 1
+    else:
+        vs_label = 0.0
     events = []
     # A-grade entry gate: computed once, shown in the status line always
     bread = market_breadth()
@@ -674,11 +765,15 @@ def main():
                       f"{r.get('retMsg','')[:60]}")
 
     save(st)
+    div = ("  ⚠️ [DIVERGES: documented SMA%d=%s, rule SMA%d=%s -- trading the "
+           "rule]" % (LABEL_SMA, lab["regime"], SMA_REGIME, regime)
+           if lab.get("diverges") else "")
     print(f"[{datetime.now(timezone.utc):%m-%d %H:%M}] REGIME TRADER | "
-          f"regime={regime} (BTC {btc[-1]:.0f} vs SMA{SMA_REGIME} {b200:.0f}) | "
+          f"regime={regime} (BTC {btc[-1]:.0f} vs SMA{SMA_REGIME} {b200:.0f}; "
+          f"{vs_label*100:+.1f}% vs documented SMA{LABEL_SMA}) | "
           f"gate={'OPEN' if gate_ok else 'CLOSED'} "
           f"(btc_mom {btc_mom*100:+.1f}%, breadth {bread*100:.0f}%) | "
-          f"open={len(real)}/{TOPN} | book=${st.get('book', BOOK):.2f}")
+          f"open={len(real)}/{TOPN} | book=${st.get('book', BOOK):.2f}{div}")
     if events:
         notify("🧠 REGIME-ADAPTIVE (demo)",
                f"<b>{regime}</b> · BTC {btc[-1]:.0f} vs SMA{SMA_REGIME} "
