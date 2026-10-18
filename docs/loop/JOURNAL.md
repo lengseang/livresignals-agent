@@ -3,6 +3,47 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-10-18 · the "net" verdict counted its wins on GROSS — and the true rate told the book's only winner to stand down
+
+- **Task:** autonomous improvement pass (cron). No board task; a defect found
+  while re-reading the improvement layer against the live book after the
+  2026-10-17 fix.
+- **Need check:** repo-only. All evidence is the real paper book
+  `data/unified-paper.json` and the live scripts. No prod file touched: the loop,
+  night_tuner's stats helper and self_improve's reader are report/tuning paths;
+  no order, param or disable-list change.
+- **Found:** the per-edge and per-regime tables counted their wins on GROSS
+  `pnl` (`if (t.get("pnl",0) or 0) > 0: wins += 1`) while the money beside them
+  was NET of the measured round trip. On the real book `validated` read "47.5% WR
+  ... -3.49 net ... DECAYING (net)" — its true net win rate is **43.6%**; `rsi2`
+  read 42.9% gross vs **14.3%** net. The flattered rate ran the SAME way as the
+  loss it was condemning. Same leak in `night_tuner._stats(net=True)` — whose
+  win rate feeds a real-money `LIVE_STOP_PCT` adjustment — and `self_improve
+  .stats_net_of` reported no gross rate at all. Fourth instance of one class
+  (basis → disable predicate → demote rule → the win COUNT).
+- **Consequence found while validating:** with a true net WR, edge `loose`
+  (**+4.47 net — the only net-POSITIVE edge in the book**) sits at 44.1% and the
+  `WR<45` floor told the owner to "stand it down". The floor is a heuristic
+  about fee drag; a large sample that pays after the fee refutes it. A
+  net-positive low-WR edge now gets an advisory p3 note ("preventive only, keep
+  measuring"); a net-NEGATIVE edge at any WR keeps the actionable p2 verdict.
+  Promote bar (WR>=58) untouched.
+- **Done:** `win_rate` is net everywhere the P&L is net; `win_rate_gross` is
+  carried under an honest name; `self_improve.stats_net_of` gained `wr_gross`.
+  Design + lesson: `docs/proposals/win-rate-net-units-2026-10-18.md`.
+- **Evidence:** RED first — `tests/test_win_rate_net_units.py` 5 failed / 1
+  passed. GREEN after the fix: 7 passed. Mutation: restoring the gross count
+  re-fails exactly the per-edge + night_tuner tests; files restored. Full suite
+  `pytest tests/` → **638 passed, 3 skipped**. E2E on the real book:
+  `improvement_loop.py` regenerated the report with `win_rate` + `win_rate_gross`
+  on every row; `night_tuner._stats` on the last 100 paper trades gives gross-WR
+  46.0% vs net-WR 37.0% / -1.006 net.
+- **Learned:** fix the *basis* and you have fixed one figure — every number
+  derived from it is still in the old units; the check is per-verdict, not
+  per-variable. And: when a measurement is corrected, every threshold downstream
+  of it must be re-derived. The 45% floor had only ever been fed a gross rate;
+  fed the true rate it condemned the only edge that pays.
+
 ## 2026-10-17 · the per-edge demote rule was blind to NET P&L — the book's largest loss drew no verdict
 
 - **Task:** autonomous improvement pass (cron). No board task; a defect found
