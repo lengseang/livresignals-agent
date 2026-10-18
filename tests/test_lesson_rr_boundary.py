@@ -122,15 +122,26 @@ def test_improve_does_not_tell_the_owner_to_skip_a_2_to_1_setup():
     assert "skipping it would have avoided" not in joined, joined
 
 
-def test_skip_advice_still_fires_for_a_genuine_low_rr():
-    """The guard must not silence the real lesson: a 1.5 setup is genuinely in
-    the losing population and the advice stands."""
+def test_low_rr_is_still_flagged_but_no_longer_told_to_skip_itself():
+    """A 1.5 setup must still be NOTICED — but the skip advice is gone.
+
+    UPDATED 2026-10-18. The original asserted "skipping it would have avoided
+    this trade", on the premise that RR<2 is "the losing population". That
+    premise was falsified: `sl` is overwritten by the trail, and on DESIGNED
+    geometry the RR<2 population is net-positive overall (+9.95 first half /
+    -1.20 second). Telling the owner to skip it would delete the bigger cohort.
+    The guard that still matters: a low-RR setup is named as low-RR, and the
+    advice neither skips it nor promotes it.
+    """
     loop = _load_loop()
     t = _trade(100.0, 101.5, 99.0, -0.05)
     verdict, note = loop.classify(t, VALID_POP)
     assert verdict == "AS DESIGNED", note
     advice = " | ".join(loop.improve(t, verdict, VALID_POP))
-    assert "skipping it would have avoided" in advice
+    assert "below RR" in advice, advice
+    assert "skipping it would have avoided" not in advice, (
+        f"advice still orders a skip on a finding that was retracted: {advice}")
+    assert "not a reason to skip" in advice, advice
 
 
 def test_rr_at_threshold_matches_the_population_split_used_elsewhere():
