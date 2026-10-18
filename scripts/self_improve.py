@@ -135,18 +135,24 @@ def stats_net_of(trades: list) -> dict:
     silent-unit bug the improvement layer was fixed for on 2026-10-11; this
     reader is the same fix, applied to the one gate that was missed.
 
-    Returns {'n', 'wr', 'pnl', 'ev', 'gross'} where 'wr'/'pnl'/'ev' are NET and
-    'gross' is carried so the haircut stays visible in the report.
+    Returns {'n', 'wr', 'pnl', 'ev', 'gross', 'wr_gross'} where 'wr'/'pnl'/'ev'
+    are NET and 'gross'/'wr_gross' are carried so the haircut stays visible.
+    'wr' counts NET wins (it always did here); 'wr_gross' is the gross rate the
+    report used to quote for the whole book, labelled so the two cannot be
+    confused (2026-10-18 — the same mixed-units defect was still live in
+    improvement_loop's per-edge table and night_tuner's net branch).
     """
     n = len(trades)
     if not n:
-        return {"n": 0, "wr": 0.0, "pnl": 0.0, "ev": 0.0, "gross": 0.0}
+        return {"n": 0, "wr": 0.0, "pnl": 0.0, "ev": 0.0, "gross": 0.0,
+                "wr_gross": 0.0}
     nets = [paper_net_of(t)[0] for t in trades]
     gross = sum((t.get("pnl") or 0) for t in trades)
     w = sum(1 for x in nets if x > 0)
+    w_gross = sum(1 for t in trades if (t.get("pnl") or 0) > 0)
     net = sum(nets)
     return {"n": n, "wr": w / n * 100, "pnl": net, "ev": net / n,
-            "gross": gross}
+            "gross": gross, "wr_gross": w_gross / n * 100}
 
 
 def _should_disable(st: dict) -> bool:

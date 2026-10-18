@@ -113,19 +113,28 @@ def analyze() -> dict:
 
     # Per-regime breakdown (paper). P&L is NET so a regime that only looks good
     # gross (i.e. its edge is smaller than the round-trip fee) reads as the loss
-    # it is. Win-rate stays GROSS-signed for continuity with the by_edge table.
+    # it is. The WIN RATE is net for the same reason (2026-10-18): a verdict that
+    # reports net dollars beside a gross win rate mixes two units in one
+    # sentence, and the gross count inflates exactly the edge that is bleeding.
+    # The gross rate is carried separately, under a gross label.
     by_regime = {}
     for t in paper:
-        r = by_regime.setdefault(t.get("regime", "?"), {"wins": 0, "n": 0, "pnl": []})
+        r = by_regime.setdefault(t.get("regime", "?"), {"wins": 0, "wins_gross": 0,
+                                                        "n": 0, "pnl": []})
         r["n"] += 1
-        if (t.get("pnl", 0) or 0) > 0:
+        g = t.get("pnl", 0) or 0
+        if g > 0:
+            r["wins_gross"] += 1
+        net_t = _pnl_of(t)[0]
+        if net_t > 0:
             r["wins"] += 1
-        r["pnl"].append(_pnl_of(t)[0])
+        r["pnl"].append(net_t)
     regime_rows = []
     for r, d in by_regime.items():
         regime_rows.append({
             "regime": r, "n": d["n"],
             "win_rate": round(d["wins"] / d["n"] * 100, 1) if d["n"] else 0,
+            "win_rate_gross": round(d["wins_gross"] / d["n"] * 100, 1) if d["n"] else 0,
             "avg_pnl": round(sum(d["pnl"]) / d["n"], 4) if d["n"] else 0,
         })
 
@@ -133,22 +142,34 @@ def analyze() -> dict:
     # NET-of-cost, so an edge whose gross edge is thinner than the fee is called
     # out as losing rather than promoted. `gross_pnl` is carried for the reader
     # who wants to see the haircut; the promote/demote rules read net_pnl.
+    #
+    # NOTE (2026-10-18): `win_rate` counts NET wins, like every other figure in
+    # the per-edge verdict. It used to count GROSS wins ("if pnl > 0") beside a
+    # NET `net_pnl`, so on the real book `validated` read "47.5% WR ... -3.50 net
+    # ... DECAYING (net)" while its net win rate was 43.7% — the same edge read
+    # 3.8 points healthier than it was, in the one sentence meant to condemn it.
+    # `win_rate_gross` keeps the old number under an honest name.
     by_edge = {}
     for t in paper:
         e = t.get("edge") or ("loose" if t.get("loose") else "validated")
-        e = by_edge.setdefault(e, {"wins": 0, "n": 0, "pnl": 0.0, "gross": 0.0,
-                                   "symbols": set()})
+        e = by_edge.setdefault(e, {"wins": 0, "wins_gross": 0, "n": 0, "pnl": 0.0,
+                                   "gross": 0.0, "symbols": set()})
         e["n"] += 1
-        e["pnl"] += _pnl_of(t)[0]
-        e["gross"] += t.get("pnl", 0) or 0
+        net_t = _pnl_of(t)[0]
+        e["pnl"] += net_t
+        g = t.get("pnl", 0) or 0
+        e["gross"] += g
         e["symbols"].add(t.get("symbol", "?"))
-        if (t.get("pnl", 0) or 0) > 0:
+        if g > 0:
+            e["wins_gross"] += 1
+        if net_t > 0:
             e["wins"] += 1
     edge_rows = []
     for e, d in sorted(by_edge.items(), key=lambda kv: -kv[1]["n"]):
         edge_rows.append({
             "edge": e, "n": d["n"],
             "win_rate": round(d["wins"] / d["n"] * 100, 1) if d["n"] else 0,
+            "win_rate_gross": round(d["wins_gross"] / d["n"] * 100, 1) if d["n"] else 0,
             "avg_pnl": round(d["pnl"] / d["n"], 4) if d["n"] else 0,
             "net_pnl": round(d["pnl"], 4),
             "gross_pnl": round(d["gross"], 4),
@@ -402,23 +423,50 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
             continue
         net_pnl = e.get("net_pnl", 0) or 0
         losing = net_pnl < 0
+        # PREVENTIVE, NOT PROVEN-BAD (2026-10-18). The WR floor is a HEURISTIC —
+        # it says "this win rate is probably too low to pay the fee". When the
+        # measured NET says the edge PAYS, the heuristic is refuted by the money:
+        # on the real book after the net-WR fix, edge 'loose' sits at 44.1% net
+        # WR and +4.47 net — the only net-POSITIVE edge in the book — and the
+        # floor alone would tell the owner to stand it down. A cheap fee erodes
+        # a thin per-trade edge but does not prove one; a large sample that is
+        # net-positive IS evidence. So the WR floor only draws a verdict on an
+        # edge that is not paying; a net-positive low-WR edge is governed by the
+        # untouched PROMOTE bar above (WR>=58) and stays in the "keep measuring"
+        # band, which is what "promote slowly" means. The DEMOTE-on-net-loss rule
+        # is unaffected: net-negative at any WR still fires.
         if e["win_rate"] >= 58 and e["avg_pnl"] > 0 and not losing:
             out.append({
                 "priority": 2, "type": "edge_promote",
                 "idea": f"Edge '{e['edge']}' PROVEN (net): {e['win_rate']}% WR / {e['n']} trades / +${e['net_pnl']:.2f} net (gross +${e.get('gross_pnl', 0):.2f}) on {','.join(e['symbols'][:4])}. Keep trading real on this; it carries the account.",
             })
-        elif e["win_rate"] < 45 or losing:
+        elif losing or (e["win_rate"] < 45 and not losing):
+            # Two routes, two sentences — the verdict must state the condition
+            # that actually fired (2026-10-16 lesson):
+            #   * net-negative -> a P&L fact, at any win rate;
+            #   * low WR but net-positive -> a PREVENTIVE flag on a heuristic
+            #     (kept for the owner, at p3: "keep measuring", not "stand it
+            #     down"). The guard above keeps the two from being conflated.
             why = (f"{e['win_rate']}% WR / {e['n']} trades / {net_pnl:+.2f} net"
                    f" (gross {e.get('gross_pnl', 0):+.2f})")
-            if losing and e["win_rate"] >= 45:
-                # The blind-spot case: it wins often enough to pass the WR floor
-                # but still loses money — say WHY it was caught, so a reader who
-                # only sees the win rate understands the verdict.
+            if losing:
+                # A net loss is explained by NET, whatever the WR route was:
+                # either it wins often (WR above the floor) but pays too much, or
+                # part of its apparent win rate was gross wins the fee ate
+                # (2026-10-18: win_rate is now net, so this is the true rate).
                 why += (f" — net-NEGATIVE despite a {e['win_rate']}% win rate "
                         f"(wins too small, losses too large)")
+                verdict = ("Tighten its entry (deeper dip / lower RSI) or stand "
+                           "it down — it is losing edge.")
+            else:
+                why += (" — PREVENTIVE only: the win rate is under the 45% "
+                        "floor but the edge is NET-POSITIVE, so the floor is a "
+                        "heuristic here, not a verdict")
+                verdict = ("Keep measuring; do not act on the win rate alone "
+                           "while the edge pays.")
             out.append({
-                "priority": 2, "type": "edge_decay",
-                "idea": f"Edge '{e['edge']}' DECAYING (net): {why}. Tighten its entry (deeper dip / lower RSI) or stand it down — it is losing edge.",
+                "priority": 2 if losing else 3, "type": "edge_decay",
+                "idea": f"Edge '{e['edge']}' DECAYING (net): {why}. {verdict}",
             })
     # 5. Unique/outside-the-box ideas (always add a couple)
     # TESTED-NEGATIVE (2026-10-10): the volume-spike idea below was run through

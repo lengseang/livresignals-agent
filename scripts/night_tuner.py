@@ -73,14 +73,20 @@ def _stats(rows: list, net: bool = False) -> dict | None:
     """
     if not rows:
         return None
-    w = sum(1 for t in rows if t.get("pnl", 0) > 0)
+    w = sum(1 for t in rows if (t.get("pnl") or 0) > 0)
     if net and _paper_net_of is not None:
         nets = [_paper_net_of(t) for t in rows]
         total = sum(v for v, _ in nets)
         uncosted = sum(1 for _, costed in nets if not costed)
+        # WIN RATE ON THE SAME BASIS AS THE P&L (2026-10-18). This branch reported
+        # a NET dollar figure beside a GROSS win rate (counted above from `pnl`),
+        # so a trade the fee turned from a small winner into a small loser was a
+        # win in the rate and a loss in the sum. Both now read net.
+        w_net = sum(1 for v, _ in nets if v > 0)
         out = {
             "n": len(rows),
-            "win_rate": round(w / len(rows) * 100, 1),
+            "win_rate": round(w_net / len(rows) * 100, 1),
+            "win_rate_gross": round(w / len(rows) * 100, 1),
             "net": round(total, 4),
         }
         if uncosted:
