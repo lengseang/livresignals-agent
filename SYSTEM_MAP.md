@@ -160,6 +160,19 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │    rows (17%) that flattered the book. A time-based dedupe key  │
 │    CANNOT see them — they differ in ts_utc. Key on the economic │
 │    fingerprint (exact entry + exact pnl), not on time.          │
+│                                                                 │
+│ 7. ALWAYS compare ratios with a TOLERANCE.                      │
+│    The dominant design is an exact 2:1, and abs(tp-e)/abs(e-sl) │
+│    floats a hair either side of 2.0. A raw `rr >= 2.0` split   │
+│    ONE design into "winning population" (119) and "below 2.0,   │
+│    skip it" (56) — and the verdict note ROUNDED 1.996 up to    │
+│    "2.00 below 2.0". Use _rr_meets_good/_rr_text, not `>=`.     │
+│                                                                 │
+│ 8. ALWAYS re-derive a threshold on the current book.            │
+│    RR_GOOD=2.0 was true when it was measured. The 2.0-2.1 band  │
+│    is now net -11.6 over 240 trades; the first paying band is   │
+│    2.40. A stale threshold labels losing trades "variance".     │
+│    See docs/proposals/rr-boundary-tolerance-2026-10-18.md.      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
