@@ -5,6 +5,11 @@
 **Tests:** `tests/test_lesson_split_freshness.py` (8 new, RED 6 → GREEN 8)
 **Repair:** 3,196 lessons re-derived, 2,267 changed, 0 unmatched, 0 verdict flips
 
+**Snapshot:** `attachments/trade_lesson_loop.2026-10-19.py` — the verified loop
+(the live copy lives outside this repo, at
+`/home/ubuntu/hermes-home/scripts/trade_lesson_loop.py`; md5
+`2624e5d0f323d50734ab182ec72f159a`). Copy it back to reproduce exactly.
+
 ## What was wrong
 
 Commit `0c00a42` (2026-10-18) correctly retracted the "RR<2 loses — skip it"
