@@ -173,6 +173,17 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │    is now net -11.6 over 240 trades; the first paying band is   │
 │    2.40. A stale threshold labels losing trades "variance".     │
 │    See docs/proposals/rr-boundary-tolerance-2026-10-18.md.      │
+│                                                                 │
+│ 9. NEVER QUOTE A MEASUREMENT; RE-DERIVE IT AT WRITE TIME.       │
+│    The retraction of "RR<2 loses" was supported with           │
+│    "+9.95 first half / -1.20 second" — a fact about the ledger  │
+│     on 2026-10-18, written into improve() and write_rollup()    │
+│    as a STRING. One day / 24 lessons later the same computation │
+│    returns +11.16 / +0.06: the second half is now POSITIVE.     │
+│    rr_split() derives it per run and refuses when a clean cut   │
+│    would fall inside one cluster of simultaneous fills;         │
+│    rr_split_text() states the SHAPE, not two bare numbers.      │
+│    See docs/proposals/lesson-split-freshness-2026-10-19.md.     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
