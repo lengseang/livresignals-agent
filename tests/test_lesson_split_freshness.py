@@ -80,11 +80,15 @@ def test_the_hardcoded_halves_no_longer_describe_the_live_ledger():
     """The regression itself: source string says +9.95/-1.20; ledger says otherwise."""
     loop = _load_loop()
     split = loop.rr_split(_ledger())
-    assert split is not None, "the ledger must support an order-independent split"
-    assert (split["first_net"], split["second_net"]) != (9.95, -1.2), (
-        "ledger still reports the 2026-10-18 halves; remove this test only if "
-        "the numbers are DERIVED, not re-hardcoded"
-    )
+    # `None` is a legitimate answer: the guard refuses a cut whose halves move
+    # when the ledger is re-ordered, and on 2026-10-19 it does (settlement order
+    # lags trade time). The claim tested here is that NO number is hardcoded —
+    # a refused split must not resurrect one either.
+    if split is not None:
+        assert (split["first_net"], split["second_net"]) != (9.95, -1.2), (
+            "ledger still reports the 2026-10-18 halves; remove this test only "
+            "if the numbers are DERIVED, not re-hardcoded"
+        )
     src = LOOP.read_text()
     # A stale pair may be DOCUMENTED (module docstring, comments), but it must not
     # appear inside the body of a function that prints to a reader. Checking the
@@ -140,14 +144,18 @@ def test_split_refuses_a_ledger_it_cannot_cut_cleanly():
 def test_the_narrative_prints_the_derived_numbers_not_a_constant():
     loop = _load_loop()
     split = loop.rr_split(_ledger())
-    assert split is not None
     t = {"symbol": "XRP/USDT", "ts_utc": "2026-10-18T00:00:00+00:00",
          "entry": 1.0, "tp": 1.015, "sl": 0.99, "pnl": -0.01, "reason": "TIME",
          "loose": True}
     note = " ".join(loop.improve(t, "AS DESIGNED", VALID_POP, split=split))
-    assert f"{split['first_net']:+.2f}" in note
-    assert f"{split['second_net']:+.2f}" in note
     assert "+9.95" not in note
+    if split is not None:
+        assert f"{split['first_net']:+.2f}" in note
+        assert f"{split['second_net']:+.2f}" in note
+    else:
+        assert "no half-split" in note, (
+            "the ledger refused a clean cut, so the note must say so rather "
+            "than print a number")
 
 
 def test_halves_that_agree_are_not_quoted_as_a_decay_story():
@@ -167,7 +175,10 @@ def test_the_live_sentence_states_what_the_live_halves_actually_do():
     loop = _load_loop()
     split = loop.rr_split(_ledger())
     text = loop.rr_split_text(split)
-    if split and split["first_net"] > 0 > split["second_net"]:
+    if split is None:
+        # Refusing to cut is a statement too, and it must not imply a shape.
+        assert "no half-split" in text and "claim is made either way" in text
+    elif split["first_net"] > 0 > split["second_net"]:
         assert "shape is still present" in text
     else:
         assert "did NOT hold" in text, (
@@ -193,4 +204,5 @@ def test_the_repairable_ledger_prints_a_single_clean_rr_sentence():
          "loose": True}
     note = " ".join(loop.improve(t, "AS DESIGNED", VALID_POP))
     assert note.count("RR does not separate this book") == 1, note
-    assert "(" in note and note.count("first half") == 1, note
+    # Either one quoted pair, or the explicit refusal — never two explanations.
+    assert note.count("first half") + note.count("no half-split") == 1, note
