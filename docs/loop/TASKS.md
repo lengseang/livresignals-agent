@@ -16,6 +16,8 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 | T0.8 | CI fix: `check-books.py` base path from env (F6) | owner OK | owner |
 | T0.9 | `tests/test_forward.py::test_wallet_cap_no_dead_entries` reads the real `data/trading.db` (test line 35); fails off-VPS with `unable to open database file`. Make it use the temp-DB fixture the same file already has (line 46). Test-only change | T0.2 | review (#7) |
 | T0.10 | Readers stop labelling the paper trend log as real money: `expectancy_vs_fee.py:101`, `fee_audit.py:97-115` (hardcoded $5 stake), add `real.closed` row to `book_units.py`. Design in `designs/T0.5.md` §4; its own PR. Useful before `real.closed` exists: relabel + print "no real closes recorded yet" | T0.5 | todo |
+| T0.11 | **Re-escalated 2026-10-20 with evidence.** `src/trading/data/` is gitignored, so `health.py` had no baseline: the 2026-10-20 fix could not be reverted, and the pre-fix bytes were lost (reconstructed in `research/_health_prefix_snapshot.py`). Any future edit of this dir is unrecoverable. See `docs/proposals/data-health-reported-the-wrong-db-2026-10-20.md`. | owner OK | owner |
+| T0.12 | Audit every `--quiet` cron job for the 2026-10-19 shape: does a non-zero rc reach the owner? The lesson wrapper was fixed; the others were never checked. Deciding what the cron should SAY on rc≠0 is an owner-facing behaviour change, so escalate the wording, ship the plumbing. | T0.1 | todo |
 
 ## Phase 1: Research (docs only)
 | ID | Task | Deps | Status |

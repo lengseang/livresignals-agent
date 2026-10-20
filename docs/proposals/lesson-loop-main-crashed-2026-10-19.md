@@ -4,9 +4,11 @@
 **Script:** `/home/ubuntu/hermes-home/scripts/trade_lesson_loop.py`
 **Tests:** `tests/test_lesson_main_writes.py` (5 new; RED 5 against the buggy
 file → GREEN 5 against the fix; the 24 pre-existing lesson tests stay green)
-**Snapshot:** `attachments/trade_lesson_loop.2026-10-19b.py`, md5
-`089fb59de0422a2a7dbab88f28b716a3`. The previous snapshot
-(`trade_lesson_loop.2026-10-19.py`) is the buggy build — diff them.
+**Snapshot:** `attachments/trade_lesson_loop.2026-10-19c.py`, md5
+`515e15acae54f907dd464ef8edaac6fc` — this is the shipped build **including** the
+`rr_split` cut fix from §5 (the second commit tonight). The intermediate
+`...2026-10-19b.py` is the NameError fix alone; `...2026-10-19.py` is the buggy
+build — diff any two to see exactly what moved.
 **Repair:** 26 unlearned trades written, 0 verdict flips, 0 duplicate ids
 
 ## What was wrong

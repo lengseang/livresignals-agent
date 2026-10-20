@@ -286,7 +286,19 @@ def test_the_solo_challenger_is_measured_even_when_it_has_no_family():
     """The 2026-10-19 grid: sma_r=200 is the only 200 in the grid, so its
     family has ONE member. It is also the config the loop crowns. Skipping
     singletons left the winner 'untested' — and an untested row is admitted
-    by lead_is_coin_fragile() by construction, so the refusal was dead code."""
+    by lead_is_coin_fragile() by construction, so the refusal was dead code.
+
+    ⚠️ REWRITTEN 2026-10-20. As originally written this asserted
+    `live_fragile is False` on the LIVE data. That held on the 10-19 cache and
+    stopped holding after the 01:00 refresh (LIVE sma_r=150 median 13.7% →
+    25.11%, its own LOO band [1.30, 23.18] no longer contains it, and the
+    crowned config moved to sma_r=100). A test that pins a verdict about
+    TOMORROW's data goes red for a reason that is not a defect — on a monitor
+    carousel that trains the reader to ignore red. The 10-19 numbers are pinned
+    as a unit test with a literal fixture
+    (`test_live_config_is_not_called_decayed_on_a_noise_lead`); this one now
+    asserts the properties that must hold on WHATEVER the cache says today.
+    """
     cur = rl.run()
     best = max(cur["rows"], key=rl.score)
     assert len(rl.collinear_variants(cur["rows"])[best["cfg"]["sma_r"]]) == 1
@@ -298,5 +310,31 @@ def test_the_solo_challenger_is_measured_even_when_it_has_no_family():
     v = rl.lead_is_coin_fragile(best, live, n_folds=4)
     assert v["basis"] != "fragility untested (no leave-one-coin-out data)", v
     assert v["fragile"] is True, v
-    assert v["live_fragile"] is False, (
-        "the live config is inside its own band — 'decayed' would be a lie")
+    # live_fragile is DERIVED from today's band, not pinned. Its contract:
+    # the LIVE median is OUTSIDE its own leave-one-coin-out band on EITHER
+    # side (below = decay, above = regime break). Pin the relationship, not
+    # the verdict, so a cache refresh cannot red-line this test for a reason
+    # that is not a defect — and separate unit tests pin the wording.
+    lf = live.get("fragility") or {}
+    med = live["median"]
+    outside = not (lf["loo_min"] <= med <= lf["loo_max"])
+    assert v["live_fragile"] is outside, (
+        f"live_fragile={v['live_fragile']} but LIVE median {med} "
+        f"vs its own LOO band [{lf['loo_min']}, {lf['loo_max']}]")
+    lines = rl._change_lines(
+        prev={"rows": [_row(150, 12.0)]},
+        cur={"ts": "x", "rows": [best, live],
+             "bench_btc_median": 0, "bench_eql_median": 0},
+        best=best, live_row=live)
+    if not v["live_fragile"]:
+        assert not any("DECAYED" in c for c in lines), (
+            "LIVE is inside its own band, so no DECAYED line may be emitted")
+    else:
+        decay = [c for c in lines if "DECAYED" in c]
+        assert decay, "LIVE is outside its band but no line says so"
+        # and the line must name the direction that is actually true
+        if med < lf["loo_min"]:
+            assert "floor" in decay[0]
+        else:
+            assert "ceiling" in decay[0] and "floor" not in decay[0], (
+                f"LIVE is ABOVE its ceiling but the line claims a floor: {decay[0]}")

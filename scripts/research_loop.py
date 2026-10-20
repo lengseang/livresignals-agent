@@ -334,11 +334,25 @@ def _change_lines(prev, cur, best, live_row):
         v = lead_is_coin_fragile(best_row, live_row,
                                  n_folds=live_row.get("n_folds", 4))
         if v["live_fragile"]:
+            # State WHY it is outside its band. Until 2026-10-20 this line said
+            # "below its own leave-one-coin-out floor" unconditionally, but
+            # lead_is_coin_fragile() flags BOTH tails — a LIVE median ABOVE the
+            # ceiling is a regime change too, and on the 2026-10-20 cache that
+            # is the case in force. The message must not invent a direction.
+            lf = live_row["fragility"]
+            med = live_row["median"]
+            if med < lf["loo_min"]:
+                why = f"below its own leave-one-coin-out floor {lf['loo_min']:+.2f}pp"
+            elif med > lf["loo_max"]:
+                why = (f"ABOVE its own leave-one-coin-out ceiling "
+                       f"{lf['loo_max']:+.2f}pp — regime break, not decay")
+            else:
+                why = (f"outside its own band [{lf['loo_min']:+.2f}, "
+                       f"{lf['loo_max']:+.2f}] but the direction is unclassified")
             changed.append(f"LIVE EDGE DECAYED: {live_row['cfg']} now "
-                           f"median {live_row['median']}% "
+                           f"median {med}% "
                            f"({live_row['pos_folds']}/{live_row['n_folds']}) "
-                           f"— below its own leave-one-coin-out floor "
-                           f"{live_row['fragility']['loo_min']:+.2f}pp")
+                           f"— {why}")
         else:
             print("  SUPPRESSED: live config is inside its own noise band "
                   "— not a decay verdict")

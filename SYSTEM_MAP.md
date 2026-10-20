@@ -175,7 +175,7 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │    See docs/proposals/rr-boundary-tolerance-2026-10-18.md.      │
 │                                                                 │
 │ 9. NEVER QUOTE A MEASUREMENT; RE-DERIVE IT AT WRITE TIME.       │
-│    The retraction of "RR<2 loses" was supported with           │
+│    The retraction of "RR<2 loses" was supported with            │
 │    "+9.95 first half / -1.20 second" — a fact about the ledger  │
 │     on 2026-10-18, written into improve() and write_rollup()    │
 │    as a STRING. One day / 24 lessons later the same computation │
@@ -184,6 +184,32 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │    would fall inside one cluster of simultaneous fills;         │
 │    rr_split_text() states the SHAPE, not two bare numbers.      │
 │    See docs/proposals/lesson-split-freshness-2026-10-19.md.     │
+│                                                                 │
+│ 10. A MONITOR PUBLISHES ONLY FROM ITS ENTRYPOINT.               │
+│    check_data_health(db_path) wrote the GLOBAL                  │
+│    reports/data-health.json on every call — so the unit tests,  │
+│    each on an empty temp DB, rewrote the live report. It read   │
+│    `ok:false, 15x "no data"` about a store which that same      │
+│    function, run on the real DB, called healthy (9.56M candles, │
+│    60 symbol×tf groups, 0 duplicates). The report now names the │
+│    DB it judged (`"db": ...`) and only the CLI publishes.       │
+│    Corollary: every _check_* must be able to FAIL —             │
+│    storage_check returned a dict nobody read, and an `ok` flag  │
+│    set once and never flipped passed its own tests' intent.     │
+│    See docs/proposals/data-health-reported-the-wrong-db-*.md.   │
+│                                                                 │
+│ 11. A TEST THAT PINS TOMORROW'S DATA GOES RED FOR NO DEFECT.    │
+│    test_the_solo_challenger... asserted `live_fragile is False` │
+│    on the LIVE cache. True on 10-19 (live 13.7% inside          │
+│    [3.58,22.59]); false after the 01:00 refresh (live 25.11%    │
+│    ABOVE its ceiling, crowned config moved to sma_r=100).       │
+│    Assert the INVARIANT (`live_fragile == median outside band`) │
+│    on live data; pin the historical numbers with a literal      │
+│    fixture. A monitor carousel that goes red for no reason      │
+│    trains the reader to ignore red.                             │
+│    Corollary: a derived verdict must not be narrated with a     │
+│    hardcoded direction — the line said "below its own floor"    │
+│    while the data was ABOVE the ceiling.                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
