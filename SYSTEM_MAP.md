@@ -207,9 +207,27 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │    on live data; pin the historical numbers with a literal      │
 │    fixture. A monitor carousel that goes red for no reason      │
 │    trains the reader to ignore red.                             │
-│    Corollary: a derived verdict must not be narrated with a     │
-│    hardcoded direction — the line said "below its own floor"    │
-│    while the data was ABOVE the ceiling.                        │
+│    Corollary: a derived verdict must not be narrated with a      │
+│    hardcoded direction — the line said "below its own floor"     │
+│    while the data was ABOVE the ceiling.                         │
+│                                                                  │
+│ 12. A VERDICT MUST STATE THE WINDOW IT WAS MEASURED ON.          │
+│    paper_learner printed "best found … net_ev=+0.184% n=907"     │
+│    daily and it read as a fact about TODAY. It was a fact        │
+│    about 2023-01-01..2026-08-15: the grid is scored on           │
+│    live_fine.json / alts_fine.json, both frozen 65 days ago,     │
+│    while the DB held candles to today. Downstream                │
+│    (improvement-report → self_improve → night_tuner) reasoned    │
+│    about "the sharp-dip entry is negative-EV" from it. The       │
+│    adopted config fired ZERO times in the last 90 days — the     │
+│    verdict described a market that no longer existed, and no     │
+│    reader could tell. The run now prints "INPUT: … last          │
+│    updated 65d ago (frozen history, NOT live)", derived from     │
+│    the file mtime each run and keyed by the series actually      │
+│    scored (not the raw key, which the 15m→BTC remap orphans).    │
+│    Stale INPUT is not a small caveat: it voids every             │
+│    downstream inference built on the line.                       │
+│    See docs/proposals/learner-scored-frozen-data-2026-10-20.md.  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

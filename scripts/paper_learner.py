@@ -71,6 +71,9 @@ REDS = [2, 3, 4]
 HOLDS = {"5m": 6, "15m": 4, "30m": 3}  # bars held per tf
 
 
+_LOAD_STAMP = {}  # key -> (source file, mtime) for the series actually scored
+
+
 def _read_sweep_file(path):
     """Read one historical-sweep JSON, returning {key: [(ts, close), ...]}.
 
@@ -97,23 +100,45 @@ def _load_all_series():
     """
     sources = [SWEEP, DATA / "live_fine.json", DATA / "alts_fine.json"]
     merged = {}
+    origin = {}   # raw key -> (source basename, mtime)
+    _LOAD_STAMP.clear()
     for path in sources:
         for k, v in _read_sweep_file(path).items():
             if k not in merged and isinstance(v, list) and v:
                 merged[k] = v
+                try:
+                    origin[k] = (path.name, path.stat().st_mtime)
+                except OSError:
+                    origin[k] = (path.name, 0.0)
+    # TUPLE-SHAPE GUARD (2026-10-20): the files above are CONSOLIDATED sweep
+    # dumps ({key: [(ts, close), ...]}), but the bug note below also cites
+    # caches like /tmp/cache-head.json that store BARE closes ([float, ...]).
+    # x[1] on a float raises "TypeError: 'float' is not subscriptable" — which
+    # is NOT caught here (it happens before the try below), so one malformed
+    # source killed the whole grid. Accept both shapes explicitly and let
+    # anything else fall through to the `continue` that already exists.
+    for k, v in merged.items():
+        if v and not isinstance(v[0], (list, tuple)):
+            merged[k] = [(i, c) for i, c in enumerate(v)]
     # live_fine.json is keyed by bare timeframe ("15m") for BTC/USDT only.
     out = {}
     for key in SERIES_KEYS:
         series = merged.get(key)
+        src_key = key
         if series is None and key in ("15m:BTC/USDT", "30m:BTC/USDT",
                                       "5m:BTC/USDT"):
             bare = key.split(":", 1)[0]
             series = merged.get(bare)
+            src_key = bare
         if series:
             try:
                 out[key] = [x[1] for x in series]
             except Exception:  # noqa: BLE001
                 continue
+            # stamp under the SERIES name, so a caller iterating `out` can
+            # always answer "which file, how old" for what it just scored.
+            if src_key in origin:
+                _LOAD_STAMP[key] = origin[src_key]
     return out
 
 
@@ -302,6 +327,25 @@ def main():
     score, dip, rsi_max, red_min, ev, n, acc = best
     print(f"  best found (NET of fees): dip={dip} rsi<={rsi_max} "
           f"red>={red_min} acc={acc:.1f}% net_ev={ev:+.3f}% n={n}")
+    # ── INPUT PROVENANCE (2026-10-20) ──────────────────────────────────────
+    # The grid is scored on FROZEN sweep files (data/live_fine.json and
+    # alts_fine.json stop at 2026-08-15), while the live DB carries candles
+    # to today. The verdict line used to say only "best found … n=907",
+    # which reads as a statement about the CURRENT market. It is not: it is
+    # a statement about 2023-01-01..2026-08-15. Downstream consumers
+    # (self_improve, night_tuner) then reasoned about today from it.
+    # Print the window and the age so no reader can mistake one for the other.
+    # Never quoted as a constant — re-derived from the file each run (rule 9).
+    if _LOAD_STAMP:
+        try:
+            stamps = [mt for _, mt in _LOAD_STAMP.values() if mt]
+            srcs = sorted({f for f, _ in _LOAD_STAMP.values()})
+            if stamps:
+                age_d = (datetime.now(timezone.utc).timestamp() - min(stamps)) / 86400
+                print(f"  INPUT: {len(_LOAD_STAMP)} series from {', '.join(srcs)} "
+                      f"— last updated {age_d:.0f}d ago (frozen history, NOT live)")
+        except Exception:
+            pass
     # Adopt only if it improves NET expectancy meaningfully over the current
     # config. The old rule compared ACCURACY (+1.5pp) — which adopts a config
     # for being right more often, not for earning more, the documented
