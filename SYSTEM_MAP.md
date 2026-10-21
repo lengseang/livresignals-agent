@@ -228,6 +228,23 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │    Stale INPUT is not a small caveat: it voids every             │
 │    downstream inference built on the line.                       │
 │    See docs/proposals/learner-scored-frozen-data-2026-10-20.md.  │
+│                                                                 │
+│ 13. A PERSISTED NET IS A MEASUREMENT, NOT A FORMULA.             │
+│    paper_net.net_of trusted any recorded `pnl_net`. But it is a  │
+│    NUMBER frozen at write time: 226 of 514 records were charged  │
+│    the old 0.03% while the live round trip was 0.1545% — one      │
+│    ledger, three different rates in the `cost` column. The book  │
+│    read +$3.04 net when the honest figure was +$1.63 (46% over). │
+│    Invisible before 2026-10-11 because reader and writer shared  │
+│    the SAME stale constant; the fix corrected only the writer,   │
+│    and every record already written stayed cheap and kept the    │
+│    recorded field's authority. Now a `cost` is believed only if  │
+│    it is >= 50% of the live rate; a cheaper non-zero charge is   │
+│    re-costed from gross; cost 0.0 w/ pnl_net==pnl stays (that is │
+│    a deliberate uncharged book, PAPER_CHARGE_COST=0).            │
+│    Same rule as #9, applied to a stored number rather than a     │
+│    comment: re-derive at READ time. See                        │
+│    tests/test_paper_net_stale_cost.py.                          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

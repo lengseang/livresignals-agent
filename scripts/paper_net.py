@@ -62,27 +62,63 @@ elif _MEASURED_RT is not None:
 else:
     PAPER_COST_RT = 0.0003  # last-resort fallback (no audit, no override)
 
+# A recorded `cost` is only BELIEVED when it was charged at roughly the current
+# measured rate. Anything below this fraction of it is a record written under a
+# stale constant (see the 2026-10-21 note in net_of) and is re-costed.
+STALE_COST_FRACTION = 0.5
+
 
 def net_of(record: dict, cost_rt: float = PAPER_COST_RT) -> tuple[float, bool]:
     """Return (pnl_net_dollars, was_costed).
 
-    `was_costed` is False only when neither `pnl_net` nor a usable `size` is
+    `was_costed` is False only when neither a usable cost nor `size` is
     present, i.e. the cost could not be recovered and a caller must not treat
-    the value as net. Truthy in every other case, including a genuine `pnl_net`.
+    the value as net. Truthy in every other case.
+
+    THE STALE-CHARGED-COST TRAP (found 2026-10-21)
+    ----------------------------------------------
+    Step 1 used to trust any recorded `pnl_net`. But `pnl_net` is a NUMBER
+    frozen at write time, not a formula — so a record closed while the writer
+    still held the old 0.03% constant keeps 0.03% forever, and this reader
+    reported it as NET. Measured on the live book: 226 of 514 records carrying
+    `pnl_net` were charged `size * 0.0003` = $0.0015 on a $5 position (0.16% of
+    the true 0.1545% round trip), and the book's own `cost` column held three
+    different rates in one ledger. It was invisible before 2026-10-11 because
+    the reader and the writer shared the same stale constant; once the writer
+    was corrected, "trust the recorded figure" silently mixed rates.
+
+    So a recorded `pnl_net` is now honoured only when the record's own `cost`
+    is consistent with the CURRENT measured rate (>= STALE_COST_FRACTION of
+    `size * cost_rt`). A cheap-but-well-formed cost is re-costed from gross;
+    a rich one is trusted (an old, higher measured rate is not under-charged).
+    A record with no `cost` at all is still trusted — that is the
+    authoritative-writer case (PAPER_CHARGE_COST=0 writes cost 0.0 explicitly,
+    which is distinguishable and is not collided with here).
     """
     gross = record.get("pnl")
     if not isinstance(gross, (int, float)):
         return 0.0, False
 
-    # 1. the writer already charged it — trust the recorded figure.
+    size = record.get("size")
+    has_size = isinstance(size, (int, float)) and bool(size)
+    w = float(size) if has_size and isinstance(size, (int, float)) else 0.0
     pnl_net = record.get("pnl_net")
+    cost = record.get("cost")
+
     if isinstance(pnl_net, (int, float)):
+        # 1. the writer charged it — trust it unless the charge is stale.
+        if has_size and isinstance(cost, (int, float)):
+            # cost 0.0 with pnl_net == pnl is a DELIBERATE uncharged book
+            # (PAPER_CHARGE_COST=0). The operator turned charging off at the
+            # writer; the reader must not overrule it. A stale charge is
+            # distinguishable: it is non-zero but far below the live rate.
+            if float(cost) > 0 and float(cost) < w * cost_rt * STALE_COST_FRACTION:
+                return float(gross) - w * cost_rt, True
         return float(pnl_net), True
 
     # 2. charge it the same way _book_pnl would have.
-    size = record.get("size")
-    if isinstance(size, (int, float)) and size:
-        return float(gross) - float(size) * cost_rt, True
+    if has_size:
+        return float(gross) - w * cost_rt, True
 
     # 3. unrecoverable: gross only, and say so.
     return float(gross), False
