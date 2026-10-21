@@ -23,6 +23,7 @@ _SPEC.loader.exec_module(pl)
 def test_load_series_missing_file_does_not_raise(monkeypatch, tmp_path):
     """A missing sweep file must degrade to {} — never crash the cron."""
     monkeypatch.setattr(pl, "SWEEP", tmp_path / "nope.json")
+    monkeypatch.setattr(pl, "DB", tmp_path / "no-such.db")  # live store must not leak into a fixture
     monkeypatch.setattr(pl, "DATA", tmp_path)
     assert pl._load_all_series() == {}
 
@@ -31,6 +32,7 @@ def test_load_series_reads_fallback(monkeypatch, tmp_path):
     """Bare-timeframe keys in a fallback file map onto SERIES_KEYS."""
     (tmp_path / "live_fine.json").write_text('{"15m": [[1, 100.0], [2, 101.0]]}')
     monkeypatch.setattr(pl, "SWEEP", tmp_path / "missing.json")
+    monkeypatch.setattr(pl, "DB", tmp_path / "no-such.db")  # live store must not leak into a fixture
     monkeypatch.setattr(pl, "DATA", tmp_path)
     out = pl._load_all_series()
     assert out.get("15m:BTC/USDT") == [100.0, 101.0]
@@ -39,6 +41,7 @@ def test_load_series_reads_fallback(monkeypatch, tmp_path):
 def test_best_params_returns_none_without_data(monkeypatch, tmp_path):
     """No data -> best_params logs and returns None instead of raising."""
     monkeypatch.setattr(pl, "SWEEP", tmp_path / "missing.json")
+    monkeypatch.setattr(pl, "DB", tmp_path / "no-such.db")  # live store must not leak into a fixture
     monkeypatch.setattr(pl, "DATA", tmp_path)
     monkeypatch.setattr(pl, "STATE", tmp_path / "state.json")
     assert pl.best_params() is None

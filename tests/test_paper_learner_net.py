@@ -24,6 +24,7 @@ These tests lock in the three fixes:
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 _SPEC = importlib.util.spec_from_file_location(
@@ -157,13 +158,21 @@ def test_gross_cache_is_discarded(monkeypatch, tmp_path):
 
 
 def test_matching_cache_is_reused(monkeypatch, tmp_path):
-    """A cache stamped with the SAME fee must be reused (no recompute)."""
+    """A cache stamped with the SAME fee AND the SAME input must be reused.
+
+    The input stamp matters as much as the fee stamp (2026-10-20): a grid
+    scored on the frozen sweep files carries a different input_sig than the
+    live DB, and reusing it would print the old verdict forever.
+    """
     good = tmp_path / "state.json"
+    cache = {"x": [1]}
     good.write_text(
-        '{"cost_rt": %r, "scored": {"[-0.08, 30, 4]": [56.0, 0.184, 907]}}'
-        % pl.FEE_RT)
+        json.dumps({"cost_rt": pl.FEE_RT,
+                    "input_sig": pl._input_signature(cache),
+                    "scored": {"[-0.08, 30, 4]": [56.0, 0.184, 907]}}),
+        encoding="utf-8")
     monkeypatch.setattr(pl, "STATE", good)
-    monkeypatch.setattr(pl, "_load_all_series", lambda: {"x": [1]})
+    monkeypatch.setattr(pl, "_load_all_series", lambda: cache)
 
     calls = {"n": 0}
 

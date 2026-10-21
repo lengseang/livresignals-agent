@@ -35,6 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 SWEEP = DATA / "full_sweep.json"
+DB = DATA / "trading.db"
 STATE = DATA / "paper-learner-state.json"
 
 # ── fee honesty (2026-10-07) ────────────────────────────────────────────────
@@ -71,7 +72,47 @@ REDS = [2, 3, 4]
 HOLDS = {"5m": 6, "15m": 4, "30m": 3}  # bars held per tf
 
 
-_LOAD_STAMP = {}  # key -> (source file, mtime) for the series actually scored
+_LOAD_STAMP = {}  # key -> (source label, mtime) for the series actually scored
+_LOAD_WINDOW = {}  # key -> (first_open_ms, last_open_ms) actually scored
+
+
+def _db_series(db_path):
+    """Load every SERIES_KEY straight from the live candle store.
+
+    Returns ({key: [(open_time_ms, close), ...]}, {key: mtime}, {key: (first, last)}).
+
+    This is the primary source (2026-10-20). The learner used to score
+    data/live_fine.json + data/alts_fine.json, both frozen at 2026-08-15, so
+    its verdict described a market seven weeks gone while the DB carried
+    candles to today. Four keys (BTC 5m/15m/30m, XRP 30m) exist ONLY in those
+    sweep files, so the files stay as a labelled fallback for them.
+
+    Never raises: a missing/unreadable DB returns ({}, {}, {}) and the caller
+    falls back, printing which source it used.
+    """
+    out, mt, win = {}, {}, {}
+    try:
+        if not Path(db_path).exists():
+            return out, mt, win
+        import sqlite3
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            for key in SERIES_KEYS:
+                tf, sym = key.split(":", 1)
+                rows = con.execute(
+                    "SELECT open_time_utc, close FROM candles "
+                    "WHERE symbol=? AND timeframe=? ORDER BY open_time_utc",
+                    (sym, tf),
+                ).fetchall()
+                if rows:
+                    out[key] = [(r[0], r[1]) for r in rows]
+                    win[key] = (rows[0][0], rows[-1][0])
+                    mt[key] = Path(db_path).stat().st_mtime
+        finally:
+            con.close()
+    except Exception:  # noqa: BLE001 — data layer is best-effort
+        return {}, {}, {}
+    return out, mt, win
 
 
 def _read_sweep_file(path):
@@ -88,7 +129,7 @@ def _read_sweep_file(path):
 
 
 def _load_all_series():
-    """Load the historical close series ONCE into {key: closes}.
+    """Load the close series ONCE into {key: closes}, DB first, sweeps as fallback.
 
     Bug fixed 2026-10-05: this used to read data/full_sweep.json, which
     disk_cleanup.sh deleted as 'referenced NOWHERE' — but this cron DOES
@@ -97,48 +138,75 @@ def _load_all_series():
     files that still exist (live_fine.json / alts_fine.json) and map their
     keys onto SERIES_KEYS. If no source has usable data, return {} so main()
     logs a clear line and exits 0 instead of dumping a traceback.
+
+    Bug fixed 2026-10-20: the fallbacks were the ONLY sources, and both are
+    frozen at 2026-08-15. The DB is now the primary source; the sweep files
+    are consulted only for keys the DB cannot serve, and every series is
+    stamped with its source AND its real first/last bar so the verdict can
+    state the window it was measured on.
     """
-    sources = [SWEEP, DATA / "live_fine.json", DATA / "alts_fine.json"]
-    merged = {}
-    origin = {}   # raw key -> (source basename, mtime)
-    _LOAD_STAMP.clear()
-    for path in sources:
-        for k, v in _read_sweep_file(path).items():
-            if k not in merged and isinstance(v, list) and v:
-                merged[k] = v
-                try:
-                    origin[k] = (path.name, path.stat().st_mtime)
-                except OSError:
-                    origin[k] = (path.name, 0.0)
-    # TUPLE-SHAPE GUARD (2026-10-20): the files above are CONSOLIDATED sweep
-    # dumps ({key: [(ts, close), ...]}), but the bug note below also cites
-    # caches like /tmp/cache-head.json that store BARE closes ([float, ...]).
-    # x[1] on a float raises "TypeError: 'float' is not subscriptable" — which
-    # is NOT caught here (it happens before the try below), so one malformed
-    # source killed the whole grid. Accept both shapes explicitly and let
-    # anything else fall through to the `continue` that already exists.
-    for k, v in merged.items():
-        if v and not isinstance(v[0], (list, tuple)):
-            merged[k] = [(i, c) for i, c in enumerate(v)]
-    # live_fine.json is keyed by bare timeframe ("15m") for BTC/USDT only.
-    out = {}
-    for key in SERIES_KEYS:
-        series = merged.get(key)
-        src_key = key
-        if series is None and key in ("15m:BTC/USDT", "30m:BTC/USDT",
-                                      "5m:BTC/USDT"):
-            bare = key.split(":", 1)[0]
-            series = merged.get(bare)
-            src_key = bare
-        if series:
+    out, stamp, window = {}, {}, {}
+
+    db_series, db_mt, db_win = _db_series(DB)
+    for key, series in db_series.items():
+        out[key] = [x[1] for x in series]
+        stamp[key] = ("trading.db", db_mt.get(key, 0.0))
+        window[key] = db_win[key]
+
+    missing = [k for k in SERIES_KEYS if k not in out]
+    if missing:
+        sources = [SWEEP, DATA / "live_fine.json", DATA / "alts_fine.json"]
+        merged = {}
+        origin = {}   # raw key -> (source basename, mtime)
+        for path in sources:
+            for k, v in _read_sweep_file(path).items():
+                if k not in merged and isinstance(v, list) and v:
+                    merged[k] = v
+                    try:
+                        origin[k] = (path.name, path.stat().st_mtime)
+                    except OSError:
+                        origin[k] = (path.name, 0.0)
+        # TUPLE-SHAPE GUARD (2026-10-20): the files above are CONSOLIDATED
+        # sweep dumps ({key: [(ts, close), ...]}), but the bug note below also
+        # cites caches like /tmp/cache-head.json that store BARE closes
+        # ([float, ...]). x[1] on a float raises "TypeError: 'float' is not
+        # subscriptable" — which is NOT caught here (it happens before the try
+        # below), so one malformed source killed the whole grid. Accept both
+        # shapes explicitly and let anything else fall through.
+        for k, v in merged.items():
+            if v and not isinstance(v[0], (list, tuple)):
+                merged[k] = [(i, c) for i, c in enumerate(v)]
+        # live_fine.json is keyed by bare timeframe ("15m") for BTC/USDT only.
+        for key in missing:
+            series = merged.get(key)
+            src_key = key
+            if series is None and key in ("15m:BTC/USDT", "30m:BTC/USDT",
+                                          "5m:BTC/USDT"):
+                bare = key.split(":", 1)[0]
+                series = merged.get(bare)
+                src_key = bare
+            if not series:
+                continue
             try:
+                ts_list = [x[0] for x in series]
                 out[key] = [x[1] for x in series]
             except Exception:  # noqa: BLE001
                 continue
-            # stamp under the SERIES name, so a caller iterating `out` can
-            # always answer "which file, how old" for what it just scored.
             if src_key in origin:
-                _LOAD_STAMP[key] = origin[src_key]
+                stamp[key] = origin[src_key]
+            try:
+                window[key] = (min(ts_list), max(ts_list))
+            except Exception:  # noqa: BLE001
+                pass
+
+    # Only stamp/serve keys actually scored, so a caller iterating `out` can
+    # always answer "which source, which window" for the data it just used.
+    _LOAD_STAMP.clear()
+    _LOAD_WINDOW.clear()
+    for key in out:
+        _LOAD_STAMP[key] = stamp[key]
+        if key in window:
+            _LOAD_WINDOW[key] = window[key]
     return out
 
 
@@ -218,6 +286,25 @@ def simulate(closes, dip, rsi_max, red_min, hold_bars, fee_rt=FEE_RT):
     return wins, losses, ev
 
 
+def _input_signature(series_cache):
+    """Digest of WHAT was scored: each series' length + last close + last ts.
+
+    Deliberately cheap — it runs before the grid, and its only job is to make a
+    cached grid from a different input (frozen file vs live DB, or yesterday's
+    bars) impossible to reuse silently. Returns "" when there is nothing to
+    digest, which never matches a stored stamp (so the cache is rebuilt).
+    """
+    import hashlib
+    h = hashlib.sha256()
+    for key in sorted(series_cache):
+        closes = series_cache[key]
+        if not closes:
+            continue
+        last_ts = _LOAD_WINDOW.get(key, (0, 0))[1]
+        h.update(f"{key}:{len(closes)}:{closes[-1]!r}:{last_ts};".encode())
+    return h.hexdigest()[:16] if series_cache else ""
+
+
 def best_params():
     """Grid-search the param space for highest NET expectancy. Pure python,
     cached per-combo so it survives interruption (writes progress to STATE).
@@ -249,12 +336,24 @@ def best_params():
     if STATE.exists():
         try:
             blob = json.loads(STATE.read_text())
-            if abs(blob.get("cost_rt", -1.0) - FEE_RT) < 1e-12:
+            # SOURCE-STAMP GUARD (2026-10-20): a cached `scored` value is only
+            # comparable to a fresh one if it was computed on the SAME data.
+            # Before the DB became the primary source the grid was built from
+            # files frozen at 2026-08-15; keeping those numbers after the fix
+            # would have made the learner print the old verdict forever and
+            # never re-measure — the exact "stale INPUT voids the inference"
+            # failure this file's INPUT line was added to expose. The stamp is
+            # a digest of each scored series' length + last bar, so ANY source
+            # change (or new bars) invalidates the cache.
+            if (abs(blob.get("cost_rt", -1.0) - FEE_RT) < 1e-12
+                    and blob.get("input_sig")
+                    and blob.get("input_sig") == _input_signature(series_cache)):
                 done = {tuple(eval(k)): v for k, v in blob.get("scored", {}).items()}
-            else:
-                print(f"paper-learner: cache fee-stamp "
-                      f"{blob.get('cost_rt')} != {FEE_RT:.6f} — "
-                      f"recomputing grid NET of fees")
+            elif blob.get("scored"):
+                print("paper-learner: cached grid was scored on DIFFERENT data "
+                      f"(cost_rt={blob.get('cost_rt')}, input_sig "
+                      f"{str(blob.get('input_sig'))[:12] or 'absent'} != "
+                      f"{_input_signature(series_cache)[:12]}) — recomputing")
         except Exception:
             done = {}
     best = None
@@ -268,6 +367,7 @@ def best_params():
                 done[key] = r
                 try:
                     s = {"cost_rt": FEE_RT,
+                         "input_sig": _input_signature(series_cache),
                          "scored": {str(list(k)): v for k, v in done.items()}}
                     STATE.write_text(json.dumps(s), encoding="utf-8")
                 except Exception:
@@ -319,6 +419,8 @@ def main():
             state["cost_rt"] = disk["cost_rt"]
         if "scored" in disk:
             state["scored"] = disk["scored"]
+        if "input_sig" in disk:
+            state["input_sig"] = disk["input_sig"]
     except Exception:
         pass
     if not best:
@@ -327,6 +429,45 @@ def main():
     score, dip, rsi_max, red_min, ev, n, acc = best
     print(f"  best found (NET of fees): dip={dip} rsi<={rsi_max} "
           f"red>={red_min} acc={acc:.1f}% net_ev={ev:+.3f}% n={n}")
+    # ── RECENCY (2026-10-20) ───────────────────────────────────────────────
+    # A full-sample EV says nothing about whether the selected config still
+    # FIRES. The config this learner adopted before the DB fix (-0.08/30/4)
+    # scored net_ev=+0.184% on the frozen file and fired ZERO times in the
+    # last 90 days — a great number about a market that no longer existed.
+    # Re-derive the same two facts for the config just selected, every run
+    # (rule 9), so an untestable winner cannot be adopted silently again.
+    recent_n = recent_ev = 0
+    try:
+        series_cache = _load_all_series()
+        evs, ns = [], []
+        now_ms = datetime.now(timezone.utc).timestamp() * 1000
+        cutoff = now_ms - 90 * 86400_000
+        for key, closes in series_cache.items():
+            tf = key.split(":", 1)[0]
+            hold = HOLDS[tf]
+            win = _LOAD_WINDOW.get(key)
+            if not win or not closes:
+                continue
+            span = {"5m": 300_000, "15m": 900_000, "30m": 1_800_000}[tf]
+            start_idx = max(0, int((cutoff - win[0]) // span))
+            sub = closes[start_idx:]
+            r = simulate(sub, dip, rsi_max, red_min, hold) if len(sub) > 120 else None
+            if r:
+                evs.append(r[2]); ns.append(r[0] + r[1])
+        recent_n = sum(ns)
+        recent_ev = sum(e * k for e, k in zip(evs, ns)) / recent_n if recent_n else 0.0
+    except Exception:  # noqa: BLE001 — a reporting line must never kill the run
+        recent_n = 0
+    if recent_n:
+        print(f"  RECENCY: same config on the last 90 days — n={recent_n} "
+              f"net_ev={recent_ev:+.3f}%")
+    else:
+        print("  RECENCY: same config fired ZERO times in the last 90 days "
+              "(untestable in the time available — do not size on it)")
+    # Judge on what the config will ACTUALLY get, not on what it did in a
+    # crash-heavy full sample: a winner that does not trade cannot be
+    # validated in the time available, so it is flagged rather than adopted.
+    recency_ok = recent_n >= 20
     # ── INPUT PROVENANCE (2026-10-20) ──────────────────────────────────────
     # The grid is scored on FROZEN sweep files (data/live_fine.json and
     # alts_fine.json stop at 2026-08-15), while the live DB carries candles
@@ -338,12 +479,28 @@ def main():
     # Never quoted as a constant — re-derived from the file each run (rule 9).
     if _LOAD_STAMP:
         try:
-            stamps = [mt for _, mt in _LOAD_STAMP.values() if mt]
-            srcs = sorted({f for f, _ in _LOAD_STAMP.values()})
-            if stamps:
-                age_d = (datetime.now(timezone.utc).timestamp() - min(stamps)) / 86400
-                print(f"  INPUT: {len(_LOAD_STAMP)} series from {', '.join(srcs)} "
-                      f"— last updated {age_d:.0f}d ago (frozen history, NOT live)")
+            srcs = {}
+            for f, _ in _LOAD_STAMP.values():
+                srcs[f] = srcs.get(f, 0) + 1
+            parts = []
+            for f, cnt in sorted(srcs.items()):
+                if f == "trading.db":
+                    # live store: name the WINDOW, not the age of the file
+                    wins = [_LOAD_WINDOW[k] for k in _LOAD_WINDOW
+                            if _LOAD_STAMP.get(k, ("",))[0] == f]
+                    if wins:
+                        lo = datetime.fromtimestamp(min(w[0] for w in wins) / 1000, timezone.utc)
+                        hi = datetime.fromtimestamp(max(w[1] for w in wins) / 1000, timezone.utc)
+                        age_h = (datetime.now(timezone.utc) - hi).total_seconds() / 3600
+                        parts.append(f"{f} x{cnt} ({lo:%Y-%m-%d}..{hi:%Y-%m-%d %H:%M}, "
+                                     f"latest bar {age_h:.1f}h old)")
+                else:
+                    mts = [mt for k, (ff, mt) in _LOAD_STAMP.items() if ff == f and mt]
+                    if mts:
+                        age_d = (datetime.now(timezone.utc).timestamp() - min(mts)) / 86400
+                        parts.append(f"{f} x{cnt} (frozen {age_d:.0f}d ago)")
+            if parts:
+                print(f"  INPUT: {len(_LOAD_STAMP)} series from " + "; ".join(parts))
         except Exception:
             pass
     # Adopt only if it improves NET expectancy meaningfully over the current
@@ -363,6 +520,21 @@ def main():
     else:
         adopt = False
         reason = f"best net_ev {ev:+.3f}% not >= current {cur_ev:+.3f}% + 0.05pp"
+    if adopt and not recency_ok:
+        # The full-sample EV cleared the bar but the config barely trades. It
+        # is not wrong, it is untestable: ~10 trades/yr cannot be validated by
+        # a daily learner and cannot pay on this account size. Record the
+        # measurement, say why it was not adopted.
+        adopt = False
+        reason = ("best config is untestable — it fired %d times in 90 days "
+                  "(full-sample EV %+.3f%% describes a crash-heavy past, not "
+                  "the live regime); not adopted"
+                  % (recent_n, ev))
+        state["untestable_best"] = {
+            "dip": dip, "rsi_max": rsi_max, "red_min": red_min,
+            "acc": round(acc, 1), "ev_net": round(ev, 3), "n": n,
+            "recent_n_90d": recent_n, "recent_ev_net": round(recent_ev, 3),
+            "utc": datetime.now(timezone.utc).isoformat()}
     if adopt:
         state["current_params"] = {"dip": dip, "rsi_max": rsi_max,
                                     "red_min": red_min, "acc": round(acc, 1),
@@ -383,6 +555,13 @@ def main():
               "only; no live/paper trader reads paper-learner-state.json "
               "(unified_trader holds its own buckets).")
     else:
+        # Persist EITHER way: the untestable_best record written above, and
+        # the adopted flag clearing, must survive this run.
+        try:
+            state.setdefault("cost_rt", FEE_RT)
+            STATE.write_text(json.dumps(state, indent=2))
+        except Exception:  # noqa: BLE001
+            pass
         print(f"paper-learner: kept current ({reason})")
 
 
