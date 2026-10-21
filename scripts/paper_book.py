@@ -56,7 +56,22 @@ of one fill, never two genuinely distinct trades.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
+from pathlib import Path
+
+_ROOT = Path(__file__).resolve().parents[1]
+# The ledger the produced edges are measured on — the same file the openers
+# write and paper_net reads.
+PAPER_BOOK = _ROOT / "data" / "unified-paper.json"
+
+# A redundant copy is one that ADDS NOTHING to the question "is this design
+# still being traded?": it carries the same handoff, the same regime, no net
+# advantage in dollars or win rate, and a weaker entry. But "adds nothing" must
+# be judged on a sample a reader can check, not on a rule of thumb — see
+# NON_ADDING_SAMPLE. A copy is NOT redundant when it pays more per fill, wins
+# more often, or the incumbent has too little history to beat.
+NON_ADDING_SAMPLE = 30
 
 # A duplicate is the same physical fill re-recorded. The observed spread of a
 # genuine multi-tf booking is sub-second (the scan writes each timeframe within
@@ -140,12 +155,163 @@ def collapse_multitf(records: list[dict],
     return out, len(records) - len(out)
 
 
-if __name__ == "__main__":
-    import json
-    from pathlib import Path
+# --------------------------------------------------------------------------
+# LIVENESS + REDUNDANCY — who is still being traded, and who is a copy
+# --------------------------------------------------------------------------
+def _entry_of(record: dict):
+    """The record's entry price, parsed, or None."""
+    try:
+        e = record.get("entry")
+        return float(e) if e is not None else None
+    except (TypeError, ValueError):
+        return None
 
-    p = Path(__file__).resolve().parents[1] / "data" / "unified-paper.json"
-    closed = json.loads(p.read_text()).get("closed", [])
+
+def _shares_handoff(a: dict, b: dict) -> bool:
+    """Could `b` have been produced by the SAME signal as `a`?
+
+    Same tf family (or same tf), same regime, same entry price, within 72h.
+    This is deliberately blind to the edge NAME: a strategy copy is defined by
+    a shared signal, not by a label. Three siblings opened as separate edges
+    on 2026-09-04 already fail this test — they differ in timeframe — so the
+    live book's three real edges are NOT judged copies of one another.
+    """
+    ta, tb = a.get("tf"), b.get("tf")
+    if ta and tb and ta != tb:
+        return False
+    if a.get("regime") != b.get("regime"):
+        return False
+    ea, eb = _entry_of(a), _entry_of(b)
+    if ea is None or eb is None or ea != eb:
+        return False
+    da, db = _open_dt(a), _open_dt(b)
+    if da is None or db is None or abs((db - da).total_seconds()) > 72 * 3600:
+        return False
+    return True
+
+
+def _net_stats(trades: list) -> dict:
+    """Tiny net reader (imported lazily so the module stays importable alone)."""
+    try:
+        from paper_net import net_of
+    except Exception:  # noqa: BLE001 — degrade to gross rather than crash
+        net_of = None
+    nets = [(net_of(t)[0] if net_of else (t.get("pnl") or 0)) for t in trades]
+    n = len(nets)
+    return {"n": n,
+            "net": sum(nets),
+            "ev": (sum(nets) / n) if n else 0.0,
+            "wr": (sum(1 for x in nets if x > 0) / n * 100) if n else 0.0}
+
+
+def edge_liveness(records: list[dict]) -> dict:
+    """When did each edge last fill, and which edges are REDUNDANT COPIES?
+
+    Returns {"last_fill": {edge: iso}, "redundant": {edge: kept_edge},
+             "edges": {edge: {...}}}.
+
+    WHY (2026-10-21)
+    ----------------
+    The per-edge verdicts in improvement_loop / self_improve are computed over
+    the WHOLE book, and they quote the historical mean of a population with no
+    time bound. On 2026-10-21 the loop reported "Edge 'supertrend' DECAYING
+    (net) 31.3% WR / 134 trades / -1.87 net — tighten or stand it down" and the
+    same for bollinger, ema-cross, momentum, pullback, breakout. Every one of
+    those edges had been DISABLED (data/signals-state.json), and every one had
+    stopped filling in mid-September: last supertrend fill 2026-09-08, bollinger
+    09-10, pullback 09-06, breakout 09-13. "Tighten its entry" is advice about
+    a design that has not produced a trade in five weeks; it is history, not a
+    live verdict, and no reader of the card could tell the difference.
+
+    The complement of that defect: an edge that stopped filling for ANY reason
+    (disabled, crashed, never enabled) gets its record frozen — and a frozen
+    record with a good mean reads as PROVEN FOREVER. That is what a "proven"
+    tag must not be able to mean (the lesson loop, same day: a recorded score
+    8 hours old had to be recomputed at write time). So liveness also governs
+    the PROMOTE side: a stalled edge cannot be promoted.
+
+    REDUNDANCY
+    ----------
+    A copy that shares another edge's handoff (same tf, regime, entry time,
+    price) and adds nothing — no higher net P&L, no higher win rate, and not
+    too small a sample to answer — should not get its own independent verdict,
+    because its evidence is the incumbent's evidence with a different name. It
+    is reported as a copy of the edge holding the better record. When the
+    incumbent has < NON_ADDING_SAMPLE fills the copy is NOT called redundant
+    (nothing to beat yet).
+    """
+    by_edge: dict[str, list] = {}
+    for t in records:
+        e = t.get("edge") or ("loose" if t.get("loose") else "validated")
+        by_edge.setdefault(e, []).append(t)
+
+    last_fill = {}
+    for e, ts in by_edge.items():
+        last_fill[e] = max((str(t.get("ts_utc", "")) for t in ts), default="")
+
+    stats = {e: _net_stats(ts) for e, ts in by_edge.items()}
+    redundant: dict[str, str] = {}
+    names = sorted(by_edge)
+    for e in names:
+        for other in names:
+            if other == e or other in redundant or e in redundant:
+                continue
+            shared = sum(1 for a in by_edge[e] for b in by_edge[other]
+                         if _shares_handoff(a, b))
+            if not shared:
+                continue
+            se, so = stats[e], stats[other]
+            if so["n"] < NON_ADDING_SAMPLE:
+                continue
+            adds = (se["ev"] > so["ev"] or se["wr"] > so["wr"])
+            if not adds:
+                redundant[e] = other
+                break
+
+    return {"last_fill": last_fill, "redundant": redundant, "stats": stats}
+
+
+def edge_liveness_text(liv: dict, live_edges=(), stale_days: float = 14.0) -> str:
+    """One sentence naming the edges that are NOT live, or '' when all are.
+
+    `live_edges` is the writer's own knowledge of what can open (e.g. the
+    signals-state `disabled` list); an edge fed to the book inside
+    `stale_days` is live by the data whether or not the writer names it.
+    """
+    if not liv or not liv.get("last_fill"):
+        return ""
+    stale = []
+    for e, ts in sorted(liv["last_fill"].items(),
+                        key=lambda kv: kv[1] or ""):
+        dt = _open_dt({"ts_utc": ts}) if ts else None
+        if dt is None:
+            continue
+        age = (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0
+        if age > stale_days:
+            stale.append(f"'{e}' {age:.0f}d")
+    if not stale:
+        return ""
+    off = [e for e in sorted(live_edges)]
+    return (f"NOT LIVE (no fill in >{stale_days:.0f}d): " + ", ".join(stale)
+            + (f". Disabled by the writer: {', '.join(off)}." if off else ".")
+            + " Their per-edge verdicts are HISTORY, not a current state —"
+              " tightening or standing down a design that is already off is"
+              " a no-op. Re-enable one at a time to re-test it.")
+
+
+def redundant_edges_text(liv: dict) -> str:
+    red = (liv or {}).get("redundant") or {}
+    if not red:
+        return ""
+    parts = [f"'{e}' ~ copy of '{k}'" for e, k in sorted(red.items())]
+    return ("REDUNDANT EDGES (shared handoff, no net advantage, n>="
+            f"{NON_ADDING_SAMPLE}): " + "; ".join(parts)
+            + ". Their evidence is the parent's evidence — do not read it as"
+              " independent confirmation.")
+
+
+if __name__ == "__main__":
+    closed = json.loads(PAPER_BOOK.read_text()).get("closed", [])
     collapsed, removed = collapse_multitf(closed)
     raw_g = sum(t.get("pnl", 0) or 0 for t in closed)
     col_g = sum(t.get("pnl", 0) or 0 for t in collapsed)

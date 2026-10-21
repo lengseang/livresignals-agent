@@ -245,6 +245,28 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │    Same rule as #9, applied to a stored number rather than a     │
 │    comment: re-derive at READ time. See                        │
 │    tests/test_paper_net_stale_cost.py.                          │
+│                                                                 │
+│ 14. A PER-EDGE VERDICT IS ABOUT AN EDGE THAT IS STILL TRADING.   │
+│    improvement_loop quoted "Edge 'supertrend' DECAYING (net)     │
+│    31.3% WR / 134 trades / -1.87 net — tighten its entry or      │
+│    stand it down" on every run. Supertrend had been disabled and │
+│    had not filled since 2026-09-08; same for bollinger (41d),    │
+│    ema-cross (39d), momentum/breakout (38d), pullback (46d),     │
+│    rsi2 (43d). Seven verdicts, zero of them actionable: an edge  │
+│    that cannot open cannot be stood down, and its mean is a      │
+│    historical population with no time bound — indistinguishable  │
+│    on the card from a live one. Same class as #12 (window) and   │
+│    #9 (re-derive at write time), applied to TIME. Now            │
+│    paper_book.edge_liveness() stamps last_fill per edge; a stale │
+│    edge gets one NOT LIVE note naming its last fill and draws    │
+│    no tighten/stand-down verdict. The mirror holds on the write  │
+│    side: self_improve REFUSES to promote a frozen record —       │
+│    "proven" must mean proven while trading. An edge sharing       │
+│    another's handoff (same tf/regime/entry/time) with no better  │
+│    net or WR over n>=30 is a REDUNDANT COPY, not a second        │
+│    experiment: it draws no independent verdict and cannot be     │
+│    promoted on the parent's evidence (breakout/momentum ~ loose, │
+│    rsi2 ~ supertrend). See tests/test_edge_liveness.py.          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

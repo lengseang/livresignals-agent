@@ -33,6 +33,10 @@ try:
     from paper_book import collapse_multitf as _collapse_multitf
 except Exception:  # noqa: BLE001 — never let the reader import kill the loop
     _collapse_multitf = None
+try:
+    from paper_book import edge_liveness as _edge_liveness
+except Exception:  # noqa: BLE001 — never let the reader import kill the loop
+    _edge_liveness = None
 
 
 def _load_json(path: Path, default):
@@ -179,7 +183,18 @@ def analyze() -> dict:
     # Generate suggestions (ranked)
     edge_meta = _edge_freshness(paper)
     edge_meta["multitf_collapsed"] = multi_tf_removed
-    suggestions = _suggest(paper_stats, live_stats, regime_rows, edge_rows, edge_meta)
+    # LIVENESS (2026-10-21). `last_fill` per edge: a per-edge verdict computed
+    # over the whole book quotes an unbounded mean, so a design that stopped
+    # filling weeks ago still draws "tighten it or stand it down". See
+    # paper_book.edge_liveness for the measured case (seven edges, all
+    # disabled, all silent for 38-46 days, all still getting live-sounding
+    # advice). The same field stops a frozen record from being read as proven.
+    liveness = _edge_liveness(paper) if _edge_liveness is not None else {}
+    edge_meta["last_fill"] = (liveness or {}).get("last_fill", {})
+    edge_meta["liveness"] = (liveness or {}).get("stats", {})
+    edge_meta["redundant"] = (liveness or {}).get("redundant", {})
+    suggestions = _suggest(paper_stats, live_stats, regime_rows, edge_rows,
+                           edge_meta)
 
     # EDGE-TAG RECENCY (added 2026-10-10). The per-edge section above is the
     # loop's "accuracy-improvement core", but it is only as fresh as the most
@@ -292,9 +307,34 @@ def _edge_freshness(trades: list) -> dict:
     return out
 
 
+def _edge_is_live(e: str, edge_meta: dict | None,
+                  stale_days: float = 14.0) -> bool:
+    """Has this edge produced a fill inside `stale_days`?
+
+    No liveness data at all (reader failed to import, empty book) is treated as
+    LIVE, so a broken reader degrades to the old whole-book behaviour rather
+    than silently muting every verdict. An edge with a fill stamp it cannot
+    parse is also treated as live — the guard only silences an edge it can
+    positively date.
+    """
+    lf = ((edge_meta or {}).get("last_fill") or {}).get(e)
+    if not lf:
+        return True
+    try:
+        dt = datetime.fromisoformat(str(lf).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return True
+    age = (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0
+    return age <= stale_days
+
+
 def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     out = []
     edges = edges or []
+    last_fill = (edge_meta or {}).get("last_fill") or {}
+    redundant = (edge_meta or {}).get("redundant") or {}
     # 0. EDGE-FEED FRESHNESS (2026-10-10). If the per-edge attribution has
     # stopped updating, EVERY per-edge verdict below is stale and must not be
     # read as the live state of the book. This is the guard for the defect
@@ -423,6 +463,21 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
             continue
         net_pnl = e.get("net_pnl", 0) or 0
         losing = net_pnl < 0
+        # LIVENESS GATE (2026-10-21). A verdict over the whole book has no time
+        # bound, so an edge that stopped filling weeks ago still reads as a
+        # live design that "is losing edge". Measured: seven edges, all
+        # disabled, all silent 38-46 days, each drawing "tighten its entry or
+        # stand it down" on every run. Standing down an edge that cannot open
+        # is a no-op dressed as an action. So a stale edge gets ONE history
+        # note (below), never a live tighten/stand-down instruction.
+        live = _edge_is_live(e["edge"], edge_meta)
+        if not live:
+            continue
+        # A redundant copy's evidence is its parent's evidence, re-labelled.
+        # Emitting a second, independent verdict on it double-counts one
+        # experiment — and the copy is not a separate thing to tune.
+        if e["edge"] in redundant:
+            continue
         # PREVENTIVE, NOT PROVEN-BAD (2026-10-18). The WR floor is a HEURISTIC —
         # it says "this win rate is probably too low to pay the fee". When the
         # measured NET says the edge PAYS, the heuristic is refuted by the money:
@@ -468,6 +523,35 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
                 "priority": 2 if losing else 3, "type": "edge_decay",
                 "idea": f"Edge '{e['edge']}' DECAYING (net): {why}. {verdict}",
             })
+    # 4c. NAME WHAT WAS SILENCED — a suppressed verdict must leave a trace.
+    # Silence is only honest if the reader can see what is silent and why;
+    # otherwise "no verdict on supertrend" is indistinguishable from "we
+    # forgot supertrend" (the always-on-warning lesson, inverted).
+    stale_edges = [(e["edge"], e["n"], e["net_pnl"]) for e in edges
+                   if e["n"] >= 10 and not _edge_is_live(e["edge"], edge_meta)]
+    if stale_edges:
+        parts = []
+        for name, n, net in sorted(stale_edges, key=lambda x: x[2]):
+            lf = str(last_fill.get(name, ""))[:10]
+            parts.append(f"{name} (n={n}, {net:+.2f} net, last fill {lf or '?'})")
+        out.append({
+            "priority": 3, "type": "edge_not_live",
+            "idea": ("NOT LIVE — no per-edge verdict issued (no fill in >14d): "
+                     + "; ".join(parts) + ". These are HISTORY, not the live "
+                     "book: they cannot open, so 'tighten it' or 'stand it "
+                     "down' would be a no-op. Re-enable ONE at a time and let "
+                     "it fill for 14d before judging it."),
+        })
+    if redundant:
+        pairs = [f"{e} ~ {parent}" for e, parent in sorted(redundant.items())]
+        out.append({
+            "priority": 3, "type": "edge_redundant",
+            "idea": ("REDUNDANT — copy of another edge's handoff, no better "
+                     "net/WR on a checkable sample: " + "; ".join(pairs)
+                     + ". One experiment wearing two names: do not count as "
+                     "independent confirmation, and do not tune the copy "
+                     "separately from its parent."),
+        })
     # 5. Unique/outside-the-box ideas (always add a couple)
     # TESTED-NEGATIVE (2026-10-10): the volume-spike idea below was run through
     # hunt.py's IS/OOS funnel (dip_vol + brk_vol families, 24 candidates, at

@@ -51,6 +51,32 @@ try:
     from paper_book import collapse_multitf as _collapse_multitf
 except Exception:  # noqa: BLE001 — never let the reader kill the loop
     _collapse_multitf = None
+try:
+    from paper_book import edge_liveness as _edge_liveness
+except Exception:  # noqa: BLE001 — never let the reader kill the loop
+    _edge_liveness = None
+
+# An edge with no fill for this long is NOT LIVE: its per-edge record is a
+# frozen population, so it can neither be promoted nor told to tighten. Two
+# weeks is ~4x the native opener's worst observed quiet gap in the live book.
+LIVE_DAYS = 14.0
+
+
+def _filled_since(ts, days: float) -> bool:
+    """True when `ts` is inside `days`. An unstamped/odd stamp is NOT live:
+    the caller only asks this about an edge it wants to act on, and acting on
+    an edge whose last trade cannot be dated is what this guard exists to
+    stop. (The read-side `improvement_loop._edge_is_live` is deliberately the
+    other way round — it must not silence an edge it cannot date.)"""
+    import datetime as _dt_mod
+    try:
+        _dt = _dt_mod.datetime
+        dt = _dt.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=_dt_mod.timezone.utc)
+    except (TypeError, ValueError):
+        return False
+    return (_dt.now(_dt_mod.timezone.utc) - dt).total_seconds() <= days * 86400
 
 BASE = Path(__file__).resolve().parents[1]
 DATA = BASE / "data"
@@ -590,6 +616,25 @@ def main() -> None:
     # `_plan_disables` applies the rule WITH A FLOOR: it never returns a plan
     # that leaves zero enabled edges (see its docstring for the full rationale).
     to_disable, survivor = _plan_disables(by_edge, state["disabled"])
+
+    # LIVENESS (2026-10-21): which edges still produce fills, and which are
+    # copies of another edge's handoff. Both gates below (disable, promote) are
+    # otherwise applied to an UNBOUNDED record — the same "a recorded number is
+    # a measurement, re-read it" rule as rule #13, applied to time.
+    liveness = _edge_liveness(paper_c) if _edge_liveness is not None else {}
+    last_fill = (liveness or {}).get("last_fill", {})
+    redundant = (liveness or {}).get("redundant", {})
+    for e, ts in sorted(last_fill.items()):
+        if not _filled_since(ts, LIVE_DAYS):
+            findings.append(
+                f"edge '{e}' NOT LIVE: last fill {str(ts)[:10]} "
+                f"(>{LIVE_DAYS:.0f}d) — its per-edge record is frozen; no "
+                f"promote/decay verdict on it until it fills again")
+    if redundant:
+        findings.append(
+            "redundant edge(s): "
+            + "; ".join(f"'{e}' ~ '{k}'" for e, k in sorted(redundant.items()))
+            + " — shared handoff, no better net/WR; not independent evidence")
     if survivor is not None:
         findings.append(
             f"REFUSED to disable the last open edge '{survivor}': disabling it "
@@ -612,7 +657,23 @@ def main() -> None:
                 f"disabled edge '{e}' (n={st['n']} wr={st['wr']:.0f}% "
                 f"net={st['pnl']:+.2f}, gross {st['gross']:+.2f})")
         elif st["n"] >= 10 and st["wr"] >= 60 and st["pnl"] > 0:
-            if e not in state["promoted"]:
+            # LIVENESS GATE (2026-10-21): "proven" must mean proven WHILE
+            # TRADING. A disabled/crashed edge keeps its record forever, and a
+            # frozen mean over 134 fills looks exactly like a live one — so a
+            # promotion decided on it would be promoting a memory. The same
+            # reason the loop refuses a split-point it cannot date.
+            lf = last_fill.get(e, "")
+            if not _filled_since(lf, LIVE_DAYS):
+                changes.append(
+                    f"REFUSED to promote '{e}': last fill {str(lf)[:10] or '?'} "
+                    f"(>{LIVE_DAYS:.0f}d ago) — the record is frozen, not "
+                    f"evidence it still pays today")
+            elif e in redundant:
+                changes.append(
+                    f"REFUSED to promote '{e}': redundant copy of "
+                    f"'{redundant[e]}' — its evidence is the parent's, not a "
+                    f"second proof")
+            elif e not in state["promoted"]:
                 state["promoted"].append(e)
                 findings.append(
                     f"promotion candidate '{e}' (n={st['n']} wr={st['wr']:.0f}% "
