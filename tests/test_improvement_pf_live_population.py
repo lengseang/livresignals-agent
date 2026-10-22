@@ -120,12 +120,16 @@ def test_the_fixture_reproduces_the_measured_book():
     """Guard the fixture itself: if it stops matching 2026-10-22, the tests
     below are pinning a story rather than the defect."""
     il = _load("improvement_loop")
-    assert il._pf_from_rows(_LIVE + _DEAD)["pf"] == 0.97
-    assert il._pf_from_rows(_LIVE)["pf"] == 1.05
-    assert il._pf_from_rows(_DEAD)["pf"] == 0.47
-    assert il._pf_from_rows(_LIVE + _DEAD)["n"] == 2637
-    assert il._pf_from_rows(_LIVE)["n"] == 2365
-    assert il._pf_from_rows(_DEAD)["n"] == 272
+
+    def whole(rows):
+        return il._split_live_pf(rows, {"last_fill": {}})["whole"]
+
+    assert whole(_LIVE + _DEAD)["pf"] == 0.97
+    assert whole(_LIVE)["pf"] == 1.05
+    assert whole(_DEAD)["pf"] == 0.47
+    assert whole(_LIVE + _DEAD)["n"] == 2637
+    assert whole(_LIVE)["n"] == 2365
+    assert whole(_DEAD)["n"] == 272
 
 
 def test_dead_edges_do_not_drag_the_live_book_below_the_bar():

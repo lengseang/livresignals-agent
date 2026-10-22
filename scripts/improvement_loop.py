@@ -380,51 +380,42 @@ def _split_live_pf(edges: list, edge_meta: dict | None) -> dict:
     still pooled the whole book: a rule's own premise must be computed over the
     same population the rule is allowed to speak about.
 
-    PF is recomputed from the win/loss DOLLARS, not from the net sum: a book
-    whose net is -0.13 after +/-$55 of wins and losses has a real ratio, and
-    summarising it by its net alone would read as "PF 0". `gross_win` and
-    `gross_loss` are supplied on each row (see `analyze`). A row that carries
-    only `net_pnl` (an older caller) contributes that value to the side its
-    sign implies — degraded, and the caller is told via `exact: False`.
+    PF is recomputed from win/loss DOLLARS, never from a net sum — an edge at
+    net -0.13 after +29.14/-29.27 is PF 0.995, not "PF 0". `gross_win` and
+    `gross_loss` are emitted per row by `analyze`. A row carrying only
+    `net_pnl` (an older caller) donates that value to the side its sign
+    implies, flagged `exact: False` so the degradation is visible.
 
-    Returns {"live": {...}, "dead": {...}, "whole": {...}, "has_liveness": bool}.
+    `edge_meta` may be the full dict or a bare {edge: last_fill} map: passing
+    the bare map once made every edge undatable -> "live" -> the split silently
+    collapsed back to the whole book, i.e. straight back into the defect.
     """
-    def _pf(rows):
-        n = sum(r.get("n", 0) or 0 for r in rows)
-        net = sum(r.get("net_pnl", 0) or 0 for r in rows)
-        exact = all("gross_win" in r and "gross_loss" in r for r in rows)
-        if exact:
-            gw = sum(r.get("gross_win", 0) or 0 for r in rows)
-            gl = sum(r.get("gross_loss", 0) or 0 for r in rows)
-        else:
-            gw = sum(r.get("net_pnl", 0) or 0 for r in rows
-                     if (r.get("net_pnl", 0) or 0) > 0)
-            gl = abs(sum(r.get("net_pnl", 0) or 0 for r in rows
-                         if (r.get("net_pnl", 0) or 0) <= 0))
-        pf = (gw / gl) if gl > 0 else (None if gw > 0 else 0.0)
-        return {"n": n, "net": round(net, 4),
-                "pf": round(pf, 2) if pf is not None else None,
-                "pf_inf": pf is None and gw > 0,
-                "exact": exact,
-                "edges": sorted(r["edge"] for r in rows)}
-
-    # Accept either the full `edge_meta` ({"last_fill": {...}}) or a bare
-    # last_fill map. Passing the bare map used to silently make every edge
-    # undatable -> "live" -> the split collapsed back to the whole book, which
-    # is exactly the defect this function exists to prevent.
-    if edge_meta and "last_fill" not in edge_meta and edge_meta:
+    if edge_meta and "last_fill" not in edge_meta:
         edge_meta = {"last_fill": edge_meta}
+
+    def _pf(rows):
+        # A row's net is the DIFFERENCE of its win/loss dollars — it says
+        # nothing about which side to read. Filtering rows by the sign of their
+        # net silently drops the +29.14 win side of a row whose net is -0.13.
+        def _amt(r, win):
+            if "gross_win" in r and "gross_loss" in r:
+                return r["gross_win" if win else "gross_loss"] or 0
+            net = r.get("net_pnl", 0) or 0          # older row: sign is all we have
+            return net if (net > 0) == win else 0
+
+        gw = abs(sum(_amt(r, True) for r in rows))
+        gl = abs(sum(_amt(r, False) for r in rows))
+        pf = (gw / gl) if gl > 0 else (None if gw > 0 else 0.0)
+        return {"n": sum(r.get("n", 0) or 0 for r in rows),
+                "net": round(sum(r.get("net_pnl", 0) or 0 for r in rows), 4),
+                "pf": round(pf, 2) if pf is not None else None,
+                "exact": all("gross_win" in r and "gross_loss" in r for r in rows),
+                "edges": sorted(r["edge"] for r in rows)}
 
     live_rows = [r for r in edges if _edge_is_live(r["edge"], edge_meta)]
     dead_rows = [r for r in edges if not _edge_is_live(r["edge"], edge_meta)]
-    dated = bool(((edge_meta or {}).get("last_fill") or {}))
-    return {"live": _pf(live_rows), "dead": _pf(dead_rows),
-            "whole": _pf(edges), "has_liveness": dated}
-
-
-def _pf_from_rows(rows: list) -> dict:
-    """Whole-population PF for an arbitrary row list (used by tests + reports)."""
-    return _split_live_pf(rows, {"last_fill": {"__all__": ""}})["whole"]
+    return {"live": _pf(live_rows), "dead": _pf(dead_rows), "whole": _pf(edges),
+            "has_liveness": bool((edge_meta or {}).get("last_fill"))}
 
 
 def _suggest(paper, live, regimes, edges=None, edge_meta=None):
@@ -479,31 +470,26 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     # While restructuring it, the bar was also re-derived: 1.5 was a GROSS
     # threshold applied to a NET ratio since 2026-10-11, so it was unreachable
     # and therefore always-on. See PF_NET_FLOOR.
-    pf_split = _split_live_pf(edges, edge_meta)
-    pf_pop = pf_split["live"] if pf_split["has_liveness"] else pf_split["whole"]
-    pf_basis = ("live" if pf_split["has_liveness"] else "whole book (no liveness data)")
-    pf_n = pf_pop["n"]
-    pf_val = pf_pop["pf"]
-    # A book with no losing dollars at all has an undefined (infinite) PF — it
-    # is not thin by any reading, so it draws no advice. `pf is None` therefore
-    # means "cannot be thin", never "0.00, catastrophically thin".
-    pf_thin = pf_val is not None and pf_val < PF_NET_FLOOR
-    if pf_n >= PF_MIN_LIVE_N and pf_thin:
-        names = ", ".join(pf_pop["edges"])
-        idea = (f"NET profit factor {pf_val:.2f} < {PF_NET_FLOOR:.2f} on the "
-                f"{pf_basis}: {pf_n} trades, {pf_pop['net']:+.2f} net, "
-                f"{len(pf_pop['edges'])} edge(s) ({names}). Costs are eating "
-                f"the book. Consider raising TP:SL or tightening the stop.")
+    split = _split_live_pf(edges, edge_meta)
+    pop = split["live"] if split["has_liveness"] else split["whole"]
+    # PF is None only when there are no losing dollars to divide by — undefined,
+    # never "0.00, catastrophically thin" — so it draws no advice.
+    if pop["n"] >= PF_MIN_LIVE_N and pop["pf"] is not None \
+            and pop["pf"] < PF_NET_FLOOR:
+        names = ", ".join(pop["edges"])
+        basis = "live" if split["has_liveness"] else "whole book (no liveness data)"
+        idea = (f"NET profit factor {pop['pf']:.2f} < {PF_NET_FLOOR:.2f} on the "
+                f"{basis}: {pop['n']} trades, {pop['net']:+.2f} net, "
+                f"{len(pop['edges'])} edge(s) ({names}). Costs are eating the "
+                f"book. Consider raising TP:SL or tightening the stop.")
         # Say what was EXCLUDED and why — a suppression must leave a trace
         # (same rule as the edge_not_live note). Only when it is material.
-        dead = pf_split["dead"]
-        if pf_split["has_liveness"] and dead["n"] >= PF_MIN_LIVE_N:
+        dead = split["dead"]
+        if split["has_liveness"] and dead["n"] >= PF_MIN_LIVE_N:
             idea += (f" NOT counted: {dead['n']} trades from "
                      f"{len(dead['edges'])} edge(s) with no fill in >14d "
                      f"({dead['net']:+.2f} net) — history, not the live book.")
-        out.append({
-            "priority": 2, "type": "rr_tune", "idea": idea,
-        })
+        out.append({"priority": 2, "type": "rr_tune", "idea": idea})
     # 4. Per-regime decay.
     # GUARD (2026-10-10): the paper book records NO regime field (verified:
     # 0/2778 trades carry `regime`), so by_regime collapses to a single "?"
