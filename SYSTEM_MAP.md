@@ -228,11 +228,11 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │    Stale INPUT is not a small caveat: it voids every             │
 │    downstream inference built on the line.                       │
 │    See docs/proposals/learner-scored-frozen-data-2026-10-20.md.  │
-│                                                                 │
+│                                                                  │
 │ 13. A PERSISTED NET IS A MEASUREMENT, NOT A FORMULA.             │
 │    paper_net.net_of trusted any recorded `pnl_net`. But it is a  │
 │    NUMBER frozen at write time: 226 of 514 records were charged  │
-│    the old 0.03% while the live round trip was 0.1545% — one      │
+│    the old 0.03% while the live round trip was 0.1545% — one     │
 │    ledger, three different rates in the `cost` column. The book  │
 │    read +$3.04 net when the honest figure was +$1.63 (46% over). │
 │    Invisible before 2026-10-11 because reader and writer shared  │
@@ -243,9 +243,9 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │    re-costed from gross; cost 0.0 w/ pnl_net==pnl stays (that is │
 │    a deliberate uncharged book, PAPER_CHARGE_COST=0).            │
 │    Same rule as #9, applied to a stored number rather than a     │
-│    comment: re-derive at READ time. See                        │
-│    tests/test_paper_net_stale_cost.py.                          │
-│                                                                 │
+│    comment: re-derive at READ time. See                          │
+│    tests/test_paper_net_stale_cost.py.                           │
+│                                                                  │
 │ 14. A PER-EDGE VERDICT IS ABOUT AN EDGE THAT IS STILL TRADING.   │
 │    improvement_loop quoted "Edge 'supertrend' DECAYING (net)     │
 │    31.3% WR / 134 trades / -1.87 net — tighten its entry or      │
@@ -261,12 +261,33 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │    edge gets one NOT LIVE note naming its last fill and draws    │
 │    no tighten/stand-down verdict. The mirror holds on the write  │
 │    side: self_improve REFUSES to promote a frozen record —       │
-│    "proven" must mean proven while trading. An edge sharing       │
+│    "proven" must mean proven while trading. An edge sharing      │
 │    another's handoff (same tf/regime/entry/time) with no better  │
 │    net or WR over n>=30 is a REDUNDANT COPY, not a second        │
 │    experiment: it draws no independent verdict and cannot be     │
 │    promoted on the parent's evidence (breakout/momentum ~ loose, │
 │    rsi2 ~ supertrend). See tests/test_edge_liveness.py.          │
+│                                                                  │
+│ 15. AN AGGREGATE VERDICT OBEYS THE SAME POPULATION RULE AS THE   │
+│     PER-EDGE ONES.                                               │
+│     #14 fixed the per-edge verdicts; rule 3's profit factor was  │
+│     the header above them and still pooled the WHOLE book. On    │
+│     2026-10-22 it read "Profit factor 0.97 < 1.5 — raise TP:SL or│
+│     tighten the stop", but the book decomposes as:               │
+│       whole  n=2637  net -2.24  PF 0.97                          │
+│       live   n=2365  net +3.44  PF 1.05  (loose, validated)      │
+│       dead   n= 272  net -5.68  PF 0.47  (7 edges, >14d silent)  │
+│     The 0.97 was manufactured by pooling the seven corpses the   │
+│     SAME report named as HISTORY, and it read below 1.0 — "the   │
+│     book loses before costs" — about a live book that pays.      │
+│     `_split_live_pf` now splits the book before any aggregate is │
+│     quoted, and the line states its cohort and what it excluded. │
+│     Corollary (again): a GATE must be read at the BASIS it is    │
+│     computed on. 1.5 was written for a GROSS book and has been   │
+│     applied to a NET ratio since 2026-10-11 — unreachable, hence │
+│     always on. PF_NET_FLOOR=1.02 is the net analogue. Same rule  │
+│     as #9/#13 applied to a threshold rather than a measurement.  │
+│     See docs/proposals/pf-live-population-2026-10-22.md.         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
