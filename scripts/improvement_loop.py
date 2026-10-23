@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,6 +63,24 @@ PF_NET_FLOOR = 1.02
 # always used; applied now to the live population, which is the one the advice
 # would be acted on.
 PF_MIN_LIVE_N = 20
+
+# RECENT-WINDOW PF (2026-10-23)
+# Rule #15 stopped rule 3 pooling DEAD edges with live ones. It still pooled
+# every MONTH the live edges ever traded. Measured that day: the live cohort
+# (loose+validated, n=2183) reads PF 1.03 net +2.20 over its whole life — but
+# that is 2026-09 paying PF 1.17 / +6.94 plus 2026-10 paying PF 0.82 / -4.81.
+# The pooled figure clears PF_NET_FLOOR by 0.01 and so draws NO advice, while
+# the last four weeks are the losing part and are getting worse (weekly PF
+# 1.53 -> 1.27 -> 0.75 -> 0.75 -> 1.20 -> 0.50). That is rule #12 (a verdict
+# must state its window) applied to the one aggregate that still had none:
+# a mean over a population with no time bound cannot say whether the book is
+# paying NOW, and the older the book the longer a good month can hide a bad one.
+#
+# The window is 28 days — four scan-cadence weeks, long enough that a single
+# quiet week cannot flip the verdict, short enough that it is a statement about
+# the current market. Its sample floor is the same PF_MIN_LIVE_N so a thin
+# window cannot manufacture advice either.
+PF_WINDOW_DAYS = 28
 
 
 def _load_json(path: Path, default):
@@ -239,6 +257,10 @@ def analyze() -> dict:
     liveness = _edge_liveness(paper) if _edge_liveness is not None else {}
     edge_meta["last_fill"] = (liveness or {}).get("last_fill", {})
     edge_meta["liveness"] = (liveness or {}).get("stats", {})
+    # WINDOWED PF (2026-10-23). Attached BEFORE _suggest so rule 3 can judge the
+    # book on the market it is trading in, not on its lifetime mean. Computed on
+    # the collapsed `paper` list — the same population every other figure uses.
+    edge_meta["recent_pf"] = _recent_live_pf(paper, edge_meta)
     edge_meta["redundant"] = (liveness or {}).get("redundant", {})
     suggestions = _suggest(paper_stats, live_stats, regime_rows, edge_rows,
                            edge_meta)
@@ -431,6 +453,82 @@ def _split_live_pf(edges: list, edge_meta: dict | None) -> dict:
             "has_liveness": bool((edge_meta or {}).get("last_fill"))}
 
 
+def _recent_live_pf(trades: list, edge_meta: dict | None,
+                    days: int = PF_WINDOW_DAYS, now=None) -> dict:
+    """Net PF of the LIVE edges over just the last `days`, with its window stated.
+
+    WHY (2026-10-23)
+    ----------------
+    #15 fixed WHICH edges the aggregate asks (live, not corpses). It left the
+    aggregate asking them about their WHOLE LIFE. Measured: the live cohort
+    (loose+validated) is PF 1.03 over n=2183 — but that mean is 2026-09 paying
+    1.17/+6.94 plus 2026-10 paying 0.82/-4.81. Because 1.03 clears the 1.02
+    floor by a single basis point, rule 3 stayed SILENT while the last four
+    weeks lost $4.81, and the weekly series was still falling
+    (1.53, 1.27, 0.75, 0.75, 1.20, 0.50). A pooled mean cannot go red on the
+    month that matters; the older the book, the longer one good month hides a
+    bad one. Same defect class as #12 (window) and #9 (re-derive now), applied
+    to time rather than to data or to a threshold.
+
+    This function does not REPLACE the pooled figure — it is returned beside it
+    (see `_pf_advice`) so the reader can see the book paying over its life and
+    bleeding in the window. It computes over raw trades (which carry `ts_utc`),
+    not edge rows, because the edge rows have no timestamps.
+
+    Trades with an unparseable/missing ts_utc are EXCLUDED and counted, never
+    silently dated to "now" — a record that cannot be placed in time must not be
+    allowed to vote on a windowed verdict.
+    """
+    if not edge_meta or not edge_meta.get("last_fill"):
+        return {"available": False, "reason": "no liveness data", "days": days}
+
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=days)
+    win, undated = [], 0
+    for t in trades:
+        edge = t.get("edge") or ("loose" if t.get("loose") else "validated")
+        if not _edge_is_live(edge, edge_meta):
+            continue
+        raw = t.get("ts_utc")
+        if not raw:
+            undated += 1
+            continue
+        try:
+            ts = datetime.fromisoformat(str(raw))
+        except (TypeError, ValueError):
+            undated += 1
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if ts >= cutoff:
+            win.append(t)
+
+    gw = gl = 0.0
+    for t in win:
+        v = _pnl_of_trade(t)
+        if v > 0:
+            gw += v
+        else:
+            gl += -v
+    pf = (gw / gl) if gl > 0 else (None if gw > 0 else 0.0)
+    return {"available": True, "days": days, "n": len(win),
+            "net": round(gw - gl, 4),
+            "pf": round(pf, 2) if pf is not None else None,
+            "undated": undated,
+            "start_utc": cutoff.isoformat()}
+
+
+def _pnl_of_trade(t: dict) -> float:
+    """NET-of-cost pnl for one paper trade (module-level twin of analyze's local
+    helper, so windowed helpers can be unit-tested without running analyze)."""
+    if _paper_net_of is None:
+        return t.get("pnl", 0) or 0
+    try:
+        return _paper_net_of(t)[0]
+    except Exception:  # noqa: BLE001 — a reader must not kill the loop
+        return t.get("pnl", 0) or 0
+
+
 def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     out = []
     edges = edges or []
@@ -485,16 +583,40 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     # and therefore always-on. See PF_NET_FLOOR.
     split = _split_live_pf(edges, edge_meta)
     pop = split["live"] if split["has_liveness"] else split["whole"]
+    # RECENT WINDOW (2026-10-23): the pooled live book answers "has this cohort
+    # paid over its life?", which is NOT the question exit tuning asks. A book
+    # that cleared its floor on one good month and has bled every week since
+    # draws no advice from a lifetime mean — see _recent_live_pf. `recent` is
+    # supplied by analyze(); when absent (older callers / unit tests) the rule
+    # degrades to the pooled behaviour it had before, and says so by omission.
+    recent = (edge_meta or {}).get("recent_pf") or {}
+    recent_votes = (recent.get("available") and recent.get("n", 0) >= PF_MIN_LIVE_N
+                    and recent.get("pf") is not None
+                    and recent["pf"] < PF_NET_FLOOR)
+    pooled_votes = (pop["n"] >= PF_MIN_LIVE_N and pop["pf"] is not None
+                    and pop["pf"] < PF_NET_FLOOR)
     # PF is None only when there are no losing dollars to divide by — undefined,
     # never "0.00, catastrophically thin" — so it draws no advice.
-    if pop["n"] >= PF_MIN_LIVE_N and pop["pf"] is not None \
-            and pop["pf"] < PF_NET_FLOOR:
+    if pooled_votes or recent_votes:
         names = ", ".join(pop["edges"])
         basis = "live" if split["has_liveness"] else "whole book (no liveness data)"
-        idea = (f"NET profit factor {pop['pf']:.2f} < {PF_NET_FLOOR:.2f} on the "
-                f"{basis}: {pop['n']} trades, {pop['net']:+.2f} net, "
-                f"{len(pop['edges'])} edge(s) ({names}). Costs are eating the "
-                f"book. Consider raising TP:SL or tightening the stop.")
+        if recent_votes:
+            # The window is the verdict. State BOTH so the reader can see the
+            # gap between "paid over its life" and "losing now" — quoting only
+            # one of them is what hid this for four weeks.
+            idea = (f"NET profit factor {recent['pf']:.2f} < {PF_NET_FLOOR:.2f} over "
+                    f"the LAST {recent['days']}d window ({recent['n']} trades, "
+                    f"{recent['net']:+.2f} net) on the {basis} edges ({names}); "
+                    f"the same cohort reads {pop['pf']:.2f} over its whole life "
+                    f"({pop['n']} trades, {pop['net']:+.2f} net). The book is "
+                    f"LOSING NOW and the lifetime mean is masking it. Costs are "
+                    f"eating the book — raise TP:SL, tighten the stop, or "
+                    f"stand the weakest live edge down.")
+        else:
+            idea = (f"NET profit factor {pop['pf']:.2f} < {PF_NET_FLOOR:.2f} on the "
+                    f"{basis}: {pop['n']} trades, {pop['net']:+.2f} net, "
+                    f"{len(pop['edges'])} edge(s) ({names}). Costs are eating the "
+                    f"book. Consider raising TP:SL or tightening the stop.")
         # Say what was EXCLUDED and why — a suppression must leave a trace
         # (same rule as the edge_not_live note). Only when it is material.
         dead = split["dead"]

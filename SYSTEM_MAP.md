@@ -312,6 +312,28 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │     you wrote yourself encodes your own wrong assumption (#11).  │
 │     tests/test_paper_book_multitf.py                               │
 │     ::test_cross_tf_clause_reachable_INSIDE_the_exact_window     │
+│                                                                  │
+│ 17. AN AGGREGATE NEEDS A WINDOW AS WELL AS A COHORT.             │
+│     #15 fixed the aggregate's COHORT (live edges, not corpses)  │
+│     and left its PERIOD unbounded. On 2026-10-23 the live       │
+│     cohort read PF 1.03 net +2.20 over n=2183 — 0.01 above the  │
+│     1.02 floor — so rule 3 stayed SILENT. That mean was         │
+│     2026-09 paying 1.17/+6.94 plus 2026-10 paying 0.82/-4.81;   │
+│     the last 28d were 0.83/-6.26 and the weekly series was      │
+│     still falling (1.53 1.27 0.75 0.75 1.20 0.50). The older    │
+│     the book, the longer one good month hides a bad one: a      │
+│     lifetime mean cannot answer "is it paying NOW?", which is   │
+│     the only question exit tuning asks. `_recent_live_pf` does  │
+│     it over PF_WINDOW_DAYS=28 (4 scan cycles, same n>=20 floor) │
+│     and rule 3 fires on EITHER the pool or the window, naming   │
+│     both. The window never REPLACES the pool — suppressing the  │
+│     life figure would be #12 in reverse — it decides. Undated   │
+│     records are excluded AND counted, never dated to "now";     │
+│     absent window data degrades to the pooled rule and claims   │
+│     no window. Same lesson as #15 on the other axis: a guard is │
+│     only as good as the axes it was written on.                 │
+│     docs/proposals/pf-window-verdict-2026-10-23.md               │
+│     tests/test_improvement_pf_window.py                          │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
