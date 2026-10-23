@@ -479,6 +479,13 @@ def main() -> None:
     multi_tf_removed = 0
     if _collapse_multitf is not None:
         paper_c, multi_tf_removed = _collapse_multitf(paper_c)
+    else:
+        # Same rule as improvement_loop: a reader that silently skips the
+        # collapse double-counts every fill once per timeframe, and the per-edge
+        # gates below then act on inflated samples. Say so on the card.
+        findings.append(
+            "⚠️ MULTI-TF COLLAPSE UNAVAILABLE — per-edge samples below count "
+            "one fill once per timeframe (5m/15m/30m); do not act on them.")
 
     fut_c = fut.get("closed", [])
 

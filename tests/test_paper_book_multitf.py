@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -135,3 +136,175 @@ def test_window_is_documented_and_configurable():
     b = _pk("SOL/USDT", 100.0, "2026-10-15T00:00:30+00:00", 0.05, "5m")
     out, removed = pb.collapse_multitf([a, b], window_s=5.0)
     assert removed == 0 and len(out) == 2
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-22 — THE EXACT-FINGERPRINT KEY CAUGHT NONE OF THE REAL PAIRS
+# ---------------------------------------------------------------------------
+# The 2026-10-15 key required EXACT entry AND EXACT pnl. Measured on the live
+# book three days later: 80 same-symbol pairs within 5 minutes, 54 with an
+# exact entry+pnl, and the 5s rule removed 0 of 3,164 rows. The bookings differ
+# because each timeframe re-reads the ticker (~0.5-1.2s apart, sometimes 22s),
+# and four pairs landed ONE TICK apart with pnl differing by $0.04. A key that
+# only matches what it was written to catch, and catches nothing, is the
+# `len(set(x)) == 1` failure mode one level down: it was certified as fixed by
+# a test built from ITS OWN exact-copy fixture.
+def test_real_shape_one_tick_apart_is_one_fill():
+    """LINK 2026-10-22 12:46 — verbatim from the book, entries one tick apart."""
+    pb = _load("paper_book")
+    recs = [
+        _pk("LINK/USDT", 12.221, "2026-10-22T12:46:30.316789+00:00", 0.0466, "5m"),
+        _pk("LINK/USDT", 12.223, "2026-10-22T12:46:31.272897+00:00", 0.0045, "15m"),
+    ]
+    out, removed = pb.collapse_multitf(recs)
+    assert removed == 1, "a one-tick re-booking is the same fill"
+    assert len(out) == 1
+
+
+def test_real_shape_36s_apart_across_timeframes_is_one_fill():
+    """The largest REAL gap observed between the 5m/15m/30m bookings of one dip.
+
+    Measured on the live book 2026-10-23: matched cross-timeframe pairs run to a
+    hard maximum of 36.1s, after which there is an empty band until 357.7s (one
+    scan cadence). This fixture is that 36.1s pair — it used to be a hand-written
+    22s case, which was 2s ABOVE the then-20s window and so could never have
+    passed while documenting a gap larger than the one the window admitted.
+    """
+    pb = _load("paper_book")
+    recs = [
+        _pk("NEAR/USDT", 4.925, "2026-10-20T02:16:10.000000+00:00", 0.0274, "5m"),
+        _pk("NEAR/USDT", 4.929, "2026-10-20T02:16:46.100000+00:00", 0.0233, "30m"),
+    ]
+    out, removed = pb.collapse_multitf(recs)
+    assert removed == 1, "the window must cover the largest observed booking gap"
+    assert len(out) == 1
+
+
+def test_same_timeframe_seconds_apart_is_two_fills():
+    """The cross-tf clause must NOT merge two 5m entries: two scans = two fills.
+
+    Without this guard a fast-firing rule would have its consecutive entries
+    collapsed and its sample shrunk to nothing.
+    """
+    pb = _load("paper_book")
+    recs = [
+        _pk("BTC/USDT", 81000.0, "2026-10-22T04:16:31.000000+00:00", 0.01, "5m"),
+        _pk("BTC/USDT", 81000.5, "2026-10-22T04:16:40.000000+00:00", 0.02, "5m"),
+    ]
+    out, removed = pb.collapse_multitf(recs)
+    assert removed == 0, "two 5m bookings seconds apart are two entries"
+    assert len(out) == 2
+
+
+def test_cross_timeframe_far_apart_in_price_is_two_fills():
+    """Different tf but 0.5% apart = a genuine later entry, not a re-booking."""
+    pb = _load("paper_book")
+    recs = [
+        _pk("ETH/USDT", 3000.0, "2026-10-22T04:16:31.000000+00:00", 0.01, "5m"),
+        _pk("ETH/USDT", 3015.0, "2026-10-22T04:16:35.000000+00:00", 0.01, "15m"),
+    ]
+    out, removed = pb.collapse_multitf(recs)
+    assert removed == 0
+    assert len(out) == 2
+
+
+def test_cross_timeframe_different_pnl_is_two_fills():
+    """Same tick, different money = two positions, not one fill re-booked."""
+    pb = _load("paper_book")
+    recs = [
+        _pk("SOL/USDT", 150.0, "2026-10-22T04:16:31.000000+00:00", 0.25, "5m"),
+        _pk("SOL/USDT", 150.0, "2026-10-22T04:16:32.000000+00:00", 0.90, "15m"),
+    ]
+    out, removed = pb.collapse_multitf(recs)
+    assert removed == 0
+    assert len(out) == 2
+
+
+def test_cross_timeframe_outside_window_is_two_fills():
+    """Two different timeframes well apart are two scans -> two entries.
+
+    The gap must be expressed RELATIVE to the clause's own window. This fixture
+    was written at 60s when MULTITF_WINDOW_S was 20s; when the window was
+    re-derived from the book to 60s (the real max booking gap is 36.1s, the next
+    honest re-entry 357.7s) the fixture silently landed INSIDE the window and
+    asserted the opposite of its own name. It now derives its gap from the
+    constant, so the two can never drift apart again.
+    """
+    pb = _load("paper_book")
+    gap_s = pb.MULTITF_WINDOW_S + 60.0
+    t0 = "2026-10-22T04:16:31+00:00"
+    t1 = (datetime.fromisoformat(t0)
+          + timedelta(seconds=gap_s)).isoformat()
+    recs = [
+        _pk("ADA/USDT", 0.25, t0, 0.01, "5m"),
+        _pk("ADA/USDT", 0.2501, t1, 0.01, "15m"),
+    ]
+    out, removed = pb.collapse_multitf(recs)
+    assert removed == 0
+    assert len(out) == 2
+
+
+def test_unknown_timeframe_is_never_cross_tf_collapsed():
+    """A record with no tf (legacy / fixture) must survive untouched."""
+    pb = _load("paper_book")
+    a = _pk("XRP/USDT", 2.0, "2026-10-22T04:16:31.000000+00:00", 0.01, "5m")
+    b = _pk("XRP/USDT", 2.0002, "2026-10-22T04:16:35.000000+00:00", 0.02, "15m")
+    b.pop("tf")
+    out, removed = pb.collapse_multitf([a, b])
+    assert removed == 0
+    assert len(out) == 2
+
+
+def test_three_timeframes_with_ticks_collapse_to_one():
+    """The full real pattern: 5m/15m/30m, each a tick apart, one fill."""
+    pb = _load("paper_book")
+    recs = [
+        _pk("AVAX/USDT", 9.278, "2026-10-21T02:46:22.100000+00:00", 0.2705, "5m"),
+        _pk("AVAX/USDT", 9.278, "2026-10-21T02:46:23.200000+00:00", 0.2705, "15m"),
+        _pk("AVAX/USDT", 9.280, "2026-10-21T02:46:23.400000+00:00", 0.2694, "30m"),
+    ]
+    out, removed = pb.collapse_multitf(recs)
+    assert removed == 2
+    assert len(out) == 1
+
+
+def test_cross_tf_clause_reachable_INSIDE_the_exact_window():
+    """REGRESSION (2026-10-23): the clause must fire at ~1s, not only past 5s.
+
+    The first version of the cross-tf clause was nested inside
+    `if gap > window_s:` — i.e. it only ran on pairs FURTHER apart than the
+    exact-fingerprint window. But the real 5m/15m/30m bookings are 0.5-1.2s
+    apart, comfortably INSIDE that 5s window, where the code fell through to the
+    exact-entry/exact-pnl test and rejected them (they differ by a tick). So the
+    clause could only ever run where the defect it was written for does not
+    occur: it caught 16 of 727 real pairs and all three of its own tests failed.
+
+    This test is the guard that fails if the two clauses are ever nested again:
+    the pair is inside `window_s` by construction and must STILL collapse.
+    """
+    pb = _load("paper_book")
+    a = _pk("LINK/USDT", 12.221, "2026-10-22T12:46:30.316789+00:00", 0.0466, "5m")
+    b = _pk("LINK/USDT", 12.223, "2026-10-22T12:46:31.272897+00:00", 0.0045, "15m")
+    gap = abs((pb._open_dt(b) - pb._open_dt(a)).total_seconds())
+    assert gap <= pb.DEFAULT_WINDOW_S, "fixture must be INSIDE the exact window"
+    out, removed = pb.collapse_multitf([a, b])
+    assert removed == 1
+    assert len(out) == 1
+
+
+def test_same_tf_inside_window_with_tick_difference_is_kept():
+    """The cross-tf clause must not become a same-tf tolerance rule.
+
+    Two 5m bookings a second apart are two scans (the scan is 30 min apart, so
+    this only happens on a double-write or a genuine re-entry). Loosening the
+    same-tf key to a price tolerance would let a fast rule's consecutive entries
+    eat each other and shrink its own sample to nothing.
+    """
+    pb = _load("paper_book")
+    recs = [
+        _pk("BTC/USDT", 81000.0, "2026-10-22T04:16:31.000000+00:00", 0.01, "5m"),
+        _pk("BTC/USDT", 81000.5, "2026-10-22T04:16:32.000000+00:00", 0.02, "5m"),
+    ]
+    out, removed = pb.collapse_multitf(recs)
+    assert removed == 0
+    assert len(out) == 2

@@ -79,6 +79,31 @@ NON_ADDING_SAMPLE = 30
 # both and far below any honest re-entry cadence (the scan itself is 30 min).
 DEFAULT_WINDOW_S = 5.0
 
+# THE MULTI-TIMEFRAME CLAUSE (2026-10-22, corrected 2026-10-23)
+# -----------------------------------------------------------------
+# The exact-fingerprint rule above assumes every booking of one fill records the
+# same entry and pnl. It does not: each timeframe re-reads the ticker, so the
+# bookings land a tick apart. Measured on today's book — 80 same-symbol pairs
+# within 5 minutes, 54 with an exact entry+pnl, and the 5s rule caught NONE of
+# them. That is why the ledger still held ~520 phantom rows three days after
+# they were declared fixed.
+#
+# WINDOW, DERIVED FROM THE BOOK (not from a fixture): matched cross-timeframe
+# pairs cluster at p50 = 0.54s and run to a hard maximum of 36.1s; the very next
+# pair of any kind is 357.7s away — one full scan cadence. So there is a clean
+# empty band between 36s and 358s, and 60s sits in the middle of it: 1.7x above
+# the largest real booking gap and 6x below the nearest honest re-entry. (The
+# old 20s was set from a hand-written 22s fixture and sat BELOW the real 36.1s
+# maximum, so it clipped genuine bookings; the fixture has been corrected too.)
+MULTITF_WINDOW_S = 60.0
+TF_ENTRY_TOL = 0.001     # 0.1% of entry price
+TF_PNL_TOL = 0.05        # dollars at $5 notional
+
+# A timeframe the scan books once (5m/15m/30m). Records carrying anything else
+# are left alone by the cross-tf clause — an unknown tf is not evidence of a
+# shared fill.
+KNOWN_TFS = ("5m", "15m", "30m")
+
 
 def _open_dt(record: dict) -> datetime | None:
     """The record's OPEN time, parsed to an aware datetime, or None."""
@@ -120,6 +145,82 @@ def _is_copy(a: dict, b: dict, window_s: float) -> bool:
     return True
 
 
+def _norm_tf(tf):
+    """Timeframe as a string, or "" when the record carries none."""
+    return "" if tf is None else str(tf)
+
+
+def _is_fill_pair(a: dict, b: dict, window_s: float) -> bool:
+    """Is `b` another booking of the SAME PHYSICAL FILL as `a`?
+
+    The 5s/exact-entry/exact-pnl test (`_is_copy`) cannot see a multi-timeframe
+    booking, and that is not a small miss — measured 2026-10-22:
+
+        pairs within 5 MINUTES of each other, same symbol          n=80
+          of which exact entry AND exact pnl                        n=54
+          of which the 5s test already caught                        n=0
+        max observed gap between the 5m / 15m / 30m bookings        36.1s
+
+    The scan evaluates each timeframe in turn, so one physical dip is written by
+    5m, then 15m, then 30m — each booking re-reads the ticker separately, and on
+    four pairs in today's book the entries differ by ONE TICK ($12.221 vs
+    $12.223) and the pnl by $0.04. Requiring an exact economic fingerprint kept
+    every one of them: the defect was still fully present in the ledger, three
+    days after it was documented as fixed.
+
+    So this is an OR of two INDEPENDENT clauses:
+
+      (1) EXACT — same entry AND same pnl, within `window_s`. The original key,
+          unchanged, and it also covers a same-tf double-write at ~2ms.
+      (2) CROSS-TF — two DIFFERENT known timeframes of the same symbol, entries
+          within TF_ENTRY_TOL, pnl within TF_PNL_TOL, within MULTITF_WINDOW_S.
+
+    ⚠️ 2026-10-23 — WHY CLAUSE (2) IS A SIBLING AND NOT A FALLBACK. The first
+    version of this function checked (2) only inside `if gap > window_s:`. But
+    the real multi-tf bookings are 0.5-1.2s apart, i.e. INSIDE the 5s window,
+    so 711 of the 727 cross-tf pairs never reached the clause at all: it fired
+    on 16 pairs out of 727 and its own three tests failed. A clause that can
+    only run where the defect does not occur is not a fix. The two clauses are
+    now evaluated independently of each other.
+
+    Same-timeframe records are never merged by (2): a 5m and a 5m a second
+    apart are two scans, hence two fills. Untimed records are never collapsed
+    by either clause. `tf` is read from either record (the clause needs the two
+    to DIFFER, not a particular one to be present).
+    """
+    da, db = _open_dt(a), _open_dt(b)
+    if da is None or db is None:
+        return False
+    gap = abs((db - da).total_seconds())
+    if gap > max(window_s, MULTITF_WINDOW_S):
+        return False
+
+    # (1) EXACT FINGERPRINT — the original key.
+    if gap <= window_s and a.get("entry") == b.get("entry") \
+            and a.get("pnl") == b.get("pnl"):
+        return True
+
+    # (2) CROSS-TIMEFRAME RE-BOOKING.
+    if gap > MULTITF_WINDOW_S:
+        return False
+    ta, tb = _norm_tf(a.get("tf")), _norm_tf(b.get("tf"))
+    if ta not in KNOWN_TFS or tb not in KNOWN_TFS:
+        return False
+    if ta == tb:
+        return False
+    ea, eb = _entry_of(a), _entry_of(b)
+    if not ea or not eb:
+        return False
+    if abs(eb - ea) / ea > TF_ENTRY_TOL:
+        return False
+    try:
+        pa = float(a.get("pnl") or 0)
+        pb = float(b.get("pnl") or 0)
+    except (TypeError, ValueError):
+        return False
+    return abs(pb - pa) <= TF_PNL_TOL
+
+
 def collapse_multitf(records: list[dict],
                      window_s: float = DEFAULT_WINDOW_S) -> tuple[list[dict], int]:
     """Collapse one-fill-booked-per-timeframe duplicates.
@@ -129,8 +230,19 @@ def collapse_multitf(records: list[dict],
     trade carries the earliest timestamp — the honest open time of the fill.
 
     Records are grouped by symbol and walked in open-time order; a run of
-    records all within `window_s` and sharing entry+pnl counts as one fill. A
-    record with no parseable timestamp is never collapsed (it cannot be placed
+    records within the fill window and matching on the economic fingerprint
+    counts as one fill. The fingerprint is `_is_fill_pair`: an exact entry+pnl
+    within `window_s`, OR the same tick booked under two different timeframes
+    within MULTITF_WINDOW_S (tolerances TF_ENTRY_TOL / TF_PNL_TOL).
+
+    ⚠️ 2026-10-22: the exact-only version of this key silently collapsed almost
+    nothing of what it was written for (0 of 80 multi-tf pairs) because the
+    bookings differ by a tick. If you tighten the tolerances, re-run
+    tests/test_paper_book_multitf.py::test_real_shape_one_tick_apart_is_one_fill
+    and check the live count with `python scripts/paper_book.py`, which prints
+    the removed count every run.
+
+    A record with no parseable timestamp is never collapsed (it cannot be placed
     in time, so it is treated as distinct and kept).
     """
     by_symbol: dict[object, list[dict]] = {}
@@ -149,7 +261,7 @@ def collapse_multitf(records: list[dict],
             anchor = group[i]
             out.append(anchor)
             j = i + 1
-            while j < len(group) and _is_copy(anchor, group[j], window_s):
+            while j < len(group) and _is_fill_pair(anchor, group[j], window_s):
                 j += 1
             i = j
     return out, len(records) - len(out)

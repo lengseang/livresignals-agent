@@ -31,8 +31,11 @@ except Exception:  # noqa: BLE001 — never let the reader import kill the loop
     _PAPER_COST_RT = None
 try:
     from paper_book import collapse_multitf as _collapse_multitf
-except Exception:  # noqa: BLE001 — never let the reader import kill the loop
+except Exception as _e:  # noqa: BLE001 — never let the reader import kill the loop
     _collapse_multitf = None
+    _collapse_import_error = f"{type(_e).__name__}: {_e}"
+else:
+    _collapse_import_error = ""
 try:
     from paper_book import edge_liveness as _edge_liveness
 except Exception:  # noqa: BLE001 — never let the reader import kill the loop
@@ -93,6 +96,14 @@ def analyze() -> dict:
     multi_tf_removed = 0
     if _collapse_multitf is not None:
         paper, multi_tf_removed = _collapse_multitf(paper)
+    else:
+        # A reader that silently skips the collapse re-inflates the book with
+        # one fill per timeframe — 530 of 3,164 rows on 2026-10-22. The import
+        # was already guarded; the SILENCE was the defect. Surface it on the
+        # card instead of reporting statistics from the double-counted book.
+        print(f"⚠️  MULTI-TF COLLAPSE UNAVAILABLE ({_collapse_import_error}) — "
+              f"per-edge/per-regime figures below are computed on a book where "
+              f"one fill is counted once per timeframe; do not quote them.")
 
     def _pnl_of(t):
         """NET-of-cost pnl for a paper trade, falling back to gross only when
@@ -217,6 +228,8 @@ def analyze() -> dict:
     # Generate suggestions (ranked)
     edge_meta = _edge_freshness(paper)
     edge_meta["multitf_collapsed"] = multi_tf_removed
+    if _collapse_multitf is None:
+        edge_meta["multitf_collapse_error"] = _collapse_import_error or "unavailable"
     # LIVENESS (2026-10-21). `last_fill` per edge: a per-edge verdict computed
     # over the whole book quotes an unbounded mean, so a design that stopped
     # filling weeks ago still draws "tighten it or stand it down". See

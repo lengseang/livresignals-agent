@@ -288,6 +288,30 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 │     always on. PF_NET_FLOOR=1.02 is the net analogue. Same rule  │
 │     as #9/#13 applied to a threshold rather than a measurement.  │
 │     See docs/proposals/pf-live-population-2026-10-22.md.         │
+│                                                                  │
+│ 16. A FIX THAT CAN ONLY RUN WHERE THE DEFECT ISN'T IS NOT A FIX. │
+│     #6's multi-tf collapse got a "cross-timeframe" clause on     │
+│     2026-10-22. It was written as `if gap > window_s:` — a       │
+│     FALLBACK for pairs FURTHER apart than the exact-fingerprint  │
+│     window. But the real bookings are 0.5-1.2s apart, i.e.       │
+│     INSIDE that 5s window, where the exact test still demanded   │
+│     identical entry+pnl and rejected them (a tick apart). The    │
+│     clause fired on 16 of 727 real pairs; the ledger still held  │
+│     ~520 phantom rows a day after it was declared fixed, and its │
+│     own three tests were red (the window, 20s, was even BELOW    │
+│     the real max gap of 36.1s — set from a hand-written fixture, │
+│     not from the book).                                          │
+│     Now the two clauses are INDEPENDENT siblings and the window  │
+│     is derived from a measured EMPTY BAND: bookings top out at   │
+│     36.1s, the next honest re-entry is 357.7s (one scan), so 60s │
+│     sits in the gap. Collapse went 525 -> 734 rows and it MOVES  │
+│     VERDICTS: 'validated' net -0.13 -> -0.66 (now correctly      │
+│     DECAYING). Lesson: when adding a clause to an existing key,  │
+│     check it is REACHABLE in the regime the defect lives in, and │
+│     set thresholds from the MEASURED distribution — a fixture    │
+│     you wrote yourself encodes your own wrong assumption (#11).  │
+│     tests/test_paper_book_multitf.py                               │
+│     ::test_cross_tf_clause_reachable_INSIDE_the_exact_window     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
