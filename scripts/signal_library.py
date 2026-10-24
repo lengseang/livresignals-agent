@@ -298,6 +298,46 @@ def load_regime_lane() -> dict:
     }
 
 
+def load_crypto_demo() -> dict:
+    """The Bybit demo forward test of the external lab's crypto-trend strategies.
+
+    Separate from every other book because it is the only record here produced by
+    a strategy this system did not invent, on an exchange it does not otherwise
+    trade, with real fills. At inception it holds zero trades: the strategies are
+    long-only trend followers and BTC is below its 200-bar SMA, so all of them
+    correctly decline to buy.
+    """
+    p = BASE / "state" / "crypto-trend-demo" / "state.json"
+    dec = BASE / "state" / "crypto-trend-demo" / "decisions.jsonl"
+    if not p.exists():
+        return {}
+    try:
+        st = json.loads(p.read_text())
+    except Exception:
+        return {}
+    rows = []
+    for sid, s in (st.get("strategies") or {}).items():
+        trades = s.get("trades") or []
+        net = sum(t.get("pnl") or 0 for t in trades)
+        rows.append({
+            "id": sid,
+            "trades": len(trades),
+            "net": net,
+            "equity": s.get("equity"),
+            "peak": s.get("peak"),
+            "in_pos": s.get("in_pos"),
+            "kill": s.get("kill"),
+            "kill_reason": s.get("kill_reason"),
+        })
+    n_dec = 0
+    if dec.exists():
+        try:
+            n_dec = sum(1 for _ in dec.open())
+        except Exception:
+            n_dec = 0
+    return {"rows": rows, "decisions_logged": n_dec}
+
+
 def load_certification() -> dict:
     """The walk-forward verdict, if it has been run.
 
@@ -486,6 +526,32 @@ def render_html(trades, books, lanes, hunts, rt_cost) -> str:
             f"<td class='n'>{d['kill_engaged']}</td>"
             f"<td class='small'>{html.escape(', '.join(f'{k}={v}' for k,v in top))}</td></tr>")
 
+    # --- external lab demo forward test ---------------------------------------
+    cd = load_crypto_demo()
+    demo_html = ""
+    if cd:
+        rows = "".join(
+            f"<tr><td>{html.escape(r['id'])}</td>"
+            f"<td class='n'>{r['trades']}</td>"
+            f"<td class='n {'pos' if (r['net'] or 0) > 0 else 'neg'}'>"
+            f"{(r['net'] or 0):+.2f}</td>"
+            f"<td class='n'>{(r['equity'] or 0):.0f}</td>"
+            f"<td class='n'>{'yes' if r['in_pos'] else 'no'}</td>"
+            f"<td class='n'>{'KILLED: ' + (r['kill_reason'] or '') if r['kill'] else 'no'}</td></tr>"
+            for r in sorted(cd["rows"], key=lambda x: x["id"]))
+        demo_html = (
+            "<h2>External lab &mdash; crypto trend, Bybit demo</h2>"
+            "<table><tr><th>strategy</th><th>trades</th><th>net $</th>"
+            "<th>equity</th><th>in pos</th><th>kill</th></tr>"
+            f"{rows}</table>"
+            f"<div class='note'>{cd['decisions_logged']} decisions logged. "
+            "Rules from mylovelyea-lab; executed here on Bybit "
+            "<em>demo</em> with real fills, fees and funding. Long-only trend "
+            "followers &mdash; they decline to buy while price sits below the "
+            "entry channel, which is why a quiet record is the correct state and "
+            "not a fault. Zero trades means nothing has fired yet, not that the "
+            "test failed.</div>")
+
     # --- forward lane: the only live test of the regime hypothesis ------------
     lane = load_regime_lane()
     fwd_html = ""
@@ -588,6 +654,8 @@ td.n{{text-align:right;font-variant-numeric:tabular-nums}}
 <th>kill</th><th>agreement</th></tr>{lane_html}</table>
 
 {cert_html}
+
+{demo_html}
 
 {fwd_html}
 
