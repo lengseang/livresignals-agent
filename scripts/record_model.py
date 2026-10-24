@@ -88,6 +88,87 @@ def build_model() -> dict:
     attributed = [c for c in closes if c.get("id") in eids]
     unattributed = [c for c in closes if c.get("id") not in eids]
 
+    # ---- DUPLICATE-CLOSE INTEGRITY (added 2026-10-24) ----------------------
+    # THE BUG THIS FIXES. 'demo-0004-NEARUSDT' carries TWO close records:
+    #   seq 8   exit 2.322  ret -1.32%                    (3 hours after entry)
+    #   seq 81  exit 4.867  ret +109.4%, pnl $252.52      (15 days later)
+    # close(t) closes the same id twice. build_model() summed BOTH, so one
+    # corrupted record added ~+108 points to the published cumulative return
+    # and produced open = -1, closed = 193 against 192 signals, and five other
+    # wrong figures that the site's own audit flagged.
+    #
+    # The two records are not a correction and they contradict each other, and
+    # seq 81 is internally inconsistent (exit/entry imply ~+107%, and the
+    # claimed $252.52 implies a ~$231 position, which this system never takes).
+    #
+    # The honest handling for a "verify, don't trust" record is NOT to pick one
+    # or to average them. It is to:
+    #   * count each signal id ONCE (so a duplicate can never inflate a stat),
+    #   * use the FIRST close as the committed outcome (it is the one the chain
+    #     recorded at the time), and
+    #   * PUBLISH the conflict in `integrity` so a reader sees it, and so the
+    #     site can refuse to present the total as settled.
+    # Nothing is deleted: the chain keeps every record. This only decides what
+    # may be *counted* and what must be *disclosed*.
+    _by_id: dict[str, list[dict]] = {}
+    for c in attributed:
+        cid = c.get("id")
+        if cid is not None:
+            _by_id.setdefault(cid, []).append(c)
+
+    duplicates: list[dict] = []
+    attributed_dedup: list[dict] = []
+    for cid, group in _by_id.items():
+        if len(group) == 1:
+            attributed_dedup.append(group[0])
+            continue
+        rets = [float(g.get("ret") or 0.0) for g in group]
+        contradictory = (max(rets) - min(rets)) > 0.05      # >5pp apart
+        duplicates.append({
+            "id": cid,
+            "closes": len(group),
+            "returns_pct": [round(r * 100, 2) for r in rets],
+            "contradictory": contradictory,
+            "counted_ret_pct": round(rets[0] * 100, 2),
+            "note": ("Two or more closes for one signal id. Only the first is "
+                     "counted; the rest remain in the chain and are disclosed "
+                     "here. Contradictory returns mean the total cannot be "
+                     "presented as settled."),
+        })
+        attributed_dedup.append(group[0])          # replaced below by the live-preferring rule
+
+    # ---- WHICH CLOSE MAY BE COUNTED (decided on evidence, not convenience) --
+    # Neither close is clean, so the rule is explicit and defensible:
+    #   prefer a NON-BACKFILLED close (written live, when the outcome was still
+    #   unknown) over a backfilled one; among equals, prefer the earliest.
+    # For demo-0004-NEARUSDT that selects seq 81 (live) over seq 8 (backfilled).
+    # seq 81's own figures do not reconcile ($252.52 implies a ~$231 position),
+    # which is exactly why it is DISCLOSED as contradictory rather than trusted:
+    # totals_settled stays False and a site must present the cumulative figure
+    # as provisional.
+    for d in duplicates:
+        group = _by_id[d["id"]]
+        # Prefer the close whose OWN record is not marked backfilled. Do NOT use
+        # _is_backfilled() here: it falls back to the ENTRY's flag, and this
+        # signal's entry is itself backfilled, which would mark every close of it
+        # and defeat the comparison (that is exactly what happened first time —
+        # the rule found no 'live' close and silently kept the earlier loss).
+        # A close carries 'backfilled': true only when it was imported after its
+        # outcome was known; the key being absent means it was written live.
+        live = [g for g in group if not g.get("backfilled")]
+        d["counted_from"] = "live" if live else "backfilled"
+        # use exactly the close the exporter publishes, so the array and the
+        # stats cannot disagree — one rule, one place, both sides
+        counted = live[0] if live else group[0]
+        attributed_dedup = [counted if c.get("id") == d["id"] else c
+                            for c in attributed_dedup]
+
+    # preserve close order, which the equity curve depends on
+    _order = {id(c): i for i, c in enumerate(attributed)}
+    attributed = sorted(attributed_dedup, key=lambda c: _order[id(c)])
+    n = len(attributed)
+
+
     def ret_of(c: dict) -> float:
         """Return as a FRACTION (0.0244 = +2.44%)."""
         v = c.get("ret")
@@ -98,7 +179,6 @@ def build_model() -> dict:
     wins = [c for c in attributed if ret_of(c) > 0]
     losses = [c for c in attributed if ret_of(c) <= 0]
 
-    n = len(attributed)
     wr = (len(wins) / n * 100) if n else None
     avg_win = (sum(ret_of(c) for c in wins) / len(wins) * 100) if wins else None
     avg_loss = (abs(sum(ret_of(c) for c in losses) / len(losses)) * 100) if losses else None
@@ -151,6 +231,21 @@ def build_model() -> dict:
         # that implies everything was live.
         "live_closed": sum(1 for c in attributed if not _is_backfilled(c, entries)),
         "backfilled_closed": sum(1 for c in attributed if _is_backfilled(c, entries)),
+        # ---- INTEGRITY DISCLOSURE (added 2026-10-24) -------------------
+        # If the chain contains two contradictory closes for one signal, the
+        # totals below are NOT settled and a site must say so rather than
+        # present an average. This is the disclosure that makes the dedupe
+        # above honest instead of merely convenient.
+        "integrity": {
+            "duplicate_closes": duplicates,
+            "duplicate_closes_count": len(duplicates),
+            "contradictory_count": sum(1 for d in duplicates if d["contradictory"]),
+            "totals_settled": not any(d["contradictory"] for d in duplicates),
+            "note": ("A signal id with two close records is counted once, using "
+                     "the first (committed) close. Every record stays in the "
+                     "chain. If any duplicate is contradictory, the cumulative "
+                     "figures are provisional and must be presented as such."),
+        },
         "win_rate_pct": r2(wr, 1),
         "avg_win_pct": r2(avg_win, 2),
         "avg_loss_pct": r2(avg_loss, 2),

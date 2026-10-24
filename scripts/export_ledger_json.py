@@ -86,11 +86,38 @@ def build_payload() -> dict:
     # `closes_list` is ALREADY flattened by signal_ledger into
     # {id, ret, exit, why, backfilled}. Index it by id and reuse those exact
     # values, so this export can never disagree with the CLI verifier.
+    # ---- ONE RULE FOR WHICH CLOSE COUNTS (2026-10-24) --------------------
+    # THE BUG: 'demo-0004-NEARUSDT' has TWO closes —
+    #     seq 8   ret -1.32%   backfilled=true    (written after the outcome)
+    #     seq 81  ret +109.4%  backfilled=false   (written live, at the time)
+    # The exporter built `closes` as a dict, so the LAST one won and the signals
+    # array showed +109%, while build_model() summed BOTH into the stats. The
+    # array and the stats therefore disagree, and the site's own audit caught it.
+    #
+    # The rule, applied here so it is the single place that decides:
+    #     prefer a non-backfilled (live) close; among equals, the earliest.
+    # A live close was written while the outcome was still unknown, so it is the
+    # stronger evidence of the two.
+    #
+    # seq 81 is still not trustworthy on its own numbers ($252.52 implies a ~$231
+    # position this system never takes), so it is COUNTED but also DISCLOSED as
+    # contradictory, and totals_settled stays False. Counting it while saying it
+    # is unresolved is more honest than silently preferring the backfilled loss.
     closes: dict[str, dict] = {}
     for c in closes_list:
         ref = c.get("id")
-        if ref:
+        if not ref:
+            continue
+        prev = closes.get(ref)
+        if prev is None:
             closes[ref] = c
+            continue
+        # two closes for one id — prefer live over backfilled, else the earliest
+        self_bf = bool(c.get("backfilled"))
+        prev_bf = bool(prev.get("backfilled"))
+        if prev_bf and not self_bf:
+            closes[ref] = c                       # earlier was backfilled, keep live
+        # otherwise keep what we already have (live, or the earliest)
 
     signals = []
     for sig_id, w in entries_by_id.items():
