@@ -58,6 +58,16 @@ sys.path.insert(0, str(BASE / "scripts"))
 sys.path.insert(0, str(BASE / "src"))
 
 import bybit_demo as bd  # noqa: E402
+import signal_ledger as L  # noqa: E402
+
+# Publishing to the public hash-chained ledger. ON by default because the site's
+# whole value is that a signal is committed BEFORE its outcome is known — a record
+# added after the fact proves nothing. Every entry and every exit is appended at
+# decision time, so the chain position itself is evidence of when it was written.
+PUBLISH = True
+PUB_SOURCE = "crypto-trend-demo"
+PUB_PREFIX = "ea"          # ea-ETH_TURTLE_H4-<ts>; not "demo-" — that prefix
+                           # already means the Bybit demo regime system
 
 RUNNER_DIR = BASE / "state" / "crypto-trend-demo"
 STATE = RUNNER_DIR / "state.json"
@@ -234,6 +244,71 @@ def strat_state(st: dict, sid: str) -> dict:
     return s
 
 
+def _pub_signal(sid: str, sym: str, bar_ms: int, close: float, a_val: float,
+                qty: float, stop: float, risk_pct: float,
+                equity: float, cfg: dict) -> str | None:
+    """Append the ENTRY to the public chain before the order is placed.
+
+    Before, not after: if the order fails, the chain still shows that the rule
+    fired at that bar and that we intended to act. Publishing only successes
+    would let us quietly drop the trades that never filled, which is the same
+    selection bias the site exists to prevent.
+    """
+    if not PUBLISH:
+        return None
+    rid = f"{PUB_PREFIX}-{sid}-{bar_ms}"
+    try:
+        L.append("signal", {
+            "id": rid,
+            "symbol": sym,
+            "side": "L",                  # the lab's crypto-trend rules are long only
+            "entry": close,
+            "source": PUB_SOURCE,
+            "strategy": sid,
+            "engine": cfg.get("engine"),
+            "params": {k: v for k, v in cfg.items()
+                       if k in ("entry", "exit", "fast", "slow")},
+            "opened": datetime.fromtimestamp(bar_ms / 1000, timezone.utc).isoformat(),
+            "feats": {
+                "atr": round(a_val, 6),
+                "atr_pct": round(a_val / close * 100, 4) if close else None,
+                "stop": round(stop, 6),
+                "qty": qty,
+                "risk_pct": risk_pct,
+                "equity": round(equity, 2),
+            },
+            "execution": {"venue": "bybit-demo", "endpoint": "api-demo.bybit.com"},
+            "backfilled": False,
+        })
+        return rid
+    except Exception as e:
+        log_decision({"event": "publish_failed", "id": sid, "err": str(e)[:160]})
+        return None
+
+
+def _pub_close(rid: str | None, entry: float, exit_px: float, why: str,
+               bar_ms: int, pnl: float, held_days: float | None = None) -> None:
+    """Append the EXIT to the public chain, at decision time."""
+    if not PUBLISH or not rid:
+        return
+    try:
+        closed_iso = datetime.fromtimestamp(bar_ms / 1000, timezone.utc).isoformat()
+        L.append("close", {
+            "id": rid,
+            "exit": exit_px,
+            "ret": round((exit_px - entry) / entry, 6) if entry else None,
+            "pnl": round(pnl, 4),
+            "why": why,
+            "closed": closed_iso,      # our own field, kept for the decisions log
+            "closed_ts": closed_iso,   # what the exporter reads for the site
+            "held_days": (round(held_days, 2) if held_days is not None else None),
+            "backfilled": False,
+        })
+    except Exception as e:
+        log_decision({"event": "publish_close_failed", "id": rid,
+                      "err": str(e)[:160]})
+
+
 # ------------------------------------------------------------------ main
 def run_once(dry: bool) -> dict:
     reg = json.loads(REGISTRY.read_text())
@@ -307,13 +382,19 @@ def run_once(dry: bool) -> dict:
             elif dry:
                 rec["event"] = "would_buy"
             else:
+                # publish the intent to the public chain BEFORE placing it
+                rec["ledger_id"] = _pub_signal(
+                    sid, sym, last_bar, close1, a_val, qty, stop_px,
+                    risk_pct, s["equity"], cfg)
                 r = place_market(sym, "Buy", qty, stop_px, sid)
                 rec["order"] = {"retCode": r.get("retCode"),
                                 "retMsg": r.get("retMsg"),
                                 "orderId": (r.get("result") or {}).get("orderId")}
                 if r.get("retCode") == 0:
                     s.update({"in_pos": True, "entry": close1, "qty": qty,
-                              "stop": stop_px})
+                              "stop": stop_px,
+                              "entry_bar_ms": last_bar,
+                              "ledger_id": rec.get("ledger_id")})
                     out["orders"].append((sid, "BUY", qty, close1, stop_px))
                     rec["event"] = "bought"
                 else:
@@ -335,8 +416,13 @@ def run_once(dry: bool) -> dict:
                     s["trades"].append({"entry": s["entry"], "exit": close1,
                                         "qty": s["qty"], "pnl": round(pnl, 4),
                                         "ts": rec["bar_close_utc"]})
+                    _pub_close(s.get("ledger_id"), s["entry"], close1,
+                               "signal-exit", last_bar, pnl,
+                               held_days=round((
+                                   last_bar - (s.get("entry_bar_ms") or last_bar)
+                               ) / 86400000.0, 2))
                     s.update({"in_pos": False, "stop": 0.0, "qty": 0.0,
-                              "entry": 0.0})
+                              "entry": 0.0, "ledger_id": None})
                     out["orders"].append((sid, "SELL", rec["qty"], close1, 0))
                     rec["event"] = "closed"
                     rec["pnl"] = round(pnl, 4)
