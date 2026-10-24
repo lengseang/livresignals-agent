@@ -267,6 +267,37 @@ def load_hunt5() -> list[dict]:
     return out
 
 
+def load_regime_lane() -> dict:
+    """The forward paper record for the regime-gated shorts.
+
+    Kept separate from the other books because it is the only forward test of the
+    one configuration where the losing fold and the winning fold separated. At
+    inception it holds zero trades, and the gate log matters as much as the P&L:
+    it shows how often the lane was even eligible.
+    """
+    p = DATA / "short-regime-paper.json"
+    if not p.exists():
+        return {}
+    try:
+        d = json.loads(p.read_text())
+    except Exception:
+        return {}
+    closed = d.get("closed") or []
+    runs = d.get("runs") or []
+    gate_open_runs = sum(1 for r in runs if r.get("gate_open"))
+    return {
+        "closed": len(closed),
+        "open": len(d.get("open") or []),
+        "net": sum(c.get("pnl_net") or 0.0 for c in closed),
+        "gross": sum(c.get("pnl_gross") or 0.0 for c in closed),
+        "wins": sum(1 for c in closed if (c.get("pnl_net") or 0) > 0),
+        "runs": len(runs),
+        "gate_open_runs": gate_open_runs,
+        "gate_pct": (gate_open_runs / len(runs) * 100) if runs else None,
+        "last_run": runs[-1] if runs else None,
+    }
+
+
 def load_certification() -> dict:
     """The walk-forward verdict, if it has been run.
 
@@ -455,6 +486,32 @@ def render_html(trades, books, lanes, hunts, rt_cost) -> str:
             f"<td class='n'>{d['kill_engaged']}</td>"
             f"<td class='small'>{html.escape(', '.join(f'{k}={v}' for k,v in top))}</td></tr>")
 
+    # --- forward lane: the only live test of the regime hypothesis ------------
+    lane = load_regime_lane()
+    fwd_html = ""
+    if lane:
+        lr = lane.get("last_run") or {}
+        g = lr.get("gate") or {}
+        gpct = (f"{lane['gate_pct']:.0f}% of runs" if lane.get("gate_pct") is not None
+                else "—")
+        fwd_html = (
+            "<h2>Forward lane &mdash; regime-gated shorts (paper)</h2>"
+            "<table><tr><th>runs</th><th>gate open</th><th>closed</th><th>open</th>"
+            "<th>wins</th><th>gross $</th><th>net $</th></tr>"
+            f"<tr><td class='n'>{lane['runs']}</td>"
+            f"<td class='n'>{lane['gate_open_runs']} ({gpct})</td>"
+            f"<td class='n'>{lane['closed']}</td><td class='n'>{lane['open']}</td>"
+            f"<td class='n'>{lane['wins']}</td>"
+            f"<td class='n'>{lane['gross']:+.2f}</td>"
+            f"<td class='n {'pos' if lane['net'] > 0 else 'neg'}'>"
+            f"{lane['net']:+.2f}</td></tr></table>"
+            "<div class='note'>Gate: BTC close below its 200-bar 4h SMA. Last run "
+            f"BTC {g.get('dist_pct', 0):+.1f}% vs SMA200 &mdash; gate "
+            f"{'OPEN' if lr.get('gate_open') else 'shut'}. At inception this book "
+            "holds <em>zero</em> trades; it exists to replace a one-observation "
+            "hypothesis with a forward record. Judge it on closed trades only, and "
+            "not before a down-regime has actually occurred.</div>")
+
     # --- certification: the honest companion to the hunt findings -------------
     cert_html = ""
     cert = load_certification()
@@ -531,6 +588,8 @@ td.n{{text-align:right;font-variant-numeric:tabular-nums}}
 <th>kill</th><th>agreement</th></tr>{lane_html}</table>
 
 {cert_html}
+
+{fwd_html}
 
 <h2>Standing hunt findings (in-sample)</h2>
 <table><tr><th>rule</th><th>down n</th><th>down PF</th><th>down net $</th>
