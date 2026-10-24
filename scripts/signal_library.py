@@ -267,6 +267,25 @@ def load_hunt5() -> list[dict]:
     return out
 
 
+def load_certification() -> dict:
+    """The walk-forward verdict, if it has been run.
+
+    This is the difference between "a rule that tested well" and "a rule that
+    holds in every consecutive period". The hunt's findings are in-sample, best
+    variant per rule; the certification fixes the exit in advance and splits the
+    history into consecutive folds. Showing only the hunt numbers would present
+    every rule at its most flattering, which is what this page exists to avoid.
+    """
+    for name in ("certification.json", "walkforward.json"):
+        p = BASE / "reports" / name
+        if p.exists():
+            try:
+                return json.loads(p.read_text())
+            except Exception:
+                continue
+    return {}
+
+
 # ---------------------------------------------------------------- aggregation
 
 @dataclass
@@ -436,6 +455,35 @@ def render_html(trades, books, lanes, hunts, rt_cost) -> str:
             f"<td class='n'>{d['kill_engaged']}</td>"
             f"<td class='small'>{html.escape(', '.join(f'{k}={v}' for k,v in top))}</td></tr>")
 
+    # --- certification: the honest companion to the hunt findings -------------
+    cert_html = ""
+    cert = load_certification()
+    if cert.get("rules"):
+        rows = []
+        for name, r in sorted(cert["rules"].items(),
+                              key=lambda kv: -kv[1]["total_net"]):
+            per = " &middot; ".join(f"{f.get('net', 0):+.1f}" for f in r["folds"])
+            ok = r["all_positive"]
+            rows.append(
+                f"<tr><td>{html.escape(name)}</td>"
+                f"<td class='n'>{r['total_n']}</td>"
+                f"<td class='n {'pos' if r['total_net'] > 0 else 'neg'}'>"
+                f"{r['total_net']:+.2f}</td>"
+                f"<td class='n'>{r['positive_folds']}/{r['folds_n']}</td>"
+                f"<td class='small'>{per}</td>"
+                f"<td class='{'pos' if ok else 'neg'}'>"
+                f"{'CERTIFIABLE' if ok else 'not certified'}</td></tr>")
+        cert_html = (
+            "<h2>Rule certification &mdash; consecutive folds, not the aggregate</h2>"
+            "<table><tr><th>rule</th><th>n</th><th>net $</th><th>pos folds</th>"
+            "<th>per-fold net</th><th>verdict</th></tr>" + "".join(rows) + "</table>"
+            "<div class='note'>The hunt's numbers are in-sample best-variant-per-rule. "
+            "These are the same rules with the exit <em>fixed in advance</em> and the "
+            "history split into consecutive folds. A rule positive overall but negative "
+            "in one fold is not certified &mdash; and every one of these loses in the "
+            "same fold, which was the largest rally in the sample. Short-only rules "
+            "make money when the market falls.</div>")
+
     hunt_html = "".join(
         f"<tr><td>{html.escape(h.get('name','?'))}</td>"
         f"<td class='n'>{h.get('dn_n')}</td><td class='n'>{h.get('dn_pf'):.2f}</td>"
@@ -482,7 +530,9 @@ td.n{{text-align:right;font-variant-numeric:tabular-nums}}
 <table><tr><th>lane</th><th>cycles</th><th>steps</th><th>jev</th><th>positions</th>
 <th>kill</th><th>agreement</th></tr>{lane_html}</table>
 
-<h2>Standing hunt findings</h2>
+{cert_html}
+
+<h2>Standing hunt findings (in-sample)</h2>
 <table><tr><th>rule</th><th>down n</th><th>down PF</th><th>down net $</th>
 <th>up net $</th></tr>{hunt_html}</table>
 
