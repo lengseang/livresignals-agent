@@ -469,6 +469,29 @@ def run_once(dry: bool) -> dict:
         }
 
     save_state(st)
+
+    # If anything was published to the chain this pass, rebuild and push the
+    # site data NOW. The ledger is written instantly but the export used to run
+    # only once a day at 02:30, so a trade would sit on the chain invisible on
+    # the site for up to 24 hours. A publish that the reader cannot see is not
+    # published.
+    if PUBLISH and out.get("orders"):
+        try:
+            import subprocess
+            r = subprocess.run(
+                ["/opt/trading-agent/venv/bin/python",
+                 "/opt/trading-agent/scripts/export_ledger_json.py", "--push"],
+                capture_output=True, text=True, timeout=180,
+                cwd="/opt/trading-agent")
+            out["export"] = {"rc": r.returncode,
+                             "tail": (r.stdout or r.stderr or "").strip()[-400:]}
+            log_decision({"ts_utc": out["ts_utc"], "event": "site_export",
+                          "rc": r.returncode})
+        except Exception as e:
+            out["export"] = {"rc": -1, "err": str(e)[:200]}
+            log_decision({"ts_utc": out["ts_utc"], "event": "site_export_failed",
+                          "err": str(e)[:200]})
+
     return out
 
 
