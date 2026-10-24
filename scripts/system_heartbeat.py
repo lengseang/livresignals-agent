@@ -26,13 +26,23 @@ def _check_data_health() -> tuple[bool, str]:
     try:
         out = subprocess.run(
             [str(ROOT / "venv/bin/python"), "-m", "trading.data.health"],
-            cwd=str(ROOT), env={"PYTHONPATH": str(ROOT / "src")},
+            cwd=str(ROOT),
+            # REPLACE the environment, it does not merge: dropping PATH is fine
+            # for this call, but any env key added here must be spelled out.
+            env={"PYTHONPATH": str(ROOT / "src")},
             capture_output=True, text=True, timeout=60,
         )
         d = json.loads(out.stdout)
-        if d.get("ok"):
-            return True, "data fresh"
-        return False, f"{len(d.get('problems', []))} stale series"
+        if d.get("ok_all"):
+            return True, f"data fresh ({len(d.get('coverage') or {})} series covered)"
+        probs = d.get("problems", [])
+        if not d.get("ok"):
+            return False, f"{len(probs)} stale series"
+        # candles fresh for config.SYMBOLS, but the store as a whole is not
+        uncovered = [s for s, c in (d.get("coverage") or {}).items()
+                     if not c.get("covered")]
+        return False, (f"candles fresh but {len(uncovered)} series not covered: "
+                       f"{', '.join(uncovered[:3])}")
     except Exception as e:  # noqa: BLE001
         return False, f"health check failed: {str(e)[:60]}"
 
