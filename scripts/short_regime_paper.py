@@ -35,6 +35,21 @@ WHAT IT DOES, PER RUN (idempotent — safe to run hourly)
   4. record the gate state on every run, INCLUDING when the gate is shut, so the
      record shows how often the lane was eligible and not just when it traded
 
+CLOSED MEANS CLOSED
+-------------------
+The `candles` table is NOT a closed-bar series. ingest_all.py (:12/:27/:42/:57)
+requests raw `limit=60` candles including the in-progress one, and the store is
+INSERT OR IGNORE on (symbol, timeframe, open_time_utc) — so a 4h row exists from
+about fifteen minutes into its window and holds whatever the close was at that
+moment, frozen. Reading bar[-1] therefore priced the gate and the entry off a
+forming candle (found 2026-10-24, tests/test_short_lane_closed_bar.py).
+
+So the lane filters what it reads: a bar is usable only once
+`now >= open_time + 4h`. The gate, the entry and the settle walk all go through
+`last_closed()`, so no decision in this file can see a bar that has not closed.
+Cost: entries are one bar later than they were. That is the price of the entry
+being a price that existed.
+
 COSTS
 -----
 SIZE_USDT notional per position, COST_PCT round trip charged on close. Defaults
@@ -47,6 +62,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -61,6 +77,9 @@ SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT",
            "BNB/USDT", "ADA/USDT", "LINK/USDT", "DOGE/USDT"]
 TF = "4h"
 TF_MS = 4 * 3600 * 1000
+# Any timeframe the lane is pointed at; used to decide when a bar has closed.
+TF_MS_BY_NAME = {"5m": 5 * 60 * 1000, "30m": 30 * 60 * 1000,
+                 "1h": 3600 * 1000, "4h": TF_MS, "1d": 24 * 3600 * 1000}
 
 SIZE_USDT = 5.0
 COST_PCT = 0.30 / 100          # round trip, charged on close
@@ -103,6 +122,18 @@ def bars(con, symbol: str, limit: int = 260):
     ).fetchall()[::-1]
 
 
+def last_closed(rows, tf: str, now_ms: int):
+    """Drop every bar whose window has not ended at `now_ms`.
+
+    The candles table carries forming bars (see the module docstring), so the
+    newest row is not automatically a closed bar. A bar opened at `t` is closed
+    once `now >= t + duration`; the predicate is on the OPEN time, so it holds no
+    matter how late the row was written or how frozen its values are.
+    """
+    dur = TF_MS_BY_NAME[tf]
+    return [r for r in rows if r[0] + dur <= now_ms]
+
+
 class Bar:
     __slots__ = ("open_time_utc", "open", "high", "low", "close", "volume")
 
@@ -111,9 +142,11 @@ class Bar:
          self.close, self.volume) = r
 
 
-def gate_open(con) -> tuple[bool, dict]:
+def gate_open(con, now: int | None = None) -> tuple[bool, dict]:
     """BTC below its 200-bar 4h SMA → shorts enabled."""
-    b = bars(con, "BTC/USDT", GATE_SMA + 5)
+    if now is None:
+        now = int(time.time() * 1000)
+    b = last_closed(bars(con, "BTC/USDT", GATE_SMA + 5), TF, now)
     if len(b) < GATE_SMA:
         return False, {"reason": "insufficient BTC history", "bars": len(b)}
     closes = [r[4] for r in b][-GATE_SMA:]
@@ -123,13 +156,15 @@ def gate_open(con) -> tuple[bool, dict]:
                       "dist_pct": (px / sma - 1) * 100}
 
 
-def settle(con, st: dict) -> int:
+def settle(con, st: dict, now: int | None = None) -> int:
     """Close any open position whose horizon has elapsed. Returns count closed."""
+    if now is None:
+        now = int(time.time() * 1000)
     closed_n = 0
     still_open = []
     for pos in st["open"]:
         sym = pos["symbol"]
-        b = bars(con, sym, HOLD_BARS + 10)
+        b = last_closed(bars(con, sym, HOLD_BARS + 10), TF, now)
         have = {r[0] for r in b}
         exit_ts = pos["open_bar_ms"] + HOLD_BARS * TF_MS
         if exit_ts not in have:
@@ -173,6 +208,7 @@ def main() -> int:
         print("no candle DB")
         return 1
     con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    now = int(time.time() * 1000)
 
     st = _load(BOOK, {}) or {}
     st.setdefault("open", [])
@@ -188,13 +224,25 @@ def main() -> int:
         "note": ("Fixed in advance, identical to the certification run, so the "
                  "forward record cannot be tuned to the forward sample."),
     })
+    seg = st["meta"].setdefault("seams", [])
+    if not any(s.get("closed_bars_only") for s in seg):
+        # First run after the forming-bar fix: everything in the book before this
+        # mark was priced off bar[-1] whenever that row was partially formed, so
+        # it is kept (never deleted) but not comparable to what follows.
+        seg.append({
+            "from_utc": datetime.now(timezone.utc).isoformat(),
+            "closed_bars_only": True,
+            "reason": ("bars are filtered to those whose 4h window has ended; "
+                       "earlier runs read the newest row, which may have been a "
+                       "forming bar (tests/test_short_lane_closed_bar.py)"),
+        })
 
-    closed_n = settle(con, st)
+    closed_n = settle(con, st, now)
 
-    is_open, gi = gate_open(con)
+    is_open, gi = gate_open(con, now)
     latest = {}
     for s in SYMBOLS:
-        b = bars(con, s, 260)
+        b = last_closed(bars(con, s, 260), TF, now)
         if b:
             latest[s] = b[-1][0]
 
@@ -202,7 +250,7 @@ def main() -> int:
     fired = []
     if is_open:
         for sym in SYMBOLS:
-            b = bars(con, sym, 260)
+            b = last_closed(bars(con, sym, 260), TF, now)
             if len(b) < 55:
                 continue
             bar_ms = b[-1][0]

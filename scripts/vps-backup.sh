@@ -22,6 +22,7 @@ mkdir -p "$BK"
 tar -czf "$BK/trading-$TS.tar.gz" \
   data/trading.db data/pa-testnet-ledger.json data/pa-pnl-history.csv \
   data/pa-replay-pnl.csv data/pa-paper-state.json \
+  scripts/data \
   reports 2>/tmp/vps-backup-err.log || {
     # Do NOT swallow this. A backup that fails silently is worse than no
     # backup, because it is trusted. Report it and mark the run failed.

@@ -66,6 +66,36 @@ def _existing_range(cur, symbol: str, tf: str):
     return cur.fetchone()
 
 
+def rows_for_batch(batch, sym: str, tf: str, span: int, now_ms: int) -> list[tuple]:
+    """Build candle rows for a fetched page, DROPPING any bar still forming.
+
+    Binance's page always includes the in-progress candle, and the write is
+    INSERT OR IGNORE on (symbol, timeframe, open_time_utc): the first write of a
+    key wins forever. So a forming bar persisted once is frozen at that partial
+    OHLCV and no later ingest can ever correct it. Measured 2026-10-24: every
+    symbol carried a 1d row for the current day written by this script, 0.8-2.7%
+    off the live price with volume understated ~10x (BTC vol 1031 vs 10122),
+    frozen since its first write.
+
+    A bar opened at `t` is closed once `now >= t + span`. The predicate is on the
+    OPEN time, so it holds regardless of how late the row was written.
+    """
+    rows = []
+    for o, op, h, l, c, v in batch:
+        if int(o) + span > now_ms:
+            continue                       # still forming — never persist
+        rows.append((
+            sym, tf, int(o),
+            int(o) + span - 1,             # close_time_utc
+            op, h, l, c, v,
+            int(o) + span,                 # event_time_utc
+            now_ms,                        # received_time_utc
+            "backfill",                    # source
+            f"binance:{sym}:{tf}:{int(o)}",  # source_id
+        ))
+    return rows
+
+
 def main() -> int:
     import ccxt
 
@@ -109,17 +139,9 @@ def main() -> int:
                 if not batch:
                     break
                 now_ms = int(time.time() * 1000)
-                rows = []
-                for o, op, h, l, c, v in batch:
-                    rows.append((
-                        sym, tf, int(o),
-                        int(o) + span - 1,   # close_time_utc
-                        op, h, l, c, v,
-                        int(o) + span,       # event_time_utc
-                        now_ms,              # received_time_utc
-                        "backfill",          # source
-                        f"binance:{sym}:{tf}:{int(o)}",   # source_id
-                    ))
+                rows = rows_for_batch(batch, sym, tf, span, now_ms)
+                if not rows:
+                    break                     # only the forming bar came back
                 cur.executemany(
                     "INSERT OR IGNORE INTO candles ("
                     "symbol, timeframe, open_time_utc, close_time_utc, "

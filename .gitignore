@@ -44,16 +44,30 @@ htmlcov/
 # data/ is 40 MB of live state; the irreplaceable part (the signal
 # ledger) is replicated nightly to its own GitHub repo by
 # scripts/ledger_offbox.py — it does NOT depend on this repo.
-data/
-logs/
-backups/
-reports/
-state/
+#
+# ⚠️ The leading slash is load-bearing. A bare `data/` matches ANY directory
+# named data at ANY depth, so it silently excluded the entire source package
+# `src/trading/data/` — store.py, schema.sql, normalize.py, ccxt_fetcher.py,
+# health.py, __init__.py. Measured 2026-10-24: 0 of those 6 files were tracked,
+# so neither the git bundle in vps-backup.sh nor a fresh clone could rebuild the
+# candle store at all, and edits to that layer appeared in `git diff` as if
+# nothing had changed. Anchor to the repo root.
+/data/
+/logs/
+/backups/
+/reports/
+/state/
 *.log
 
 # --- databases --------------------------------------------------
 *.db
 *.sqlite
+
+# NOTE: scripts/data/ (gold-signals.json, breadth-state.json) is deliberately
+# NOT ignored. gold-signals.json is an append-only track record living inside
+# the code tree, so before 2026-10-24 it was in neither the git bundle (it was
+# ignored by the old bare `data/` rule) nor the nightly tar (which lists only
+# specific paths under the root data/). It had no backup of any kind.
 *.sqlite3
 
 # --- editors / OS ----------------------------------------------

@@ -87,6 +87,18 @@ def _features(ex, sym: str, tf: str) -> dict | None:
         ohlcv = ex.fetch_ohlcv(sym, tf, limit=120)
     except Exception:
         return None
+    # DROP THE FORMING BAR. Binance's array ends with the in-progress candle, and
+    # every feature below (drawdown vs the 90-bar high, RSI, red-streak) is then
+    # measured on a partial bar whose close can still move for the rest of the
+    # window: mean intrabar range is 0.30% on 15m and 0.67% on 1h, so the RSI and
+    # the red-count flip on ordinary moves. These sigs gate REAL orders, so a
+    # prediction taken on an unfinished bar is a decision on data that does not
+    # exist yet. Same predicate as elsewhere: a bar is closed once now >= open+tf.
+    _tf_ms = {"5m": 300_000, "15m": 900_000, "30m": 1_800_000,
+              "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}.get(tf)
+    if _tf_ms:
+        _now = int(time.time() * 1000)
+        ohlcv = [c for c in ohlcv if int(c[0]) + _tf_ms <= _now]
     closes = [c[4] for c in ohlcv]
     if len(closes) < 90:
         return None

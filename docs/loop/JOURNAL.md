@@ -3,6 +3,50 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-10-24 · the three-hour-old forward lane was pricing entries off a candle that had not finished forming
+
+- **Task:** autonomous improvement pass (cron). No board task; found while
+  reading the lane created at 10:16 UTC today against the data it reads.
+- **Need check:** repo-only plus one read of the public exchange to confirm what
+  the fetcher returns (no key, no account, no order). No prod file, config,
+  parameter or disable list touched — the lane is paper, the research loop is a
+  report path.
+- **Found:** `short_regime_paper.py` reads the newest `candles` row and treats it
+  as closed. `ingest_all.py` (:12/:27/:42/:57) requests raw `limit=60` including
+  the in-progress candle and the store is INSERT OR IGNORE on the primary key, so
+  the forming 4h row is written ~15 min into its window and frozen at that
+  snapshot forever. The lane's own run log proves it: it recorded
+  `latest_bar_ms` = the 08:00 bar at 10:16 UTC. The gate (−3.5% vs SMA200 today,
+  a ±0.04% band), the entry price, and the breakdown/cross rules all read that
+  partial bar. Five of eight symbols are 19 h behind (eight bars).
+- **Done:** `last_closed()` filters on each bar's own window
+  (`open_time + duration <= now`) at all three read sites; one `meta.seams` mark
+  records the boundary (nothing deleted — the lane had zero closed trades).
+  Design + lesson: `docs/proposals/short-lane-forming-bar-2026-10-24.md`.
+  SYSTEM_MAP §1 now states that a row is not a closed bar.
+- **Companion, same pass:** `research_loop._change_lines` announced
+  "REFUSED 'NEW BEST' sma_r=100 ... the incumbent stands" in the same message as
+  "LIVE EDGE DECAYED: sma_r=150 — ABOVE its ceiling". The noise check compares
+  the challenger with LIVE; when the challenger IS the incumbent the lead is 0
+  and 0 is inside every band, so the branch can only ever fire wrongly. The
+  cutoff against the previous best is kept and documented (a tie is not news);
+  the decay branch is untouched.
+- **Evidence:** RED first — `tests/test_short_lane_closed_bar.py` 5 failed, GREEN
+  6 passed; mutation `return list(rows)` re-fails all 6. Research-loop tests
+  5 passed, mutation `if True:` re-fails the 2 cutoff tests. Full suite
+  **415 passed, 3 failed** (all three pre-existing: 2 in
+  `test_data_health_coverage.py`, 1 in `test_research_loop_coin_fragility.py`,
+  identical under `git stash`), `tests/loop` **355 passed, 3 skipped**. E2E:
+  lane run twice, gate OPEN, 0 opened, one seam total.
+- **Learned:** "closed" is a property of the calendar, not of the table. Fetcher,
+  store and reader are each defensible and together manufacture a row that is
+  newest, immutable and wrong. The guard is one line — assert
+  `open_time + tf <= now` before pricing anything off the newest row — and it
+  belongs in the reader, because the ingest writes correctly by its own contract.
+  Also: a comparison between a thing and itself cannot produce evidence; `lead=0`
+  passing "is 0 inside the band" is not a finding. The escalation is the ingest
+  itself, which feeds the live scanner's 4h/1d gates the same way.
+
 ## 2026-10-18 · the "net" verdict counted its wins on GROSS — and the true rate told the book's only winner to stand down
 
 - **Task:** autonomous improvement pass (cron). No board task; a defect found

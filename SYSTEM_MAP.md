@@ -69,6 +69,14 @@ inner loop deserves to exist*. Most traders only ever run Loop 1.
 └───────────────────────────────────────────────────────┘
 ```
 
+**A row in `candles` is not a closed bar.** `ingest_all.py` runs every 15 min and
+requests raw candles *including the in-progress one*; the store is INSERT OR
+IGNORE on (symbol, timeframe, open_time_utc), so the forming bar is written
+early and never refreshed. Anything that prices an entry, an exit or a gate off
+the newest row must first drop bars whose window has not ended
+(`short_regime_paper.last_closed()` is the reference). See the 2026-10-24
+journal entry.
+
 ---
 
 ## 2. SIGNAL LAYER — how a decision is born

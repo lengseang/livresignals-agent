@@ -297,6 +297,13 @@ def _change_lines(prev, cur, best, live_row):
     changed = []
     pb = max(prev["rows"], key=score)
     best_row = _row_like(best) if "cfg" not in (best or {}) else best
+    # News is a change against the LAST RUN, not an absolute ranking. When the
+    # best config has not moved, there is nothing to announce — and evaluating
+    # the NEW BEST branch anyway made it contradict the decay branch below in
+    # the same run (2026-10-24: "REFUSED NEW BEST" naming the config the decay
+    # line then called the live incumbent, in one message). `>=` because a
+    # challenger that merely TIES the previous best is also not news; the
+    # refusal reason for it would be fabricated from a stale comparison.
     if score(best_row) > score(pb):
         # HARD RULE 3 gate: a "NEW BEST" must beat BTC buy&hold, not
         # just the other configs. Without this, a config that merely
