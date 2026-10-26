@@ -114,17 +114,22 @@ def bars_after(con, symbol: str, tf: str, after_ms: int, n: int):
 def funding_between(con, symbol: str, start_ms: int, end_ms: int) -> list[float]:
     """Funding rates whose timestamp falls inside (start, end].
 
-    Read from the FUNDING table if this box has one; otherwise return [] and say
-    so, because silently assuming zero funding is exactly the failure the source
-    lab warns about ("perpetual funding ... NOT modelled in the lab, log it").
+    The funding table stores Bybit's native symbol (BTCUSDT) while candles use the
+    display form (BTC/USDT), so both spellings are tried. Without this the join
+    silently misses and funding reads as zero — the exact failure mode this module
+    exists to avoid.
     """
-    try:
-        rows = con.execute(
-            "select rate from funding where symbol=? and ts>? and ts<=? "
-            "order by ts", (symbol, start_ms, end_ms)).fetchall()
-        return [float(r[0]) for r in rows]
-    except sqlite3.OperationalError:
-        return []
+    native = symbol.replace("/", "")
+    for sym in (native, symbol):
+        try:
+            rows = con.execute(
+                "select rate from funding where symbol=? and ts>? and ts<=? "
+                "order by ts", (sym, start_ms, end_ms)).fetchall()
+        except sqlite3.OperationalError:
+            return []                      # no funding table on this box
+        if rows:
+            return [float(r[0]) for r in rows]
+    return []
 
 
 # ----------------------------------------------------------------- the maths
