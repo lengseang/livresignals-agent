@@ -109,9 +109,15 @@ def series_coverage(db_path: Path | None = None, window_hours: int = 1,
                 "AND open_time_utc > ?", (min(win_opens | hole_opens),)):
             have.setdefault(sym, set()).add(o)
         store_latest = max(latest_any.values()) if latest_any else 0
+        # newest 5m OPEN per symbol — the only clock that can see a dead 5m
+        # feed while the other timeframes keep landing (max-close cannot).
+        last5 = {s: mx for s, mx in con.execute(
+            "SELECT symbol, MAX(open_time_utc) FROM candles "
+            "WHERE timeframe='5m' GROUP BY symbol")}
         out = {}
         for sym, close in latest_any.items():
             lag_h = (store_latest - close) / 3600e3
+            lag5_h = (grid_end - last5[sym]) / 3600e3 if last5.get(sym) else float("inf")
             bars_win = len(win_opens & have.get(sym, set()))
             missing_tf = sorted(set(TIMEFRAMES) - tfs_of.get(sym, set()))
             # the newest slot's bar may still be open — never count it missing.
@@ -125,14 +131,37 @@ def series_coverage(db_path: Path | None = None, window_hours: int = 1,
                 why = f"no {'/'.join(missing_tf)} series at all"
             elif bars_win >= MIN_BARS_IN_WINDOW_ALIVE and not holes:
                 why = ""
-            elif lag_h <= grace_h:
+            elif lag_h <= grace_h and not holes:
+                # Low-frequency symbol refreshed with the store. `not holes` is
+                # load-bearing: `lag_h` is a MAX over ALL timeframes, so a dead
+                # 5m feed whose 1h bars still land has lag_h 0.0 and used to
+                # take this exemption with 32 slots missing — `covered: true`,
+                # why '' (measured 2026-10-26 01:08Z, grace defaults to 0.0 so
+                # the exemption was landing on symbols with ZERO lag). A hole
+                # is the one thing max-close cannot excuse.
                 why = ""      # low-frequency symbol, refreshed with the store
+            elif bars_win == 0 and not holes:
+                why = f"0 bars in {window_hours}h, {lag_h:.1f}h behind the store"
             elif bars_win == 0:
                 # NOTE: `lag_h` is NOT evidence of freshness. A dead 5m feed
                 # whose 1d bars still land is only 1h "behind the store" by
                 # max-close (measured: 0.9h for a 21h-dead 5m series). Only
                 # bars inside the window count; the lag is reported beside.
-                why = f"0 bars in {window_hours}h, {lag_h:.1f}h behind the store"
+                #
+                # The reason must LEAD with what is measurably wrong. This
+                # branch used to return `0 bars in 1h` for a series that HAS
+                # bars in the hour but is missing a slot inside it — measured
+                # on a fixture at 01:04Z: bars_win 0/12 because the newest two
+                # 5m slots were 6h old, holes 32, and the line said \"0 bars in
+                # 1h\" while 32 slots were the finding. `check_data_health`
+                # then suppressed the hole as \"filled\" because the 1h re-read
+                # saw no hole in the last hour, and the whole report went
+                # green (`ok_all: True, problems: []`) on a 6h-dead 5m feed.
+                # A hole and an empty window are different faults and the
+                # text is what downstream reads: name the dark streak first.
+                why = (f"{len(holes)} holes in {hole_window_h}h, newest 5m bar "
+                       f"{lag5_h:.1f}h old ({bars_win}/{window_hours * 12} slots "
+                       f"in the last {window_hours}h), {lag_h:.1f}h behind the store")
             elif holes:
                 why = (f"{len(holes)} holes in {hole_window_h}h "
                        f"(first {time.strftime('%H:%M', time.gmtime(holes[0] / 1000))}Z), "
@@ -147,6 +176,94 @@ def series_coverage(db_path: Path | None = None, window_hours: int = 1,
         return out
     finally:
         con.close()
+
+
+def series_episodes(db_path: Path | None = None, min_minutes: int = 0) -> dict:
+    """Staleness as EPISODES with a start, not as a per-run boolean.
+
+    `series_coverage` answers "is this series covered now". That is the wrong
+    question to ask twice, because the answer is rewritten every run: an
+    outage that started at 04:00 and is still running at 13:00 leaves one
+    `covered: false` in `data-health.json` and no trace that it is nine hours
+    old. Measured 2026-10-25: seven alts went dark and three monitors gave
+    three answers (harness OK, coverage red, ingest "all series fresh"); the
+    single fact that would have settled it — when did they go dark, and is
+    that the same outage as yesterday's — was in none of them.
+
+    An episode is one contiguous stretch in which a set of symbols has no
+    closed 5m bar. Episodes are grouped by `since` to the nearest 5-minute
+    grid: symbols that died on the same ingest tick are ONE outage, not seven
+    coincidences. `end` is the newest 5m open actually present for that group.
+
+    Returns:
+      episodes          [{since_utc, end_utc|None, symbols[], duration_h,
+                          ongoing, timeframes[]}]
+      open_symbols      how many series have no bar inside the last hour
+      open_hours_max    age of the OLDEST still-open episode (0 if none)
+      current_holes     symbols uncovered by `series_coverage` right now
+
+    `min_minutes` drops episodes shorter than that (a single 15-minute ingest
+    slip is noise; an outage is not).
+    """
+    path = db_path or SQLITE_PATH
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        now_ms = int(time.time() * 1000)
+        grid_end = (now_ms // IV_5M) * IV_5M - IV_5M   # newest closed slot
+        last5 = {s: mx for s, mx in con.execute(
+            "SELECT symbol, MAX(open_time_utc) FROM candles "
+            "WHERE timeframe='5m' GROUP BY symbol")}
+        tfs_of: dict[str, set] = {}
+        for sym, tf in con.execute("SELECT DISTINCT symbol, timeframe FROM candles"):
+            tfs_of.setdefault(sym, set()).add(tf)
+    finally:
+        con.close()
+
+    # A series is DARK once its newest closed 5m bar is more than one slot
+    # plus the ingest slack behind the grid (the same slack coverage uses).
+    dark_cut = grid_end - INGEST_SLACK_MS
+    groups: dict[int, dict] = {}
+    open_symbols = 0
+    for sym, mx in last5.items():
+        if mx is None or mx >= dark_cut:
+            continue
+        open_symbols += 1
+        since = mx + IV_5M                       # first expected-but-absent slot
+        if (now_ms - since) / 60_000 < min_minutes:
+            continue
+        key = since // (5 * 60_000) * (5 * 60_000)   # same ingest tick → one outage
+        g = groups.setdefault(key, {"since": since, "end": mx, "symbols": set()})
+        g["symbols"].add(sym)
+        g["end"] = max(g["end"], mx)
+
+    episodes = []
+    for key in sorted(groups):
+        g = groups[key]
+        # `end` is the newest bar the group HAS; the episode began at the slot
+        # after it. Report the last bar as `last_bar_utc` and the first missing
+        # slot as `since_utc`, because "since 03:30" means no bar from 03:30 on.
+        since = g["end"] + IV_5M
+        dur = (now_ms - since) / 3600e3
+        tfs = sorted(set().union(*(tfs_of.get(s, set()) for s in g["symbols"])))
+        episodes.append({
+            "since_utc": datetime.fromtimestamp(since / 1000, timezone.utc)
+                                  .strftime("%Y-%m-%dT%H:%MZ"),
+            "last_bar_utc": datetime.fromtimestamp(g["end"] / 1000, timezone.utc)
+                                     .strftime("%Y-%m-%dT%H:%MZ"),
+            "end_utc": None,          # open: no 5m bar since `since_utc`
+            "symbols": sorted(g["symbols"]),
+            "duration_h": round(dur, 1),
+            "ongoing": True,
+            "timeframes": tfs,
+        })
+    cover = series_coverage(path)
+    return {
+        "checked_at_utc": datetime.now(timezone.utc).isoformat(),
+        "episodes": episodes,
+        "open_symbols": open_symbols,
+        "open_hours_max": max((e["duration_h"] for e in episodes), default=0),
+        "current_holes": sorted(s for s, c in cover.items() if not c["covered"]),
+    }
 
 
 def check_data_health(db_path: Path | None = None, publish: bool = False,
@@ -201,11 +318,62 @@ def check_data_health(db_path: Path | None = None, publish: bool = False,
     # (the heartbeat depends on it); `coverage` is a separate, stated verdict,
     # and `ok_all` requires both — the same rule as storage above.
     cov = None
+    eps = None
     if coverage:
         cov = series_coverage(db_path)
+        # A hole that has since been FILLED is not a fault. `series_coverage`
+        # is a point-in-time verdict over a 3h window, and the write path now
+        # settles a late closed bar over a partial one, so a hole a monitor saw
+        # at 18:00 can be gone at 18:05. Measured 2026-10-25 on the live store
+        # between two direct SELECTs 30 seconds apart: first
+        # `BTC/USDT: 1 holes in 3h (first 15:00Z)`, then `holes: 0` — the bar
+        # was there and had been written at 13:02.
+        #
+        # Re-ask with a 1h window and only report a hole that is still missing
+        # THERE. The bar count (`bars_win`) is deliberately not used to decide:
+        # 11 of 12 bars in the last hour also returns `covered: true` with
+        # `holes: 1`, so a count can hide the hole it is supposed to expose.
+        stale_holes = {s for s, c in cov.items()
+                       if not c["covered"] and "holes in" in c["why"]}
+        if stale_holes:
+            recheck = series_coverage(db_path, hole_window_h=1)
+            for s in list(stale_holes):
+                r = recheck.get(s) or {}
+                holes_now = r.get("holes")
+                old_holes = cov[s].get("holes") or 0
+                if holes_now == 0 and old_holes <= 1:
+                    # ONLY a single hole can have been filled. Clearing is a
+                    # claim about the bar, so it must be true of that bar — and
+                    # a hole that fell out of the 1h window is not evidence it
+                    # was filled. Measured 2026-10-26 01:04Z on the fixture
+                    # below: the newest two 5m slots sat 6h back, 32 slots were
+                    # missing, the 1h re-read naturally held no hole (nothing
+                    # was expected there), and `holes_now == 0` cleared the
+                    # series — `ok_all` true, `problems: []`, on a feed whose
+                    # 5m series was six hours dead. A streak of holes is never
+                    # "filled late"; it is a dark feed wearing a hole's name.
+                    cov[s] = {**r, "why": "",
+                              "note": "3h-window hole is absent from the most recent "
+                                      "hour (re-read, not assumed)"}
+                elif r.get("why"):
+                    cov[s] = {**r, "why": r["why"] + " [confirmed in the 1h re-read]"}
+                else:
+                    # keep the 3h verdict — the re-read window cannot see this
+                    # hole, which is not the same as the hole being gone.
+                    cov[s] = {**cov[s], "why": cov[s]["why"]
+                              + " [still missing on re-derive; outside the 1h re-read]"}
         for sym, c in cov.items():
             if not c["covered"]:
                 problems.append(f"{sym}: not covered ({c['why']})")
+        # The per-series lines above say WHAT is uncovered now. Only the
+        # episode says since WHEN — and one nine-hour outage must not read the
+        # same as seven independent one-hour blips.
+        eps = series_episodes(db_path)
+        for e in eps["episodes"]:
+            problems.append(
+                f"episode: {len(e['symbols'])} series dark since {e['since_utc']} "
+                f"({e['duration_h']}h) — {', '.join(s.split('/')[0] for s in e['symbols'][:4])}"
+                f"{' …' if len(e['symbols']) > 4 else ''}")
 
     storage = storage_check(con)
     if not storage["ok"]:
@@ -220,6 +388,7 @@ def check_data_health(db_path: Path | None = None, publish: bool = False,
         "coverage": {s: {"covered": c["covered"], "why": c["why"],
                          "bars_win": c["bars_win"], "lag_h": c["cover_lag_h"]}
                      for s, c in (cov or {}).items()},
+        "episodes": eps,
         "storage": storage,
         "problems": problems,
         "detail": detail,

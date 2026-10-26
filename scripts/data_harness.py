@@ -75,6 +75,57 @@ def age_hours(path: Path) -> float:
     return (time.time() - path.stat().st_mtime) / 3600.0
 
 
+# A sqlite "store" is a set of SERIES, and its age is the age of the OLDEST
+# series still being written — not the file's mtime and not MAX(open_time)
+# over the table. Measured 2026-10-25 08:00 UTC: this harness said
+# `candle store (sqlite) OK 0.0h 10 symbols` while seven of the ten symbols
+# had had no 5m bar for 5.9h, because the file mtime and the table MAX were
+# both set by BTC. Same defect as the coverage gate in
+# trading.data.health (2026-10-24), still open one monitor over — and this is
+# the monitor that runs every day.
+SERIES_LAG_ALARM_H = 1.0   # ingest runs every 15 min; 1h means four missed runs
+
+
+def sqlite_series_age(db_path: Path):
+    """(age_h, note) for a candle sqlite store, judged per SERIES.
+
+    age_h = hours since the newest closed 5m bar of the LAST symbol to have
+    one — i.e. the age of the darkest series that is still nominally fed.
+    A symbol that has never had a 5m bar is counted separately (`no 5m`),
+    because "absent" and "stale" are different faults.
+    """
+    import sqlite3
+    now_ms = int(time.time() * 1000)
+    con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows = list(con.execute(
+            "SELECT symbol, MAX(open_time_utc) FROM candles "
+            "WHERE timeframe='5m' GROUP BY symbol"))
+        n_sym = con.execute(
+            "SELECT COUNT(DISTINCT symbol) FROM candles").fetchone()[0]
+    finally:
+        con.close()
+    if not rows:
+        return 0.0, "empty store"
+    # sort on AGE ONLY: (lag, symbol) tuples break ties on the ticker, and
+    # four symbols seeded on the same tick all have the same age — the "worst
+    # symbol" came out as whichever name sorts last (SOL), not the one whose
+    # feed actually died. Ties are reported as a set.
+    lags = [(now_ms - mx) / 3600e3 for _s, mx in rows]
+    names = [s for s, _mx in rows]
+    worst_lag = max(lags)
+    worst_syms = [n for lag, n in zip(lags, names) if lag == worst_lag]
+    note = f"{n_sym} symbols"
+    dark = [n for lag, n in zip(lags, names) if lag > SERIES_LAG_ALARM_H]
+    if dark:
+        worst = "/".join(sorted(n.split("/")[0] for n in worst_syms)[:4])
+        more = "…" if len(worst_syms) > 4 else ""
+        note = (f"{n_sym} symbols | {len(dark)} stale >{SERIES_LAG_ALARM_H:.0f}h "
+                f"(worst {worst}{more} {worst_lag:.1f}h)")
+        return worst_lag, note
+    return worst_lag, f"{note} | all series < {SERIES_LAG_ALARM_H:.0f}h"
+
+
 def count_rows(path: Path, kind: str):
     """returns (rows, extra-note). never raises."""
     try:
@@ -148,6 +199,10 @@ def check():
 
         age = age_hours(path)
         rows, note = count_rows(path, kind)
+        if kind == "sqlite" and path.exists():
+            # the store's age is its DARKEST series, not the file's mtime
+            age, series_note = sqlite_series_age(path)
+            note = f"{note} | {series_note}"
 
         if rows >= 0 and rows < min_rows:
             verdict = "THIN"
@@ -170,8 +225,12 @@ def check():
 
         age_s = f"{age:.1f}h" if age < 48 else f"{age/24:.0f}d"
         rows_s = str(rows) if rows >= 0 else "err"
+        # 26 chars cuts off exactly the part that says WHICH series is dark
+        # ("4 symbols | 1 stale >1h (worst ADA 10.1h)" is 40), and a report
+        # that says "something is stale" without naming it is the defect this
+        # change is about. 60 fits a terminal line and keeps the worst symbol.
         print(f"{name[:30]:30} {verdict:8} {age_s:>9} {rows_s:>9}  "
-              f"{note[:26]} | {feeds}")
+              f"{note[:60]} | {feeds}")
 
         # STALE / THIN / MISSING / ERROR are faults. YOUNG and PENDING are
         # legitimate states, not problems - counting them as faults is how a
