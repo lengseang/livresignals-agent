@@ -28,7 +28,8 @@ from trading.data import health as health_mod
 from trading.data.health import check_data_health
 from trading.data.store import init, storage_check, upsert_candle
 
-IV = {"5m": 300_000, "30m": 1800_000, "1h": 3600_000, "4h": 14400_000, "1d": 86400_000}
+IV = {"5m": 300_000, "15m": 900_000, "30m": 1800_000, "1h": 3600_000,
+      "4h": 14400_000, "1d": 86400_000}
 
 
 def _candle(symbol, tf, open_ms, close=100.0):

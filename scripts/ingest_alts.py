@@ -92,7 +92,10 @@ def main() -> int:
     for sym in ALTS:
         for tf in TIMEFRAMES:
             span = TF_MS[tf]
-            limit = 200 if tf in ("5m", "30m", "1h") else 60
+            # 15m included: at 15m the fetch limit IS the max self-heal window
+            # (200 bars = 50h vs 60 bars = 15h). With limit=60 a 15m series dark
+            # longer than 15h can never catch up from the forward fetch alone.
+            limit = 200 if tf in ("5m", "15m", "30m", "1h") else 60
             before = _newest(con, sym, tf)
             try:
                 raw = fetch_closed_candles(ex, sym, tf, limit=limit)

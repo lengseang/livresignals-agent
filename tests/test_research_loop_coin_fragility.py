@@ -322,7 +322,15 @@ def test_the_solo_challenger_is_measured_even_when_it_has_no_family():
         f"live_fragile={v['live_fragile']} but LIVE median {med} "
         f"vs its own LOO band [{lf['loo_min']}, {lf['loo_max']}]")
     lines = rl._change_lines(
-        prev={"rows": [_row(150, 12.0)]},
+        # `prev` must be a benchmark that is UNSCORED by the live row, or the
+        # decay branch is unreachable by construction (see the comment there).
+        # It used to be `_row(150, 12.0)` — the LIVE cfg at an invented 12.0%.
+        # Once the 2026-10-27 cache moved LIVE to 25.32%, `score(live) <
+        # score(prev)` was False and no DECAYED line could be emitted, so the
+        # direction assertion below went red for a fixture reason, not a
+        # defect. A HIGHER invented bar keeps the branch reachable whatever
+        # the cache says, which is the property this test is about.
+        prev={"rows": [_row(150, live["median"] + 10.0)]},
         cur={"ts": "x", "rows": [best, live],
              "bench_btc_median": 0, "bench_eql_median": 0},
         best=best, live_row=live)

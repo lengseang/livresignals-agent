@@ -25,7 +25,8 @@ def test_health_ok_for_recent_closed_candles(tmp_path):
     con = init(db)
     now = int(time.time() * 1000)
     # Seed every symbol/timeframe combo with a freshly-closed candle.
-    interval_ms = {"5m": 300_000, "30m": 1800_000, "1h": 3600_000, "4h": 14400_000, "1d": 86400_000}
+    interval_ms = {"5m": 300_000, "15m": 900_000, "30m": 1800_000, "1h": 3600_000,
+                   "4h": 14400_000, "1d": 86400_000}
     for symbol in ("BTC/USDT", "ETH/USDT", "SOL/USDT"):
         for tf, iv in interval_ms.items():
             open_ms = now - 2 * iv  # closed 1 interval ago -> fresh

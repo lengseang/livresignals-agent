@@ -52,7 +52,8 @@ except ImportError:        # pragma: no cover - pre-fix module
 
 from trading.data.store import init, upsert_candle
 
-IV = {"5m": 300_000, "30m": 1800_000, "1h": 3600_000, "4h": 14400_000, "1d": 86400_000}
+IV = {"5m": 300_000, "15m": 900_000, "30m": 1800_000, "1h": 3600_000,
+      "4h": 14400_000, "1d": 86400_000}
 CORE = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
 
 

@@ -115,7 +115,11 @@ def test_main_uses_the_shared_planner_and_reports_loudly():
     """Pin the wiring: main() must call _plan_disables, and a frozen book must
     be surfaced as a warning on the card, not buried in a log."""
     src = (SCRIPTS / "self_improve.py").read_text(encoding="utf-8")
-    assert "_plan_disables(by_edge, state[\"disabled\"])" in src, \
+    # 2026-10-26: the planner now also takes the OPENABLE set (an edge with no
+    # recent fills is a record, not an opener — see
+    # tests/test_self_improve_disable_floor_openers.py). The wiring contract is
+    # unchanged: main() uses the shared planner with the real disable list.
+    assert "_plan_disables(by_edge, state[\"disabled\"], openable)" in src, \
         "main() must use the shared, tested planner"
     assert "REFUSED to disable the last open edge" in src, \
         "the refusal must be reported (loud, on the card), not silent"

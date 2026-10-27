@@ -41,6 +41,7 @@ HARD ENVELOPE (never exceeded):
 from __future__ import annotations
 
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -194,10 +195,10 @@ def _should_disable(st: dict) -> bool:
     return st["n"] >= 15 and st["wr"] < 42 and st["pnl"] < 0
 
 
-def _plan_disables(by_edge: dict, already_disabled) -> tuple[list, str | None]:
+def _plan_disables(by_edge: dict, already_disabled, openable=None) -> tuple[list, str | None]:
     """Decide which edges this run may disable — with a FLOOR, not just a rule.
 
-    Returns (to_disable, survivor). `to_disable` are the edges the predicate
+    Returns `(to_disable, survivor)`. `to_disable` are the edges the predicate
     flags and that are not already disabled; `survivor` is the strongest flagged
     edge held back so the paper book can never be emptied (None when the guard
     did not need to fire).
@@ -210,16 +211,74 @@ def _plan_disables(by_edge: dict, already_disabled) -> tuple[list, str | None]:
     disable is only safe while something REMAINS to carry the book, so if the
     rule would leave zero enabled, keep the strongest candidate (highest net,
     then n — closest to viable) and refuse the rest.
+
+    🔴 WHY `openable` (2026-10-26): the floor counted every edge in `by_edge`
+    that was not flagged as "something remains". But `by_edge` is built from
+    FINISHED TRADES — a record. An edge that stopped filling on 2026-09-08 is
+    still in it (and still trips the predicate), so it was counted as an opener
+    that would carry the book. On 2026-10-26 all 8 other edges were disabled and
+    'loose' (last fill 2026-10-11) tripped the predicate: `remaining` held only
+    dead edges, the floor stayed silent, 'loose' was disabled, and the disable
+    list became ALL NINE — a frozen book produced by the very guard written to
+    prevent it. Meanwhile 'validated', the ONLY edge still filling (08:16 that
+    morning), was not flagged, so the planner reported nothing at all: the card
+    said "REFUSED ... 'validated'" (false) and never said 'loose' had gone.
+
+    `openable` is the set of edges that can actually OPEN a trade now (the
+    engine's enabled set, intersected with the book when available). The floor
+    counts only those. Default `None` keeps the old behaviour for callers that
+    do not know the enable list.
     """
     disabled = set(already_disabled or [])
     flagged = [e for e, ts in by_edge.items()
                if e not in disabled and _should_disable(stats_net_of(ts))]
-    remaining = [e for e in by_edge if e not in disabled and e not in flagged]
+    carrier = set(by_edge) if openable is None else set(openable)
+    # An edge already on the list cannot open, however healthy its record.
+    carrier -= disabled
+    remaining = [e for e in carrier
+                 if e in by_edge and e not in flagged]
     if not flagged or remaining:
         return flagged, None  # guard not needed — something stays enabled
     flagged.sort(key=lambda e: (stats_net_of(by_edge[e])["pnl"],
                                 stats_net_of(by_edge[e])["n"]))
     return flagged, flagged.pop()  # keep the strongest; the rest still go
+
+
+def _openable_edges(by_edge: dict, already_disabled) -> set:
+    """The edges that can actually OPEN a paper trade right now.
+
+    `by_edge` is a record of finished trades; this is the enable list. The two
+    are not the same set and conflating them is what emptied the book on
+    2026-10-26 (see `_plan_disables`).
+
+    Built from `unified_trader`, the module that owns the openers, so it cannot
+    drift from the engine:
+      * the three NATIVE openers, read from unified_trader's own
+        `_edge_disabled("...")` call sites (validated / loose / pullback today);
+      * every IMPORTED edge, which flows through `_imported_strategy_open` and
+        honours the same disable list (that is where supertrend, rsi2, ... enter).
+    Edge names only appear in the book when they have traded, so the result is
+    intersected with `by_edge` — the planner only ever reasons about edges it
+    has statistics for.
+
+    Fails OPEN (returns the old book-based set) if unified_trader cannot be
+    read: a guard that cannot see the openers must not silently widen the
+    disables it allows.
+    """
+    disabled = set(already_disabled or [])
+    names = set()
+    try:
+        src = (BASE / "scripts" / "unified_trader.py").read_text(encoding="utf-8")
+        names |= set(re.findall(r'_edge_disabled\(\s*"([^"]+)"', src))
+        if "_imported_strategy_open" in src:
+            # Every book edge that is not a native opener entered via the
+            # imported track; it is gated by the same disable list.
+            names |= set(by_edge)
+    except Exception:  # noqa: BLE001
+        return set(by_edge) - disabled
+    if not names:
+        return set(by_edge) - disabled
+    return (names & set(by_edge)) - disabled
 
 
 def _identity(t: dict) -> tuple:
@@ -602,7 +661,15 @@ def main() -> None:
     state = load_json(STATE, {"disabled": [], "promoted": []})
     by_edge = {}
     for t in paper_c:
-        e = t.get("edge")
+        # SAME ATTRIBUTION AS THE LIVENESS READER (2026-10-26). A native opener's
+        # fills often carry no `edge` tag — they are identified by `loose` or by
+        # neither — so skipping them here left 2424 of 2545 records (95%) out of
+        # the disable gate entirely. The gate then judged openers like 'loose'
+        # from 7% of their history (n=65 while the card reported n=1261) and
+        # 'validated' from 354 of 1027: a verdict on a sample the engine never
+        # reported. paper_book._edge_liveness uses this exact rule; one book,
+        # one attribution.
+        e = t.get("edge") or ("loose" if t.get("loose") else "validated")
         if e and e != "?":
             by_edge.setdefault(e, []).append(t)
     # 🔴 NEVER DISABLE THE LAST OPEN EDGE (2026-10-14).
@@ -622,7 +689,10 @@ def main() -> None:
     #
     # `_plan_disables` applies the rule WITH A FLOOR: it never returns a plan
     # that leaves zero enabled edges (see its docstring for the full rationale).
-    to_disable, survivor = _plan_disables(by_edge, state["disabled"])
+    # The floor is fed the ENGINE's enable list, not just the book: an edge with
+    # no recent fills is a record, not an opener (2026-10-26, see docstring).
+    openable = _openable_edges(by_edge, state["disabled"])
+    to_disable, survivor = _plan_disables(by_edge, state["disabled"], openable)
 
     # LIVENESS (2026-10-21): which edges still produce fills, and which are
     # copies of another edge's handoff. Both gates below (disable, promote) are
@@ -647,6 +717,17 @@ def main() -> None:
             f"REFUSED to disable the last open edge '{survivor}': disabling it "
             f"would leave ZERO enabled edges and freeze the paper book. Keeping "
             f"the strongest candidate; the other {len(to_disable)} still go.")
+    # Report the POST-plan openable set, whatever the floor decided (2026-10-26).
+    # The floor used to be silent whenever it did not fire, so a run that
+    # disabled the last openable edge and a run that changed nothing read the
+    # same on the card. Naming what can still open makes the freeze visible on
+    # the day it happens rather than a day and a half later.
+    if to_disable:
+        after = (_openable_edges(by_edge, set(state["disabled"]) | set(to_disable))
+                 | ({survivor} if survivor else set()))
+        findings.append(
+            "disable plan: " + ", ".join(sorted(to_disable)) + " go; still openable "
+            "after this run: " + (", ".join(sorted(after)) or "NONE"))
 
     for e, ts in by_edge.items():
         # Judge on NET, not gross (2026-10-13). Same class of defect the

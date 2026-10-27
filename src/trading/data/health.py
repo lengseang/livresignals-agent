@@ -106,7 +106,15 @@ def series_coverage(db_path: Path | None = None, window_hours: int = 1,
         have = {}
         for sym, o in con.execute(
                 "SELECT symbol, open_time_utc FROM candles WHERE timeframe='5m' "
-                "AND open_time_utc > ?", (min(win_opens | hole_opens),)):
+                # >= not >: `min(win_opens | hole_opens)` is ITSELF a slot we are
+                # about to ask about, so a strict `>` excluded the oldest slot in
+                # the window and then reported it missing. Measured 2026-10-26
+                # 18:03Z on a PERFECTLY DENSE fixture (40 contiguous 5m bars):
+                # `1 holes in 3h (first 15:00Z)` — the 15:00 bar was in the store
+                # and the query had just skipped it. Every symbol was wrong the
+                # same way (the test's own tell), and on the live store it turned
+                # `covered: True` into `covered: False` at every boundary.
+                "AND open_time_utc >= ?", (min(win_opens | hole_opens),)):
             have.setdefault(sym, set()).add(o)
         store_latest = max(latest_any.values()) if latest_any else 0
         # newest 5m OPEN per symbol — the only clock that can see a dead 5m
@@ -171,6 +179,12 @@ def series_coverage(db_path: Path | None = None, window_hours: int = 1,
                        f"bars in {window_hours}h, {lag_h:.1f}h behind the store")
             out[sym] = {"bars_win": bars_win, "latest_any": close,
                         "holes": len(holes),
+                        # the slots themselves, not only how many. A caller that
+                        # wants to re-ask "is THAT bar there now?" cannot
+                        # reconstruct them from a count, and a count is exactly
+                        # what let a 2h-old hole be cleared by a 1h re-read
+                        # (2026-10-27).
+                        "hole_opens": holes,
                         "cover_lag_h": round(lag_h, 1),
                         "covered": why == "", "why": why}
         return out
@@ -266,6 +280,29 @@ def series_episodes(db_path: Path | None = None, min_minutes: int = 0) -> dict:
     }
 
 
+def _bar_present(db_path, symbol: str, open_ms: int) -> bool:
+    """Is the 5m bar opening at `open_ms` actually IN the store right now?
+
+    The only evidence that can retire a reported hole (2026-10-27). "The hole
+    is not in the 1h re-read" is a fact about the WINDOW, not about the bar —
+    a 2h-old hole is not in a 1h window by construction, and reading that as
+    "filled" wiped a real fault. Ask the store about the bar itself.
+
+    A fresh connection on purpose: the caller's connection may be holding a
+    snapshot from before the writer committed (WAL), and a stale read must not
+    be able to clear a fault either. Any error propagates — the caller treats
+    it as "not proven present", never as "present".
+    """
+    con = sqlite3.connect(f"file:{db_path or SQLITE_PATH}?mode=ro", uri=True)
+    try:
+        row = con.execute(
+            "SELECT 1 FROM candles WHERE symbol=? AND timeframe='5m' "
+            "AND open_time_utc=? LIMIT 1", (symbol, int(open_ms))).fetchone()
+        return row is not None
+    finally:
+        con.close()
+
+
 def check_data_health(db_path: Path | None = None, publish: bool = False,
                       coverage: bool = True) -> dict:
     con = sqlite3.connect(str(db_path or SQLITE_PATH))
@@ -342,19 +379,41 @@ def check_data_health(db_path: Path | None = None, publish: bool = False,
                 holes_now = r.get("holes")
                 old_holes = cov[s].get("holes") or 0
                 if holes_now == 0 and old_holes <= 1:
-                    # ONLY a single hole can have been filled. Clearing is a
-                    # claim about the bar, so it must be true of that bar — and
-                    # a hole that fell out of the 1h window is not evidence it
-                    # was filled. Measured 2026-10-26 01:04Z on the fixture
-                    # below: the newest two 5m slots sat 6h back, 32 slots were
-                    # missing, the 1h re-read naturally held no hole (nothing
-                    # was expected there), and `holes_now == 0` cleared the
-                    # series — `ok_all` true, `problems: []`, on a feed whose
-                    # 5m series was six hours dead. A streak of holes is never
-                    # "filled late"; it is a dark feed wearing a hole's name.
-                    cov[s] = {**r, "why": "",
-                              "note": "3h-window hole is absent from the most recent "
-                                      "hour (re-read, not assumed)"}
+                    # ONLY a single hole can have been filled, and it must be
+                    # the SAME hole: one that fell out of the 1h window is not
+                    # evidence it was filled. Measured 2026-10-27 01:06Z, after
+                    # the `>=` fix made `holes` able to reach 0: on the fixture
+                    # below the 3h verdict is `1 holes in 3h (first 23:00Z)` —
+                    # a hole older than the re-read window — the 1h re-read
+                    # naturally holds NO hole (nothing was expected there), and
+                    # `holes_now == 0` cleared the series: `problems: []`, a
+                    # real two-hour-old hole silently wiped, which is the same
+                    # silent clear the 2026-10-26 fix above was written to stop
+                    # (it just could never fire while the query skipped its
+                    # oldest slot). Clearing now also requires that the bar was
+                    # re-read and is actually PRESENT.
+                    _filled = False
+                    _slots = cov[s].get("hole_opens") or []
+                    _still_absent = []
+                    if old_holes == 1 and len(_slots) == 1:
+                        try:
+                            _filled = _bar_present(db_path, s, _slots[0])
+                            if not _filled:
+                                _still_absent = _slots
+                        except Exception:  # noqa: BLE001 — no proof, no clear
+                            _filled = False
+                    if _filled:
+                        cov[s] = {**r, "why": "", "note": "hole re-read and "
+                                  "present in the store (re-read, not assumed)"}
+                    elif _still_absent:
+                        # the bar was RE-ASKED and is still gone: that is proof
+                        # of the fault, not an absence of evidence.
+                        cov[s] = {**cov[s], "why": cov[s]["why"]
+                                  + " [bar re-read directly: still absent]"}
+                    else:
+                        cov[s] = {**cov[s], "why": cov[s]["why"]
+                                  + " [not in the most recent hour; outside the "
+                                    "1h re-read, so NOT cleared]"}
                 elif r.get("why"):
                     cov[s] = {**r, "why": r["why"] + " [confirmed in the 1h re-read]"}
                 else:

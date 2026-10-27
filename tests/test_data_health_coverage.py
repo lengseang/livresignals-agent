@@ -27,7 +27,8 @@ from trading.config import SYMBOLS, TIMEFRAMES
 from trading.data.health import check_data_health, series_coverage
 from trading.data.store import init, upsert_candle
 
-IV = {"5m": 300_000, "30m": 1800_000, "1h": 3600_000, "4h": 14400_000, "1d": 86400_000}
+IV = {"5m": 300_000, "15m": 900_000, "30m": 1800_000, "1h": 3600_000,
+      "4h": 14400_000, "1d": 86400_000}
 
 
 def _candle(symbol, tf, open_ms, close=100.0):
@@ -109,7 +110,9 @@ def test_coverage_counts_bars_not_just_the_latest_close(tmp_path):
     assert ada["bars_win"] < 10, ada
     assert ada["covered"] is False
     # the reason is the hole, not a clock: 11 of 12 slots empty
-    assert "holes in 1h" in ada["why"], ada["why"]
+    # (the message reports the HOLE window, hole_window_h=3, not window_hours=1;
+    #  assert on the substring that is actually invariant, not on "1h")
+    assert "holes in" in ada["why"], ada["why"]
 
 
 def test_a_symbol_missing_a_whole_timeframe_is_not_covered(tmp_path):
