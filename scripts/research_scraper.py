@@ -272,6 +272,36 @@ def scrape_x(keyword: str, cookies_path: str, max_results: int = 30,
     if not any(k in jar for k in ("auth_token", "ct0")):
         return [], "cookies lack auth_token/ct0 — not a logged-in X session"
 
+    # A session can be structurally valid (both cookies present) and still be stale:
+    # auth_token carries a far-future expiry but is invalidated by logging out,
+    # a password change, or a security challenge, while ct0 is the CSRF half and
+    # goes stale in hours-to-days. They must match each other and the server's
+    # memory. Expiry fields therefore cannot be trusted as a liveness signal —
+    # only a cheap authenticated call can. Do that before scraping, so a stale
+    # session is reported as EXPIRED rather than surfacing later as a confusing
+    # "login wall" in the middle of a run.
+    check_url = "https://x.com/i/api/1.1/account/settings.json"
+    try:
+        from curl_cffi import requests as creq
+        r = creq.get(check_url, cookies=jar, impersonate="chrome", timeout=30,
+                     headers={"Authorization": "Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA",
+                              "X-Csrf-Token": jar.get("ct0", ""),
+                              "Referer": "https://x.com/"})
+        if r.status_code in (401, 403):
+            return [], (f"session EXPIRED (HTTP {r.status_code}) — re-export cookies "
+                        f"from a logged-in browser; auth_token and ct0 must come from "
+                        f"the same session")
+        if r.status_code == 200:
+            try:
+                if not (r.json() or {}).get("screen_name"):
+                    return [], "session check returned no screen_name — re-export cookies"
+            except Exception:
+                return [], "session check returned non-JSON — likely a challenge page"
+    except Exception as e:
+        # A failed check is not a failed session; fall through to the scrape and let
+        # the content test below decide.
+        pass
+
     url = ("https://x.com/search?q=" + urllib.parse.quote(keyword)
            + "&f=live&src=typed_query")
     try:
