@@ -336,22 +336,63 @@ def run_once(dry: bool) -> dict:
             out["strategies"][sid] = {"no_new_bar": True, "bar": last_bar}
             continue
 
-        # exchange truth beats local state: if the position is gone, we are flat
+        # Exchange truth beats local state, but the EXCHANGE ONLY KNOWS ABOUT
+        # SYMBOLS, NOT STRATEGIES. Three of these strategies trade ETHUSDT, so a
+        # naive "is there an ETH position? adopt it" hands the same real position
+        # to every strategy that looks at ETH, each recording a different entry
+        # price, and only the one that actually placed the order holding a
+        # committed ledger id. The runner then believes it holds two positions
+        # while the exchange holds one, and an exit from the wrong strategy
+        # closes someone else's trade.
+        #
+        # Ownership is therefore tracked locally. A strategy may adopt an
+        # unclaimed position on its symbol; it may never adopt one another
+        # strategy already owns.
         exch = position(sym)
         local_in = bool(s.get("in_pos"))
         exch_in = exch is not None and (exch or {}).get("side") == "Buy"
+
+        claimed_by: dict[str, str] = {
+            other: other_sid
+            for other, other_sid in (
+                (k, (v or {}).get("symbol")) for k, v in st["strategies"].items()
+            )
+            if other != sid and (st["strategies"].get(other) or {}).get("in_pos")
+        }
+        symbol_claimed_elsewhere = any(
+            (st["strategies"].get(o) or {}).get("symbol") == sym
+            for o in claimed_by
+        )
+
         if local_in and not exch_in:
             # was closed externally (stop hit / manual). Record and resync.
             s["in_pos"] = False
             log_decision({"ts_utc": out["ts_utc"], "id": sid, "event":
                           "position_gone_on_exchange", "bar": last_bar})
-        if exch_in and not local_in:
+        elif exch_in and not local_in:
+            if symbol_claimed_elsewhere:
+                # Another strategy owns this position. Do not adopt it: acting on
+                # it would double-count the exposure and let two strategies fight
+                # over one stop. Stay flat and stop evaluating buys on this symbol
+                # this pass, so we do not stack a second real position on top.
+                out["strategies"][sid] = {
+                    "skipped": "symbol owned by another strategy",
+                    "symbol": sym, "bar": last_bar,
+                    "owner": next(o for o in claimed_by
+                                  if (st["strategies"].get(o) or {}).get("symbol") == sym),
+                }
+                log_decision({"ts_utc": out["ts_utc"], "id": sid,
+                              "event": "symbol_owned_by_other_strategy",
+                              "symbol": sym, "bar": last_bar})
+                continue
             s["in_pos"] = True
+            s["symbol"] = sym
             s["entry"] = float((exch or {}).get("avgPrice") or c[-1])
             s["qty"] = float((exch or {}).get("size") or 0)
+            s["ledger_id"] = None      # adopted: no committed record exists
             log_decision({"ts_utc": out["ts_utc"], "id": sid, "event":
                           "adopted_existing_position", "entry": s["entry"],
-                          "qty": s["qty"]})
+                          "qty": s["qty"], "symbol": sym})
 
         params = {k: v for k, v in cfg.items() if k != "engine"}
         action, new_stop, dist = decide(h, l, c, cfg["engine"], s["in_pos"],
@@ -393,6 +434,7 @@ def run_once(dry: bool) -> dict:
                 if r.get("retCode") == 0:
                     s.update({"in_pos": True, "entry": close1, "qty": qty,
                               "stop": stop_px,
+                              "symbol": sym,
                               "entry_bar_ms": last_bar,
                               "ledger_id": rec.get("ledger_id")})
                     out["orders"].append((sid, "BUY", qty, close1, stop_px))
@@ -422,7 +464,7 @@ def run_once(dry: bool) -> dict:
                                    last_bar - (s.get("entry_bar_ms") or last_bar)
                                ) / 86400000.0, 2))
                     s.update({"in_pos": False, "stop": 0.0, "qty": 0.0,
-                              "entry": 0.0, "ledger_id": None})
+                              "entry": 0.0, "ledger_id": None, "symbol": None})
                     out["orders"].append((sid, "SELL", rec["qty"], close1, 0))
                     rec["event"] = "closed"
                     rec["pnl"] = round(pnl, 4)
