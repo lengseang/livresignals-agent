@@ -235,6 +235,48 @@ def log_decision(rec: dict) -> None:
         f.write(json.dumps(rec) + "\n")
 
 
+def match_group(reg: dict, sid: str) -> set[str]:
+    """The arms of this strategy's experiment: itself plus its matched partner.
+
+    A registry entry may declare `match: <id>` to say "I am this strategy's
+    luck baseline: same symbol, same exits, same sizing, random entries". Those
+    two are two arms of ONE experiment, not two strategies contesting one
+    position, so ownership between them must not be exclusive. Returns {sid}
+    for an unmatched strategy.
+    """
+    by_id = {s["id"]: s for s in reg.get("strategies", [])}
+    me = by_id.get(sid) or {}
+    group = {sid}
+    if me.get("match"):
+        group.add(me["match"])
+    for other in reg.get("strategies", []):
+        if other.get("match") == sid:
+            group.add(other["id"])
+    return group
+
+
+def symbol_owner(st: dict, sid: str, sym: str, *,
+                 paired: frozenset[str] | set[str] = frozenset()) -> str | None:
+    """Which OTHER strategy owns a position on `sym`, if any.
+
+    Returns the owner's id, or None when `sid` is free to act on `sym`.
+    `sid`'s own position never blocks it (an owner must always be able to
+    exit), and neither does a paired treatment/control arm.
+    """
+    me = st.get("strategies", {}).get(sid) or {}
+    if me.get("in_pos") and me.get("symbol") == sym:
+        return None       # sid owns it; ownership governs adoption, not exit
+    for other, ov in st.get("strategies", {}).items():
+        ov = ov or {}
+        if other == sid or other in paired:
+            continue
+        if not ov.get("in_pos"):
+            continue
+        if ov.get("symbol") == sym:
+            return other
+    return None
+
+
 def strat_state(st: dict, sid: str) -> dict:
     s = st["strategies"].setdefault(sid, {
         "equity": EQUITY0, "peak": EQUITY0,
@@ -347,22 +389,24 @@ def run_once(dry: bool) -> dict:
         #
         # Ownership is therefore tracked locally. A strategy may adopt an
         # unclaimed position on its symbol; it may never adopt one another
-        # strategy already owns.
+        # strategy already owns. Ownership governs ADOPTION ONLY: a strategy
+        # that already holds a position must always reach decide(), or it can
+        # never close it, and a strategy skipped here never advances last_bar
+        # and silently lags the book.
+        #
+        # A matched treatment/control pair is NOT two strategies contesting one
+        # position; it is two arms of one experiment. RANDOM_ENTRY_CONTROL
+        # shares ETHUSDT with ETH_TURTLE_H4 on purpose (registry field `match`)
+        # and must be able to hold the symbol while the treatment also trades.
+        # Blocking on it would suppress the treatment whenever the luck
+        # baseline happened to be in a position -- destroying the very
+        # comparison the control exists to provide.
+        paired = match_group(reg, sid)
         exch = position(sym)
         local_in = bool(s.get("in_pos"))
         exch_in = exch is not None and (exch or {}).get("side") == "Buy"
 
-        claimed_by: dict[str, str] = {
-            other: other_sid
-            for other, other_sid in (
-                (k, (v or {}).get("symbol")) for k, v in st["strategies"].items()
-            )
-            if other != sid and (st["strategies"].get(other) or {}).get("in_pos")
-        }
-        symbol_claimed_elsewhere = any(
-            (st["strategies"].get(o) or {}).get("symbol") == sym
-            for o in claimed_by
-        )
+        owner_elsewhere = symbol_owner(st, sid, sym, paired=paired)
 
         if local_in and not exch_in:
             # was closed externally (stop hit / manual). Record and resync.
@@ -370,20 +414,22 @@ def run_once(dry: bool) -> dict:
             log_decision({"ts_utc": out["ts_utc"], "id": sid, "event":
                           "position_gone_on_exchange", "bar": last_bar})
         elif exch_in and not local_in:
-            if symbol_claimed_elsewhere:
-                # Another strategy owns this position. Do not adopt it: acting on
-                # it would double-count the exposure and let two strategies fight
-                # over one stop. Stay flat and stop evaluating buys on this symbol
-                # this pass, so we do not stack a second real position on top.
+            if owner_elsewhere:
+                # Another strategy owns this position and this strategy holds
+                # nothing. Do not adopt it: acting on it would double-count the
+                # exposure and let two strategies fight over one stop. Stay flat
+                # and stop evaluating buys on this symbol this pass, so we do
+                # not stack a second real position on top. This only ever
+                # applies to a FLAT strategy -- an owner always reaches decide().
                 out["strategies"][sid] = {
                     "skipped": "symbol owned by another strategy",
                     "symbol": sym, "bar": last_bar,
-                    "owner": next(o for o in claimed_by
-                                  if (st["strategies"].get(o) or {}).get("symbol") == sym),
+                    "owner": owner_elsewhere,
                 }
                 log_decision({"ts_utc": out["ts_utc"], "id": sid,
                               "event": "symbol_owned_by_other_strategy",
-                              "symbol": sym, "bar": last_bar})
+                              "symbol": sym, "bar": last_bar,
+                              "owner": owner_elsewhere})
                 continue
             s["in_pos"] = True
             s["symbol"] = sym
@@ -445,6 +491,22 @@ def run_once(dry: bool) -> dict:
 
         elif action == "close" and s["in_pos"]:
             rec.update({"qty": s["qty"], "entry": s["entry"]})
+            # Last line of defence. An exit is a market Sell for the whole
+            # position on this SYMBOL, so a strategy that believes it holds a
+            # position it never bought would close whoever else's real position
+            # this is, at our bar close, and book the P&L to the wrong arm.
+            # Only a committed ledger id, or an explicit ownership flag, proves
+            # we opened it.
+            if not (s.get("ledger_id") or s.get("owns_exchange_position")):
+                rec["event"] = "close_refused_unowned"
+                log_decision({**rec, "why": "no committed ledger_id and not "
+                              "marked as owner; refusing to close another "
+                              "strategy's position"})
+                out["strategies"][sid] = {
+                    "action": action, "event": rec["event"],
+                    "equity": round(s["equity"], 2),
+                    "trades": len(s["trades"]), "in_pos": s["in_pos"]}
+                continue
             if dry:
                 rec["event"] = "would_close"
             else:
@@ -510,7 +572,16 @@ def run_once(dry: bool) -> dict:
             "in_pos": s["in_pos"],
         }
 
-    save_state(st)
+    # A dry run must not write the live state file. run_once() already refuses
+    # to advance last_bar when dry -- precisely so a rehearsal cannot desync the
+    # live pass -- but it still called save_state() unconditionally, so a dry
+    # pass persisted its ADOPTIONS and its derived stop/qty/symbol. That
+    # silently handed ETH_TURTLE_H4 a copy of the position
+    # RANDOM_ENTRY_CONTROL owns (observed 2026-10-31: entry 2241.49,
+    # ledger_id None), which is the exact double-claim 294d5ae set out to stop,
+    # re-created by the rehearsal path. Rehearsing must leave no trace.
+    if not dry:
+        save_state(st)
 
     # If anything was published to the chain this pass, rebuild and push the
     # site data NOW. The ledger is written instantly but the export used to run
