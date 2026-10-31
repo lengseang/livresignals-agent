@@ -3,6 +3,64 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-10-31 · the ownership guard was disarming the strategy it was protecting — and the dry run kept the receipt
+
+- **Task:** autonomous improvement pass (cron). No board task; verification of
+  `294d5ae`, the same-day fix for "two strategies claiming one exchange
+  position", found while reading its result against the live decision log.
+- **Need check:** repo-only plus one `--dry-run` of the runner (demo endpoint,
+  no key, no real order). No config, parameter or disable list touched. The
+  runner trades Bybit **demo** only.
+- **Found (four defects, all observed live, none in a test):**
+  1. `294d5ae` put the ownership guard at the top of the per-strategy body and
+     `continue`d before `decide()`. `ETH_TURTLE_H4` logged
+     `symbol_owned_by_other_strategy` 10 times from 08:07 UTC and its
+     `last_bar` stalled at 04:00 while `RANDOM_ENTRY_CONTROL` reached 12:00 —
+     two closed H4 bars behind and growing, because a skipped strategy never
+     advances its clock and never evaluates its own exit.
+  2. The blocker was the treatment's own luck baseline. The registry pairs
+     `RANDOM_ENTRY_CONTROL` with `ETH_TURTLE_H4` via `match` (same symbol, same
+     exits, random entries). The guard read "another strategy owns this symbol"
+     and suppressed the TREATMENT whenever the control held a position —
+     inverting the comparison the pair exists to make.
+  3. `run_once()` refuses to advance `last_bar` when `dry` (documented: a
+     rehearsal must not desync the live pass) but called `save_state(st)`
+     unconditionally. One `--dry-run` wrote `ETH_TURTLE_H4` into the state file
+     holding ETH at 2241.49 with `ledger_id: None` — the exact double claim
+     `294d5ae` had just removed, re-created through the rehearsal path. I
+     triggered it myself and repaired the state.
+  4. Nothing stopped a non-owner exiting: a `close` is a market Sell for the
+     whole position on the SYMBOL, so an unowned position would close the real
+     owner's trade and book the P&L to the wrong arm.
+- **Done:** ownership now governs ADOPTION ONLY — consulted solely on
+  `exch_in and not local_in`; an owner always reaches `decide()`. New
+  `match_group()` / `symbol_owner()` helpers, exempting paired arms. `save_state`
+  dry-guarded. Exit path refuses without a committed `ledger_id` or
+  `owns_exchange_position`, logging `close_refused_unowned`. State repaired
+  (phantom claim released with its reason retained); the control's committed
+  position untouched. Design + lesson:
+  `docs/proposals/ownership-guard-pairs-2026-10-31.md`. Escalated E8: the
+  runner's schedule is not in any crontab I can read.
+- **Evidence:** RED first — 9 new tests across
+  `test_ownership_guard_pairs.py` and `test_demo_runner_dry_and_exit.py`; the
+  live-lag test failed on real state (2.0 bars). Mutation checks: unguarding
+  `save_state` re-fails the dry-run test; dropping `paired` from `symbol_owner`
+  re-fails 3 ownership tests; both restored. `pytest tests/loop` → **363
+  passed, 3 skipped, 1 failed** (the live-lag test, which asserts the
+  user-visible symptom and stays red until a real pass closes the gap).
+  `compileall` clean. Dry run after the fix: state file md5 unchanged, and
+  `ETH_TURTLE_H4` evaluates again (`hold`). Pre-existing
+  `test_research_loop_coin_fragility` failure reproduces identically with these
+  changes stashed.
+- **Learned:** a guard placed on the *path* rather than on the *branch* it is
+  about disables everything downstream of it, exits included. "Who owns this
+  position?" is a question about adoption; answering it at the top of the loop
+  also silently meant "do not trade, do not exit, do not advance the clock".
+  And: a rehearsal that writes is not a rehearsal — the intent was documented
+  in a comment one function away from the leak, which is why the comment did
+  not prevent it. Check every writer on the dry path, not the one you
+  remembered.
+
 ## 2026-10-24 · the three-hour-old forward lane was pricing entries off a candle that had not finished forming
 
 - **Task:** autonomous improvement pass (cron). No board task; found while

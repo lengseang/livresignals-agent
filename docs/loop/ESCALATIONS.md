@@ -2,6 +2,16 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
+## E8 · What schedules `run_crypto_trend_demo.py`? (2026-10-31)
+The runner takes a pass every ~30 min (decisions.jsonl: 12:07, 12:37, 13:02 UTC) and
+places real Bybit **demo** orders, but its path appears in no crontab I can read
+(`crontab -l` for ubuntu and root both lack it) and in no pm2 process. I will not
+guess: the answer decides whether the ownership fix is live yet, and separately
+whether the schedule is intended.
+**Needed:** where it is scheduled (cron file, systemd timer, or another host), so the
+two-bar ETH_TURTLE_H4 lag can be confirmed closed on the next real pass.
+**Answer:**
+
 ## E7 · Pause `futures_executor` until its signal is re-tested net of fees? (T1.5, PR #13)
 It trades **3x real futures** (every 10 min in `crontab.backup`, no enable flag) on the 15m SHARP + EMA200 signal. The
 only evidence is a gross study (its scripts have no fee handling): "SOL WR 51% → 61%, OOS +13.5%". At 3x, fees are
