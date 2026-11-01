@@ -3,6 +3,110 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-01 · the pairing exemption let a treatment own a position it never bought (E9)
+
+- **Task:** autonomous improvement pass (cron). No board task; resolving E9, the
+  red test the morning shift escalated rather than repaired.
+- **Need check:** repo-only; no order path exercised. The runner trades Bybit
+  **demo** only and the module refuses any other endpoint at import. No trading
+  parameter, threshold or disable list touched — this is an ownership/state
+  invariant. The one live write is the phantom-claim repair in the demo state
+  file, which was already corrupt and is a demo book. One read of the demo
+  exchange position (private endpoint, demo credentials) confirmed ONE 1.2 ETH
+  position, avg 2241.49, stop 2175.39.
+- **Found (three defects, one of them only by replaying the real state):**
+  1. `symbol_owner()` short-circuited on the paired partner, so **a pair member
+     could adopt a position its partner already held**. 92db5bb exempted pairs
+     to stop the control disarming the treatment — correct about DECISION, but
+     it also removed the CLAIM check. The flat treatment adopted and wrote
+     `ledger_id: None`; both arms then held 1.2 ETH on one exchange position.
+  2. Nothing ever released a claim with no ledger id. The phantom survived two
+     days across 12 `hold` logs. `hold` re-writes `in_pos` as-is, so re-logging
+     the claim looked like confirmation of it.
+  3. **My own first fix was wrong and the tests were green on it.** I put the
+     repair after the `no_new_bar` continue, which returns before every
+     ownership guard. An arm that had already seen the bar could therefore
+     never be repaired — exactly the state's condition. Found by replaying the
+     real corrupt state through the shipped `run_once()`, not by any test.
+- **E9's own timeline was also wrong:** the re-adoption was **2026-10-31T13:07Z**
+  (the last `adopted_existing_position` event, 4 minutes after 92db5bb landed),
+  not "back by 2026-11-01T00:07Z". 00:07 is the first `hold` after a midnight
+  gap. There was no new adoption on 11-01 at all — the escalation read a `hold`
+  as a re-claim. **A state field with no event behind it cannot be dated from
+  the log's last mention of the symbol.**
+- **Done:** `2ac046e`. `symbol_owner` now blocks a paired partner's claim (it
+  still never blocks `decide()`); a phantom claim is released when another arm
+  can PROVE ownership (ledger id or explicit flag) and never sold, because a
+  Sell is for the whole symbol; the repair runs ahead of the `no_new_bar`
+  continue; the adoption block no longer `continue`s (it suppresses the buy for
+  one pass and still decides, so `last_bar` advances — the 10-31 lag bug cannot
+  return by this route). Two old tests that asserted `blocker is None` for
+  exactly this case **had encoded the double claim as the contract** and were
+  rewritten. Live state repaired. E8 answered in passing: the runner is
+  scheduled by the Hermes cron subsystem (`bdd39cc7f4a7`, `7,37 * * * *`), not
+  cron/systemd/pm2.
+- **Evidence:** RED first — `tests/loop/test_paired_claim_single_owner.py` →
+  **4 failed, 2 passed** on `git show HEAD:scripts/run_crypto_trend_demo.py`
+  (the mutation run also re-failed `test_run_once_repairs_a_phantom_claim_on_a_
+  NO_NEW_BAR_pass` when the early repair was disabled). With the fix: 7 passed.
+  `tests/loop` **371 passed, 3 skipped**; full suite **830 passed, 3 skipped,
+  0 failed** (morning: 821 passed / 1 failed — E9 was that failure).
+  Post-fix replay of the real corrupt state: `released_phantom_claim` →
+  treatment flat, control keeps 1.2 ETH, **no ETH Sell placed**, treatment still
+  evaluated. Live pass at 18:07Z: state md5 changed, treatment flat, control
+  holding.
+- **Learned:** a test that asserts `blocker is None` can be asserting the bug.
+  The 10-31 regression suite was written from the *symptom* it had just fixed
+  ("the treatment must not go dark") and so pinned the opposite defect as the
+  contract — and it stayed green through two days of a double claim. **When a
+  fix exempts a pair from a guard, ask what else that exemption now admits.**
+  And the instrument lesson repeats: *three* fixture errors in this session
+  (zero-filled timestamps made the pass a no-op; the un-stubbed `instrument()`
+  reached the live endpoint; unstubbed `RUNNER_DIR` would have appended fixture
+  rows to the live decision log), while the defect that mattered was found by
+  replaying reality. **Run the shipped function against the corrupt real state
+  before believing the suite.**
+
+## 2026-11-01 · the event blackout stood a crypto book down for US elections
+
+- **Task:** autonomous improvement pass (cron). No board task; found while
+  re-deriving today's blackout state by hand for the report.
+- **Need check:** repo-only + one live fetch of the public calendar feed (GET,
+  no key, no order). No trading parameter touched; the blackout fix only
+  *narrows* when entries are allowed, never widens risk. The live cache was
+  restored to its pre-investigation contents.
+- **Found (three defects in `scripts/econ_calendar.py`, none in a test):**
+  1. `risk_state()` gated on High-impact + USD for **every** release. Its only
+     caller is a crypto book (BTC/ETH/SOL/…/XAUT) and the module already has
+     `GOLD_MOVERS` + `is_gold_mover()`, which the blackout never consulted.
+     `2026-11-03 10:16 USD Congressional Elections` (High, not a gold mover)
+     opened a 30h stand-down for the whole book.
+  2. this-week + next-week feeds overlap: live cache held 116 rows / 113
+     unique (3 releases written twice). Dedupe now happens before the write.
+  3. `_save_seed()` merged forever. Feed returned HTTP 429 today, the reader
+     fell back to the seed, and the cache went **116 → 874 rows** (762
+     already past, spanning 7 weeks). Seed now pruned to [-2d, +21d] on merge
+     and on fallback read.
+- **Done:** all three fixed in one file; 10 new tests in
+  `tests/test_econ_calendar_blackout.py`, **5 red on the HEAD version**, 10
+  green after. Mutation checks — dropping the gold-mover gate, dropping the
+  dedupe, keying the dedupe on title only, and unpruning the seed merge each
+  re-fail a named test. Live fetch after the fix: 119 events, 0 duplicates.
+  Design: `docs/proposals/econ-calendar-blackout-scope-2026-11-01.md`.
+  Full suite: **821 passed, 4 skipped, 1 failed** — the failure is
+  `test_live_state_has_no_unowned_double_claim` on real state, unrelated to
+  this file; escalated as E9 (not repaired from here).
+- **Evidence:** `python -m pytest tests/test_econ_calendar_blackout.py` →
+  10 passed; same file on `git checkout HEAD -- scripts/econ_calendar.py` →
+  5 failed. `curl` to the feed → 429; `fetch_events(force=True)` → 119 events,
+  0 dups (was 116 rows, 3 dups).
+- **Learned:** a safety gate must name the POPULATION it protects. Rules #14,
+  #15 and #17 were all about that for *measurements*; this was a *gate* whose
+  premise ("the US calendar is busy") was true while its consequence ("this
+  book must stop trading") was false. Ten minutes of manual re-derivation
+  found what the monitors reported as healthy — the monitor was right about
+  what it measured and wrong about what it meant.
+
 ## 2026-10-31 · the ownership guard was disarming the strategy it was protecting — and the dry run kept the receipt
 
 - **Task:** autonomous improvement pass (cron). No board task; verification of
