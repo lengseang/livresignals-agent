@@ -85,7 +85,16 @@ def test_live_state_has_the_pair_on_one_symbol():
 
 
 def test_control_holding_the_symbol_must_not_disarm_its_treatment():
-    """The live bug: the luck baseline held ETH, so the treatment went dark."""
+    """The live bug: the luck baseline held ETH, so the treatment went dark.
+
+    ⚠️ REWRITTEN 2026-11-01 (E9). This test used to assert `blocker is None`
+    -- i.e. that the FLAT treatment may adopt the position its control owns.
+    That assertion WAS the double-claim: the treatment adopted, wrote
+    `ledger_id: None`, and both arms held 1.2 ETH on one exchange position.
+    "Must not disarm" means the treatment still DECIDES and still advances its
+    clock (covered by test_treatment_does_not_lag_the_book and the end-to-end
+    tests); it does not mean two arms may own one position.
+    """
     st, reg = _load()
     treatment, control = _pair(reg)
     strategies = st["strategies"]
@@ -98,14 +107,21 @@ def test_control_holding_the_symbol_must_not_disarm_its_treatment():
     paired = {treatment["id"], control["id"]}
     blocker = _guard(strategies, treatment["id"], treatment["symbol"],
                      paired=paired)
-    assert blocker is None, (
-        f"{treatment['id']} was blocked by its own control {blocker}; "
-        f"a treatment must keep trading while its luck baseline holds the symbol"
+    assert blocker == control["id"], (
+        f"{treatment['id']} was allowed to re-claim a position "
+        f"{control['id']} already owns; one exchange position, one owner"
     )
 
 
 def test_paired_arms_are_not_rivals():
-    """Symmetry: the control must be equally free to run."""
+    """Symmetry: the control is equally barred from claiming the treatment's.
+
+    ⚠️ REWRITTEN 2026-11-01 (E9) -- same reason as the test above: the old
+    assertion licensed a second claim on one position. Rivalry means neither
+    arm blocks the other's RIGHT TO DECIDE, which is asserted in
+    test_pair_member_is_still_free_to_decide_flat (the fixture with neither arm
+    holding the symbol).
+    """
     st, reg = _load()
     treatment, control = _pair(reg)
     strategies = st["strategies"]
@@ -116,7 +132,9 @@ def test_paired_arms_are_not_rivals():
     paired = {treatment["id"], control["id"]}
     blocker = _guard(strategies, control["id"], control["symbol"],
                      paired=paired)
-    assert blocker is None, f"control was blocked by its treatment {blocker}"
+    assert blocker == treatment["id"], (
+        f"control was allowed to claim the treatment's position ({blocker})"
+    )
 
 
 def test_owned_position_exit_is_never_blocked():

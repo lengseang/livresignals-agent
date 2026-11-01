@@ -255,17 +255,68 @@ def match_group(reg: dict, sid: str) -> set[str]:
     return group
 
 
+def _claims(s: dict) -> bool:
+    """True when this arm believes it holds a position on its symbol."""
+    return bool((s or {}).get("in_pos") and (s or {}).get("symbol"))
+
+
+def position_holder(st: dict, sym: str, *, exclude: str | None = None) -> tuple[str, bool] | None:
+    """Which arm holds the ONE physical position on `sym`, and whether it disputes it.
+
+    The exchange knows symbols, not strategies: ETHUSDT is one position of 1.2
+    no matter how many arms look at it. So at most one arm may claim it. Returns
+    (sid, disputed) or None.
+
+    `disputed` is True when two arms BOTH claim the symbol -- i.e. the state is
+    already corrupt (measured 2026-11-01: ETH_TURTLE_H4 qty 1.2 ledger_id None
+    beside RANDOM_ENTRY_CONTROL qty 1.2 with the committed id). In that case the
+    committed owner is the real one and every other claimant is a phantom.
+    """
+    holders = [(sid, s) for sid, s in (st.get("strategies") or {}).items()
+               if sid != exclude and _claims(s) and (s or {}).get("symbol") == sym]
+    if not holders:
+        return None
+    if len(holders) == 1:
+        return holders[0][0], False
+    # Prefer the arm that can PROVE ownership: a committed ledger id or the
+    # explicit flag. A phantom adoption has neither (it writes ledger_id None).
+    proven = [sid for sid, s in holders
+              if (s or {}).get("ledger_id") or (s or {}).get("owns_exchange_position")]
+    if len(proven) == 1:
+        return proven[0], True
+    return sorted(sid for sid, _ in holders)[0], True
+
+
 def symbol_owner(st: dict, sid: str, sym: str, *,
                  paired: frozenset[str] | set[str] = frozenset()) -> str | None:
     """Which OTHER strategy owns a position on `sym`, if any.
 
-    Returns the owner's id, or None when `sid` is free to act on `sym`.
+    Returns the owner's id, or None when `sid` is free to ACT on `sym`.
     `sid`'s own position never blocks it (an owner must always be able to
     exit), and neither does a paired treatment/control arm.
+
+    ⚠️ BUT A PAIR IS STILL ONE PHYSICAL POSITION. "Paired arms are not rivals"
+    means the control must not DISARM the treatment -- not that both may claim
+    the same 1.2 ETH. On 2026-10-31 the pairing exemption let the flat treatment
+    adopt the control's position (ledger_id None), and both arms then held
+    `in_pos:true, qty 1.2` on one exchange position for two days. The exemption
+    below is what allowed it, and `position_holder` is what stops it: an arm
+    may not adopt a position another arm already claims, pair or not. The
+    treatment stays free to DECIDE (decide() is never blocked); it just cannot
+    believe it is long a position it did not buy.
     """
     me = st.get("strategies", {}).get(sid) or {}
     if me.get("in_pos") and me.get("symbol") == sym:
         return None       # sid owns it; ownership governs adoption, not exit
+    # The paired exemption must not license a second claim on one position.
+    for other, ov in st.get("strategies", {}).items():
+        ov = ov or {}
+        if other == sid:
+            continue
+        if not ov.get("in_pos") or ov.get("symbol") != sym:
+            continue
+        if other in paired:
+            return other          # a partner already holds it: do not re-claim
     for other, ov in st.get("strategies", {}).items():
         ov = ov or {}
         if other == sid or other in paired:
@@ -373,6 +424,37 @@ def run_once(dry: bool) -> dict:
             continue
 
         last_bar = ts[-1]
+
+        # ── PHANTOM-CLAIM REPAIR, before any bar short-circuit ────────────
+        # A claim with no committed ledger id is an ADOPTION that no record
+        # ever backed. When another arm also claims this symbol, at most one of
+        # them can be holding the exchange's single position, and only one can
+        # prove it (measured 2026-11-01: ETH_TURTLE_H4 ledger_id None beside
+        # RANDOM_ENTRY_CONTROL holding the committed id, both qty 1.2).
+        #
+        # This MUST run before the `no_new_bar` continue. That short-circuit
+        # returns before every ownership guard, which is why a corrupt state
+        # survived: the treatment had already seen the bar, so it kept the
+        # phantom claim forever while logging "no_new_bar". Repair is about
+        # STATE VALIDITY, not about new bars.
+        #
+        # Release, never exit: a Sell is for the whole symbol and would close
+        # the real owner's position.
+        if _claims(s) and s.get("symbol") == sym \
+                and not (s.get("ledger_id") or s.get("owns_exchange_position")):
+            provers = [o for o, ov in (st.get("strategies") or {}).items()
+                       if o != sid and _claims(ov)
+                       and (ov or {}).get("symbol") == sym
+                       and ((ov or {}).get("ledger_id")
+                            or (ov or {}).get("owns_exchange_position"))]
+            if provers:
+                s.update({"in_pos": False, "stop": 0.0, "qty": 0.0,
+                          "entry": 0.0, "symbol": None, "ledger_id": None})
+                log_decision({"ts_utc": out["ts_utc"], "id": sid, "event":
+                              "released_phantom_claim", "symbol": sym,
+                              "owner": provers[0], "bar": last_bar})
+                out.setdefault("released", []).append((sid, sym, provers[0]))
+
         # only act once per closed bar
         if s.get("last_bar") == last_bar:
             out["strategies"][sid] = {"no_new_bar": True, "bar": last_bar}
@@ -407,6 +489,7 @@ def run_once(dry: bool) -> dict:
         exch_in = exch is not None and (exch or {}).get("side") == "Buy"
 
         owner_elsewhere = symbol_owner(st, sid, sym, paired=paired)
+        local_in = bool(s.get("in_pos"))
 
         if local_in and not exch_in:
             # was closed externally (stop hit / manual). Record and resync.
@@ -421,24 +504,31 @@ def run_once(dry: bool) -> dict:
                 # and stop evaluating buys on this symbol this pass, so we do
                 # not stack a second real position on top. This only ever
                 # applies to a FLAT strategy -- an owner always reaches decide().
-                out["strategies"][sid] = {
-                    "skipped": "symbol owned by another strategy",
-                    "symbol": sym, "bar": last_bar,
-                    "owner": owner_elsewhere,
-                }
+                #
+                # ⚠️ But do NOT `continue`: a skipped strategy never advances
+                # last_bar and never evaluates its own exit. On 2026-10-31 that
+                # made ETH_TURTLE_H4 lat 3 H4 bars behind its control. The block
+                # is on ADOPTION, so it must fall through to decide() with
+                # in_pos False -- the arm decides flat, which is what it is.
                 log_decision({"ts_utc": out["ts_utc"], "id": sid,
                               "event": "symbol_owned_by_other_strategy",
                               "symbol": sym, "bar": last_bar,
                               "owner": owner_elsewhere})
-                continue
-            s["in_pos"] = True
-            s["symbol"] = sym
-            s["entry"] = float((exch or {}).get("avgPrice") or c[-1])
-            s["qty"] = float((exch or {}).get("size") or 0)
-            s["ledger_id"] = None      # adopted: no committed record exists
-            log_decision({"ts_utc": out["ts_utc"], "id": sid, "event":
-                          "adopted_existing_position", "entry": s["entry"],
-                          "qty": s["qty"], "symbol": sym})
+                s["_skip_buy"] = True    # honoured at the buy branch below
+                out["strategies"][sid] = {
+                    "skipped_adoption": "symbol owned by another strategy",
+                    "symbol": sym, "bar": last_bar,
+                    "owner": owner_elsewhere,
+                }
+            else:
+                s["in_pos"] = True
+                s["symbol"] = sym
+                s["entry"] = float((exch or {}).get("avgPrice") or c[-1])
+                s["qty"] = float((exch or {}).get("size") or 0)
+                s["ledger_id"] = None      # adopted: no committed record exists
+                log_decision({"ts_utc": out["ts_utc"], "id": sid, "event":
+                              "adopted_existing_position", "entry": s["entry"],
+                              "qty": s["qty"], "symbol": sym})
 
         params = {k: v for k, v in cfg.items() if k != "engine"}
         action, new_stop, dist = decide(h, l, c, cfg["engine"], s["in_pos"],
@@ -459,7 +549,11 @@ def run_once(dry: bool) -> dict:
                "peak": round(s["peak"], 2), "risk_pct": risk_pct,
                "dry": dry}
 
-        if action == "buy" and not s["in_pos"]:
+        # Cleared unconditionally: this pass's adoption block must not leak into
+        # the next one, and `and` short-circuits would skip the pop otherwise.
+        skip_buy = bool(s.pop("_skip_buy", False))
+
+        if action == "buy" and not s["in_pos"] and not skip_buy:
             qty = qty_for(sym, s["equity"], risk_pct, dist)
             stop_px = close1 - dist
             rec.update({"qty": qty, "stop": round(stop_px, 6),
