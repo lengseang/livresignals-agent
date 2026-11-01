@@ -24,6 +24,13 @@ FEEDS = [
     "https://nfs.faireconomy.media/ff_calendar_nextweek.json",
 ]
 CACHE_HOURS = 6
+# How much of the seed survives (2026-11-01): the seed is a FALLBACK for a
+# blocked network, i.e. "what the calendar said the last time it worked".
+# It is not an archive: it merged forever (874 rows spanning 7 weeks on
+# 2026-11-01, 762 of them already past -- the original 116-event cache was
+# replaced by 874 rows the first time a fetch was blocked).
+SEED_KEEP_DAYS_BEFORE = 2
+SEED_KEEP_DAYS_AFTER = 21
 
 # events that historically move gold the most
 GOLD_MOVERS = ("federal funds rate", "fomc", "non-farm", "nonfarm", "cpi",
@@ -47,12 +54,30 @@ def _fetch(url):
 
 
 def _save_seed(events):
-    """Merge fetched events into the last-known-good seed."""
+    """Merge fetched events into the last-known-good seed.
+
+    Pruned to [now - SEED_KEEP_DAYS_BEFORE, now + SEED_KEEP_DAYS_AFTER] on
+    every merge. A fallback that only ever grows is not a fallback: on
+    2026-11-01 the feed was blocked, `fetch_events` fell back to the seed,
+    and the cache jumped 116 -> 874 rows of which 762 were already past.
+    Nothing downwind broke -- but every row is a duplicate risk, a stale
+    blackout candidate and a longer file to read. Past rows this old cannot
+    be upcoming and cannot be inside a blackout; dropping them changes no
+    decision.
+    """
     try:
+        now = datetime.now(timezone.utc).timestamp()
+        lo = now - SEED_KEEP_DAYS_BEFORE * 86400
+        hi = now + SEED_KEEP_DAYS_AFTER * 86400
         merged = {}
         if SEED.exists():
             for e in json.loads(SEED.read_text()):
-                merged[(e.get("title"), e.get("date"))] = e
+                try:
+                    ts = datetime.fromisoformat(e["date"]).timestamp()
+                except Exception:
+                    continue
+                if lo <= ts <= hi:
+                    merged[(e.get("title"), e.get("date"))] = e
         for e in events:
             merged[(e.get("title"), e.get("date"))] = e
         SEED.write_text(json.dumps(list(merged.values()), indent=1))
@@ -84,7 +109,16 @@ def fetch_events(force=False):
     if events:
         _save_seed(events)
     else:
-        events = _load_seed()          # network blocked -> use last known good
+        # network blocked -> use last known good, which is only as good as it
+        # is CURRENT: the seed is pruned to the same window on every merge, so
+        # a fallback left unrefreshed for weeks must not resurrect the rows
+        # that have since fallen out of it (2026-11-01: a 7-week-old seed
+        # served 112 "future" events and re-aged the cache 116 -> 874).
+        now = datetime.now(timezone.utc).timestamp()
+        lo = now - SEED_KEEP_DAYS_BEFORE * 86400
+        hi = now + SEED_KEEP_DAYS_AFTER * 86400
+        events = [e for e in _load_seed()
+                  if lo <= datetime.fromisoformat(e["date"]).timestamp() <= hi]
     norm = []
     for e in events:
         try:
@@ -97,7 +131,18 @@ def fetch_events(force=False):
                          "date": dt})
         except Exception:
             continue
-    norm.sort(key=lambda x: x["ts"])
+    # DEDUPE BEFORE CACHE (2026-11-01, autonomous improvement agent).
+    # The this-week and next-week feeds overlap on the boundary days, so the
+    # same release arrives twice (observed: 3 duplicate rows in one 116-event
+    # cache). Keyed on ISO minute + country + title: the two feeds can stamp
+    # the same release with different UTC offsets, and the same clock minute
+    # is still one event regardless of how it is written. Collapsed HERE,
+    # before the write, so the cache never carries the dup into risk_state /
+    # upcoming, where a second copy of one release reads as a second release.
+    _seen: dict = {}
+    for e in norm:
+        _seen.setdefault((e["iso"][:16], e["country"], e["title"]), e)
+    norm = sorted(_seen.values(), key=lambda x: x["ts"])
     if norm:
         CACHE.parent.mkdir(parents=True, exist_ok=True)
         clean = [{k: v for k, v in e.items() if k != "date"} for e in norm]
@@ -129,11 +174,24 @@ def upcoming(events=None, hours=72, only_high=True, usd_only=True):
 
 
 def risk_state(hours_before=24, hours_after=6, events=None):
-    """Are we inside a blackout window around a high-impact USD event?"""
+    """Are we inside a blackout window around a high-impact USD event?
+
+    GOLD-MOVER ONLY (2026-11-01, autonomous improvement agent).
+    The rule is "no new entries around high-impact USD releases" and the
+    callers are crypto books holding XAUT alongside BTC/ETH/SOL. But
+    *every* high-impact USD release opened the window, so a High-impact
+    release that does not move crypto sat the whole book down for 30h
+    with a reason the book does not act on. The trigger is now the one
+    the gold macro gate already uses: `is_gold_mover`. The *next* pointer
+    below still lists any upcoming High USD release, so the card keeps
+    telling the owner what is coming even when it is not gated.
+    """
     events = events if events is not None else fetch_events()
     now = datetime.now(timezone.utc).timestamp()
     for e in events:
         if e.get("impact") != "High" or e.get("country") not in ("USD", "US"):
+            continue
+        if not is_gold_mover(e["title"]):
             continue
         if now - hours_before * 3600 <= e["ts"] <= now + hours_after * 3600:
             mins = (e["ts"] - now) / 60
