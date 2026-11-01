@@ -284,6 +284,22 @@ def regime_label(btc, sma_rule=None, label_sma=None):
 GATE_BTC_MOM = 0.05      # BTC 30-day momentum must exceed +5%
 GATE_BREADTH = 0.12      # >12% of the universe above their own SMA50
 USE_GATE = True
+# 2026-11-01: the breadth clause was measured on the CANDIDATE LIST, not the
+# universe. `market_breadth()` counts coins above SMA50 and the BULL pick list
+# is "coins above SMA50, top-3 by 30d momentum" -- the same predicate. So
+# whenever a pick exists, breadth is already >= (picks/universe) and the
+# 0.12 line can only fire when the list is EMPTY, i.e. exactly when no entry
+# could have been taken anyway. Evidence: all 195 recorded demo entries carry
+# feats.breadth >= 0.23 (min 0.23, median 0.69); not one was gated. On the
+# 1000d cache the gate reads identically to a breadth-free momentum gate on
+# 4/4 folds (48.7 34.3 6.0 13.5, median 23.9) -- not because breadth is
+# innocent, but because the clause never fired.
+# `market_breadth(independent=True)` now measures the universe by a test the
+# pick list does NOT already impose (coin above a LONGER average than the
+# trend filter), so the clause can bind on a real candidate set. The
+# threshold is unchanged: this makes an existing claim true, it does not
+# re-tune a knob.
+BREADTH_UNIVERSE_SMA = 200   # independent participation test (pick uses SMA50)
 
 # ⚠️ TOKEN AUDIT VETO (UNDEPLOYED — monitor-only, 2026-09-18)
 # Vet: https://github.com/binance/binance-skills-hub/tree/main/skills/binance-web3/query-token-audit
@@ -379,19 +395,44 @@ def atr_frac(closes, n=14):
     return (sum(trs) / len(trs)) / closes[-1]
 
 
-def market_breadth():
-    """Fraction of the universe trading above its own SMA50."""
+def market_breadth(sma_n=None):
+    """Fraction of the universe trading above its own SMA(sma_n).
+
+    `sma_n=None` keeps the original SMA50 test -- which is the SAME predicate
+    the BULL pick list applies, so this number can never fall below the share
+    of the universe that the picks already draw from. Use `sma_n` longer than
+    SMA_TREND to get a participation figure that is INDEPENDENT of the pick
+    filter and can therefore actually veto a non-empty candidate list.
+    """
+    n = sma_n or SMA_TREND
     above = total = 0
     for s in SYMS:
         cl = klines(s)
-        if len(cl) < SMA_TREND + 2:
+        if len(cl) < n + 2:
             continue
-        s50 = sma(cl, SMA_TREND)
-        if not s50:
+        s_n = sma(cl, n)
+        if not s_n:
             continue
         total += 1
-        above += cl[-1] > s50
+        above += cl[-1] > s_n
     return above / total if total else 0.0
+
+
+def gate_state(symbols_above=None, sma_n=None):
+    """The A-grade entry gate, as a dict that names WHICH clause closed it.
+
+    Returns {"open": bool, "btc_mom": float, "breadth": float,
+             "mom_ok": bool, "breadth_ok": bool}.
+    A gate that only reports "CLOSED" cannot tell an operator whether the
+    market was unhealthy or the statistic was structurally unable to pass.
+    """
+    btc = klines("BTCUSDT")
+    btc_mom = btc[-1] / btc[-31] - 1 if len(btc) > 31 else 0.0
+    bread = market_breadth(sma_n=sma_n)
+    mom_ok = btc_mom > GATE_BTC_MOM
+    breadth_ok = bread > GATE_BREADTH
+    return {"open": bool(mom_ok and breadth_ok), "btc_mom": btc_mom,
+            "breadth": bread, "mom_ok": mom_ok, "breadth_ok": breadth_ok}
 
 
 _FNG = {"ts": 0.0, "val": None}
@@ -505,11 +546,15 @@ def main():
     else:
         vs_label = 0.0
     events = []
-    # A-grade entry gate: computed once, shown in the status line always
-    bread = market_breadth()
+    # A-grade entry gate: computed once, shown in the status line always.
+    # Measured with the INDEPENDENT universe test (SMA longer than the pick's
+    # SMA_TREND) so the breadth clause can actually veto a non-empty list --
+    # see the 2026-11-01 note beside BREADTH_UNIVERSE_SMA.
+    bread = market_breadth(sma_n=BREADTH_UNIVERSE_SMA)
     btc_mom = btc[-1] / btc[-31] - 1 if len(btc) > 31 else 0.0
-    gate_ok = (not USE_GATE) or (btc_mom > GATE_BTC_MOM
-                                 and bread > GATE_BREADTH)
+    mom_ok = btc_mom > GATE_BTC_MOM
+    breadth_ok = bread > GATE_BREADTH
+    gate_ok = (not USE_GATE) or (mom_ok and breadth_ok)
 
     # ---- exits ----
     for rp in list(real):
@@ -694,12 +739,19 @@ def main():
         else:
             picks = cands[:TOPN]
         if not gate_ok:
-            print(f"  GATE CLOSED (btc_mom {btc_mom*100:+.1f}% need "
+            if not mom_ok and not breadth_ok:
+                why_gate = "btc_mom AND breadth"
+            elif not mom_ok:
+                why_gate = "btc_mom"
+            else:
+                why_gate = "breadth"
+            print(f"  GATE CLOSED on {why_gate} (btc_mom {btc_mom*100:+.1f}% need "
                   f">{GATE_BTC_MOM*100:.0f}%, breadth {bread*100:.0f}% need "
                   f">{GATE_BREADTH*100:.0f}%) - no crypto entries")
             picks = [p for p in picks if p[1] == GOLD_SYM]
             if not picks:
-                events.append(f"⏸️ GATE CLOSED — btc_mom {btc_mom*100:+.1f}%, "
+                events.append(f"⏸️ GATE CLOSED on {why_gate} — btc_mom "
+                              f"{btc_mom*100:+.1f}%, "
                               f"breadth {bread*100:.0f}%. Standing down.")
         else:
             print(f"  GATE OPEN (btc_mom {btc_mom*100:+.1f}%, "
