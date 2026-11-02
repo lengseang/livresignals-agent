@@ -3,6 +3,58 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-02 (overnight shift) · the 2.5% stop was rarely what closed a paper trade
+
+- **Task:** overnight improvement shift. Verify the morning's paper-stop fix is
+  live, then measure what it changed. No board task; no order path touched.
+- **Need check:** repo-only; one read-only exchange balance call; no writes
+  outside `docs/`.
+- **Verified the morning fix is LIVE, not just committed.** `logs/unified.log`
+  shows every new opener line carrying `(paper width 2.00%, RR 2.0)`, and all
+  11 open positions in `data/unified-paper.json` imply 4.00%/2.00% — the fix
+  reached the running cron, which is the part a green test suite does not prove.
+- **Found (the substantive result).** Designed width is recoverable only from
+  records whose stop was never trailed (`sl < entry`). Honest cost cohort
+  (n=687, `cost > 0.0015`):
+  `2.00% n=37` (all 10-10/10-11, mean −0.0291) vs `2.50% n=302` (mean −0.0513).
+  **The cohorts barely overlap in time (3 and 4 trades on the shared days), so
+  that comparison is era, not width — not quotable.**
+  What *is* measurable is the conditional structure. Cross-tab of `worst_px`
+  by exit reason in the 2.5% cohort (n=289): no trade that stayed inside −2%
+  ever hit the stop (SL 0), and every trade that passed −2.5% exited SL with
+  **none recovering**. So a stop-width change acts only on the 40/289 that
+  breach; for the other 249 the TIME collar does the closing and the stop is
+  decoration.
+- **Refused to ship a threshold change, and said why in the doc.** Simulating
+  other widths on that cohort makes tighter look monotonically better
+  (−0.75% → +5.85 vs the book). But (a) `worst_px` is sampled at :16/:46 and is
+  a **lower bound** on the adverse extreme, so the bias runs *with* the finding
+  — tighter stops book more real breaches than the table shows; and (b) the
+  −2.5% row does not reproduce the book's own −15.55 (gives −13.85), because
+  the 40 real SL exits are proof of breaches the field under-counts. **A
+  simulation that cannot reproduce its baseline has validated nothing.** Recorded
+  in `docs/proposals/paper-stop-basis-2026-11-02.md` §7 as ordering-only. Note
+  the direction it points (tighter) is the OPPOSITE of the live calibrator's
+  own sweep (wider) — the pre-existing contradiction in `trade-lesson-loop` §2,
+  still unresolved.
+- **Also verified (clean):**
+  candle store 10 symbols × 6 TFs = **60 series, every one fresh**
+  (5m lag ≤4 slots), **0 forming rows**; futures path paused by design with a
+  heartbeat; E9 ownership invariant holding (`owns_exchange_position: true` on
+  exactly one arm, the other reports `symbol_owned_by_other_strategy`).
+- **Found (owner-action item, not a bug):** `check-books.py` reports the live
+  spot executor silent 12d. Cause confirmed against the **real exchange**, not
+  a cached field: spot wallet holds **0.00 USDT free** (dust only: SUI 0.1,
+  ADA/ XRP 0.0706, BNB 0.00035). `_real_can_trade()` requires `free >= 6.0`.
+  The gate is working; the wallet is unfunded. No code change will make this
+  path trade.
+- **Learned:** "the parameter is now the studied value" and "the parameter
+  change was measured" are different claims, and a fix can be entirely correct
+  yet still not answer the question it appears to answer. The second claim needs
+  a cohort comparison; here that comparison is era-confounded, and the honest
+  output is the conditional structure (where the stop binds) rather than a
+  before/after mean.
+
 ## 2026-11-02 · the paper book was trading the live book's disaster stop
 
 - **Task:** autonomous improvement pass (cron). No board task. E9 needs no
