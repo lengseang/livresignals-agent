@@ -141,3 +141,89 @@ IS/OOS, shared account, fees at the measured 0.1515% round trip.
 Until that runs, the 28-day live-edge PF of **0.76** (n=635, −4.76 net) stands
 as the open finding it already was. This fix does not move it, and must not be
 reported as if it did.
+
+---
+
+## 7. What the overnight shift measured on top of the fix
+
+The fix is live (11/11 open positions now print `paper width 2.00%, RR 2.0`;
+`logs/unified.log` confirms). This section is what could and could NOT be
+concluded from the closed book afterwards. **Read it before quoting any
+"2% vs 2.5%" number.**
+
+### 7a. The 2.0% cohort is 2 days old and cannot be compared to the 2.5% one
+
+Designed width is recoverable only from records whose stop was never trailed
+(`sl < entry`); honest cost cohort (n=687, `cost > 0.0015`):
+
+```text
+width 2.00%  n= 37   all dated 2026-10-10/11    net  -1.0771  mean -0.0291
+width 2.50%  n=302   dated 2026-10-10 -> 11-02  net -15.4851  mean -0.0513
+```
+
+There is essentially **no day-overlap**: on 10-10/10-11 the counts are 3 and 4.
+The two cohorts differ by **era**, not only by stop. Comparing their means is
+the "half-split found a crossing point" error with the split chosen by width
+instead of by date. **Not quotable.**
+
+### 7b. What IS measurable: the 2.5% stop was rarely the binding exit
+
+Within the 2.5% cohort, sampled adverse extreme (`worst_px`) by exit reason
+(n=289):
+
+```text
+dip <= -3%     SL 13
+dip (-3,-2]    SL 27   TIME 15
+dip (-2,-1]    SL  0   TIME 88
+dip > -1%      SL  0   TIME 145  STALL 1
+```
+
+**No trade that stayed inside −2% ever hit the stop, and every trade that
+passed −2.5% exited at SL — none recovered.** On this book the 2.5% stop is
+either never reached (TIME closes it) or reached and terminal. A stop-width
+change therefore acts only on the 40/289 that actually breached.
+
+### 7c. Simulated widths — ordering only, levels refused
+
+Re-pricing the 2.5% cohort at other initial stops (breach = lose `thr` + cost,
+otherwise keep the recorded outcome):
+
+```text
+stop    breached    net      delta vs book
+-0.75%  178/289   -9.6965   +5.8545
+-1.00%  143/289  -11.0048   +4.5462
+-1.25%  104/289  -11.6270   +3.9240
+-1.50%   87/289  -12.3307   +3.2203
+-2.00%   55/289  -13.1362   +2.4148
+-2.50%   40/289  -13.8520   +1.6990
+```
+
+Two reasons this is not a result:
+
+1. **The bias runs with the finding.** `worst_px` is sampled at the :16/:46
+   scan cadence, so it is a **lower bound** on the true adverse extreme — a
+   wick between samples is missed. Tighter stops book MORE real breaches than
+   this shows, so the tightening advantage is overstated by an unknown amount.
+2. **It does not reproduce its own baseline.** The −2.5% row gives −13.85
+   against the book's −15.55, because the 40 recorded SL exits are proof of
+   breaches the field under-counts. A simulation that cannot reproduce the
+   baseline has validated nothing.
+
+**Use the direction (tighter lost less on this cohort). Never the levels. Do
+not change a threshold from this table.**
+
+### 7d. The next step is now cheap, and it is not a stop sweep here
+
+The decisive version is a replay over the DB's 5m bars at the live :16/:46
+cadence — the harness the 2026-09-16 study already used — which needs no new
+recording. That is the next pass's job. **This pass deliberately did not move
+`PAPER_INITIAL_STOP_PCT` off 2.0%** on the strength of a scan-sampled,
+optimistically-biased table, and the direction it points (tighter) is opposite
+to the direction the live calibrator's own sweep points (wider) — exactly the
+unresolved contradiction `trade-lesson-loop` §2 already records.
+
+### 7e. Standing caveats unchanged
+
+- 28-day live-edge PF **0.76** (n=635, −4.76 net) is untouched by this fix.
+- The fix restores the *measured* value (2.0%); it does not prove 2.0% > 2.5%.
+- Closed history is not rewritten; open positions keep their booked exits.
