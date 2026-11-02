@@ -81,6 +81,19 @@ REAL_TIER2 = {"BTC/USDT", "ADA/USDT", "BNB/USDT", "AVAX/USDT", "SUI/USDT", "TON/
 CORE_TFS = ["5m", "15m"]
 CORE_SYMS = ["ETH/USDT", "XRP/USDT"]  # proven winners — first claim on slots
 
+# --- PAPER BOOK EXIT WIDTHS (2026-11-02) ----------------------------------
+# The paper opener's INITIAL stop, as a fraction. 0.020 is the value the
+# 2026-09-16 paired split-half study measured (+1.896 IS / +1.811 OOS,
+# t=+3.58, positive in 13/14 symbols; the 1.0-1.5% stops sat INSIDE the
+# noise band). It is deliberately NOT read from data/exit-params.json: that
+# file is scoped to the live dip-buy executor, where the stop is a DISASTER
+# stop and wants to be wide. Sharing one number meant a calibrator move
+# silently rewrote the paper book's stop and target — see
+# _paper_exit_params(). Changing this needs its own study.
+PAPER_INITIAL_STOP_PCT = 0.020
+PAPER_RR = 2.0          # target distance = PAPER_RR x the stop actually used
+PAPER_STOP_CAP = 0.030  # hard cap: never book a paper stop wider than this
+
 
 def _features(ex, sym: str, tf: str) -> dict | None:
     try:
@@ -243,6 +256,39 @@ def _book_pnl(p: dict, exit_px: float) -> float:
     return p["pnl_net"]
 
 
+def _paper_exit_params() -> dict:
+    """The PAPER opener's own stop width and RR — NOT the live calibrator's.
+
+    WHY THIS EXISTS (2026-11-02)
+    ----------------------------
+    `_paper_open()` used to read `live_executor._exit_params()["stop_pct"]`,
+    i.e. `data/exit-params.json`'s `disaster_stop_pct`, and book
+    `sl = close*(1-stop)` / `tp = close*(1+2*stop)`. That file's OWN scope
+    guard says it belongs to `live-trades.json` only, and the two books ask a
+    stop to do opposite jobs:
+
+      * the executor wants a DISASTER stop — as wide as the test allows, there
+        only to bound a tail (it calibrates 2.5-3.0% and the plateau runs to
+        5%);
+      * the opener wants an INITIAL stop — as tight as the edge allows, with
+        RR fixed, and its value (2.0%) comes from the 2026-09-16 paired
+        split-half study (+1.896 IS / +1.811 OOS, t=+3.58, 13/14 symbols).
+
+    One scalar cannot serve both. Measured the day this was found: the paper
+    book was booking 2.5% stops and +5.0% targets while its own comment and
+    study said 2% / 4%, because the calibrator had moved the shared number —
+    silently, since the opener prints prices, not the width's provenance.
+    Same defect class as SYSTEM_MAP #9/#13 (a value read at a basis other
+    than the one it was measured on) and #18 (a scope nobody enforces is a
+    comment).
+
+    `PAPER_RR` is carried HERE, beside the width, so tp and sl are one
+    threshold: change the stop and the target follows. A separate RR constant
+    is how "2:1" quietly becomes 1.6:1.
+    """
+    return {"stop_pct": PAPER_INITIAL_STOP_PCT, "rr": PAPER_RR}
+
+
 def _paper_open(sig: dict, regime: str | None = None) -> None:
     """Open a PAPER position on a VALIDATED signal.
 
@@ -281,13 +327,19 @@ def _paper_open(sig: dict, regime: str | None = None) -> None:
     # History (2026-09-20): paper was widened 1% -> 2% on 2026-09-16 on a paired
     # split-half study (t=+3.58, positive in 13/14 symbols) while REAL money kept
     # the 1% stop for four more days and kept bleeding. A validated fix that never
-    # reached live. Both tracks now read data/exit-params.json.
-    try:
-        from live_executor import _exit_params
-        stop = _exit_params()["stop_pct"]
-    except Exception:  # noqa: BLE001
-        stop = 0.02
-    tp = round(sig["close"] * (1 + stop * 2), 4)
+    # reached live.
+    # CORRECTED 2026-11-02: the fix above then over-reached the other way. Paper
+    # was pointed at data/exit-params.json wholesale, so it inherited the live
+    # book's DISASTER stop (a different measurement: wide by design) and booked
+    # 2.5% stops / 5.0% targets against this study's 2% / 4%. Paper now owns its
+    # width. The live book keeps the calibrator, unchanged.
+    # Stop now comes from the PAPER book's own width, not the live calibrator's
+    # data/exit-params.json — see _paper_exit_params() (2026-11-02). The 2%
+    # value here and the 2% in the note above are the same measurement; the
+    # constant lives with the other paper thresholds at the top of the file.
+    params = _paper_exit_params()
+    stop = min(float(params["stop_pct"]), PAPER_STOP_CAP)
+    tp = round(sig["close"] * (1 + stop * params["rr"]), 4)
     sl = round(sig["close"] * (1 - stop), 4)
     s["open"].append({
         "symbol": sig["symbol"], "tf": sig["tf"], "entry": round(sig["close"], 4),
@@ -296,7 +348,10 @@ def _paper_open(sig: dict, regime: str | None = None) -> None:
         "ts_utc": datetime.now(timezone.utc).isoformat(),
     })
     PAPER_STATE.write_text(json.dumps(s, indent=2))
-    print(f"  PAPER OPEN {sig['symbol']} @ {sig['close']:.4f} TP {tp} SL {sl}")
+    # State the width and its source: the defect this replaced was invisible
+    # because the line printed prices and never said which stop produced them.
+    print(f"  PAPER OPEN {sig['symbol']} @ {sig['close']:.4f} TP {tp} SL {sl} "
+          f"(paper width {stop*100:.2f}%, RR {params['rr']:.1f})")
 
 
 def _paper_check(ex) -> None:

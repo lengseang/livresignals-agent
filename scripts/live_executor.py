@@ -104,6 +104,13 @@ def _save(s: dict) -> None:
     STATE_PATH.write_text(json.dumps(s, indent=2), encoding="utf-8")
 
 
+# The calibrated exit file, as a module constant so a test can point it at a
+# fixture (2026-11-02). It was a Path built inside the function, which made
+# "the live book still reads the disaster stop" untestable without writing to
+# the real data/ dir.
+_EXIT_PARAMS_PATH = Path(__file__).resolve().parents[1] / "data" / "exit-params.json"
+
+
 def _exit_params() -> dict:
     """Self-calibrated exit parameters (scripts/exit_calibrate.py, weekly cron).
 
@@ -115,9 +122,13 @@ def _exit_params() -> dict:
     Falls back to the previous hard-coded behaviour whenever the file is missing,
     malformed, or out of sane bounds, so a failed calibration can never stop
     trading or silently widen risk without limit.
+
+    SCOPE (2026-11-02): `disaster_stop_pct` is the LIVE dip-buy executor's
+    tail-bounding stop. It is NOT an initial stop and must not be handed to a
+    book that sets RR from it — `unified_trader._paper_exit_params()` exists
+    because that misuse booked 2.5%/5.0% paper entries for three weeks.
     """
-    from pathlib import Path
-    p = Path(__file__).resolve().parents[1] / "data" / "exit-params.json"
+    p = _EXIT_PARAMS_PATH
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
         h = max(0.5, min(12.0, float(d.get("hold_hours", HOLD_HOURS))))

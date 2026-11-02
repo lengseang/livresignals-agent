@@ -374,6 +374,33 @@ journal entry.
 │     surface; the state file holds only what a strategy trades on.│
 │     docs/proposals/release-receipt-2026-11-02.md                 │
 │     tests/loop/test_release_receipt_and_reentry.py               │
+│                                                                  │
+│ 20. A PARAMETER IS A MEASUREMENT: READ IT AT ITS OWN SCOPE.      │
+│     #9/#13/#15 fixed this for a NUMBER and #18 for a GATE. This  │
+│     is the same rule for a KNOB. `data/exit-params.json` is      │
+│     written by exit_calibrate.py from `live-trades.json` and     │
+│     carries `"scope": "live-trades.json ONLY"` with a            │
+│     `disaster_stop_pct` — a stop meant to be WIDE, because it    │
+│     only bounds a tail (plateau runs 2.5-5%).                    │
+│     `unified_trader._paper_open()` imported it and used it as    │
+│     the paper INITIAL stop, which wants to be TIGHT, with RR     │
+│     derived from it. So the paper book booked 2.50% stops and    │
+│     +5.00% targets while the comment three lines above the call  │
+│     cited the 2026-09-16 study's 2% / 4%. Every weekly           │
+│     calibration moved the paper book too, silently: the OPEN     │
+│     line printed prices and never the width or its source.       │
+│     Found 2026-11-02 — all 5 open positions carried +5.00%.      │
+│     Paper now owns `PAPER_INITIAL_STOP_PCT`/`PAPER_RR` and the   │
+│     line states them. Two sub-lessons:                      │
+│       (a) A SCOPE FIELD NO READER ENFORCES IS A COMMENT. The     │
+│           write side emitted `scope` and `not_applicable_to`;    │
+│           the one reader that mattered ignored both.             │
+│       (b) SHARING A FILE IS NOT SHARING A MEASUREMENT. The 09-20 │
+│           fix pointed "both tracks" at one file to stop them      │
+│           drifting apart — right instinct, wrong unit. One       │
+│           file, two meanings, one of them unstated.              │
+│     docs/proposals/paper-stop-basis-2026-11-02.md                │
+│     tests/test_paper_stop_basis.py                                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

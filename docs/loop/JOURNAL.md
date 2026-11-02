@@ -3,6 +3,61 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-02 · the paper book was trading the live book's disaster stop
+
+- **Task:** autonomous improvement pass (cron). No board task. E9 needs no
+  follow-up (verified live this morning); the board's open items are owner-gated
+  (T0.7/T0.8/T0.11) or design-only. The improvement card's top findings were
+  already-known (validated edge decaying, 28d PF 0.76), so this pass went after
+  a defect the card cannot see: what the paper book actually *books*.
+- **Need check:** repo-only, plus one dry run of the real opener against a
+  scratch book. No order path, no exchange read, no real-money threshold, no
+  disable list, no state file touched.
+- **Found.** `data/exit-params.json` says `"scope": "live-trades.json ONLY"` and
+  its `disaster_stop_pct` is 0.025 — a stop meant to be WIDE (the calibrator's
+  plateau runs 2.5-5%) because it only bounds a tail. `_paper_open()` imported
+  `live_executor._exit_params()` and used it as the paper book's INITIAL stop,
+  with `tp = close*(1+2*stop)`. So the paper book booked **2.50% stops and
+  +5.00% targets** while the comment three lines above the call cited the
+  2026-09-16 study's **2% / 4%**. Evidence on the live book: all 5 open paper
+  positions carry a +5.00% target (implied 2.50% stop, derivable from the state
+  because `sl` has since been overwritten by the breakeven/trail lock — 735
+  closed records read `sl == entry`, 594 `sl > entry`).
+  Worse, it was not a one-off: `exit_calibrate.py` runs weekly on
+  `live-trades.json`, so every calibration silently re-floored the paper stop.
+  The OPEN line printed prices and never the width or its source, so nothing on
+  the card could show it.
+- **Done.** Paper owns its width: `PAPER_INITIAL_STOP_PCT = 0.020`,
+  `PAPER_RR = 2.0`, `PAPER_STOP_CAP = 0.030`, and `_paper_exit_params()` returns
+  stop and RR *together* so the target is always `rr x` the stop in use. The
+  `live_executor` import is gone from the opener, which now prints
+  `(paper width 2.00%, RR 2.0)`. `live_executor._EXIT_PARAMS_PATH` lifted to
+  module scope so the "live book still gets the disaster stop" half is testable;
+  its behaviour is unchanged. Lesson recorded as SYSTEM_MAP #20.
+- **Evidence.** RED first: `tests/test_paper_stop_basis.py` 4 failed on HEAD
+  before the fix (`_exit_params` present in the opener's call set, confirmed by
+  parsing `git show HEAD:scripts/unified_trader.py`). GREEN 5 passed. Full suite
+  **838 passed, 4 skipped, 0 failed** (baseline this pass 833/4/0). Both
+  mutations caught (re-import the calibrator → structural test fails; return the
+  live stop from the helper → value test fails). Reachability on the real
+  opener: dry run books `SL 2196.6602 / TP 2331.1496` on a 2241.49 ETH entry =
+  2.00% / 4.00% / RR 2.00.
+- **Learned:** **a parameter is a measurement.** #9/#13/#15 fixed this for a
+  number, #18 for a gate; this is the same rule for a knob, and the guard was
+  already written — `scope` and `not_applicable_to` were in the file, and the
+  one reader that mattered ignored them. A scope field no reader enforces is a
+  comment. Corollary: the 2026-09-20 fix that pointed "both tracks" at one file
+  had the right instinct (stop them drifting apart) and the wrong unit — one
+  file, two meanings, one unstated. Do not report this as a P&L fix: the 2.5%
+  width was never *measured* on the paper book as paper trades it, so this
+  restores the studied value rather than proving a better one. The paired
+  stop-width A/B (1.5/2.0/2.5/3.0, RR fixed, IS/OOS, shared account, fees) is
+  now expressible and is the next measurement.
+- **Not done, deliberately:** the 5 open positions keep the exits they were
+  opened with (changing a stop mid-trade is an owner call and would make the
+  population unanalysable); closed records are not rewritten (`sl` is not
+  recoverable per record).
+
 ## 2026-11-02 · the E9 repair left a receipt that no code can write
 
 - **Task:** autonomous improvement pass (cron). No board task. First job was the
