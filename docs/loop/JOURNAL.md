@@ -3,6 +3,54 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-02 · the E9 repair left a receipt that no code can write
+
+- **Task:** autonomous improvement pass (cron). No board task. First job was the
+  open verification E9's answer owed: confirm the lag closed on a NEW H4 bar.
+- **Need check:** repo-only plus two read-only demo reads (public ticker; private
+  demo position, `retCode 0`). No order path exercised, no parameter or disable
+  list touched. The only live write is removing one hand-written field from the
+  demo runner's state file (see below); the control's claim and the exchange
+  position were not touched.
+- **Found (1) E9 is live and correct.** 16:07Z on 11-01 was the last pre-fix
+  pass (still `hold`, in_pos true). From 20:07Z (2ac046e live) the treatment
+  logs `symbol_owned_by_other_strategy` **and still evaluates** (`action none`,
+  bar 20:00), again at 00:07Z on the 00:00 bar. Both arms at bar 11-02T00:00,
+  treatment flat, control holding. Demo exchange: ONE 1.2 ETH, avg 2241.49, stop
+  2192.37, uPnL +40.49 — the control's position, not a second one.
+  **The 10-31 lag bug is closed on real data.**
+- **Found (2) the defect.** `state.json` carried `released_unowned_position` on
+  `ETH_TURTLE_H4` — a receipt **no code writes** (0 hits for the name in
+  `scripts/`; `git log --all -S` finds no commit that added it),
+  **contradicting the log it describes** (0 `released_phantom_claim` rows in 379
+  decision rows; the release was the 20:00 bar, close 2258.42, the receipt says
+  2241.36, the 10-31 snapshot; "fixed in 4xx" names no commit), and **unbounded**
+  (nothing refreshes or prunes it, so it would still say "released 2026-11-01"
+  after the next release). The 11-01 JOURNAL's "post-fix replay →
+  `released_phantom_claim`" was a replay against a temp state; the live repair
+  was done by script and left no log row. Trading state was correct throughout —
+  this is bookkeeping that the next human would have believed.
+- **Done:** the release path pops the field (legacy receipts clear on the next
+  release); a dry pass logs `would_release_phantom_claim` instead of a real
+  event (it still writes no state, but is no longer silent); the event row
+  carries `dry` and `bar`. Live receipt removed. Design + lesson:
+  `docs/proposals/release-receipt-2026-11-02.md`.
+- **Evidence:** RED first — `tests/loop/test_release_receipt_and_reentry.py`
+  **2 failed, 2 passed** on `git show HEAD:scripts/run_crypto_trend_demo.py`;
+  GREEN 4 passed. Mutation checks: dropping the `pop` re-fails the receipt test;
+  hard-coding the non-dry event name re-fails the dry test. Full suite
+  **833 passed, 4 skipped, 0 failed** (yesterday: 830/3). The two other tests in
+  the file pin what a release must NOT break: the released arm can buy its own
+  symbol after the owner exits, and that entry carries a committed `ledger_id`
+  (otherwise the next pass releases it as a phantom).
+- **Learned:** **a repair that exists only in a state file is a repair with no
+  receipt.** The decision log is the audit surface because it is append-only and
+  written by the pass that acted. Every state field must be written by shipped
+  code, cleared on every transition that invalidates it, and false when a test
+  reads it. And verify state against the log, not against a narrative written
+  the same evening as the fix — the narrative was the only place the release
+  was recorded, and it was wrong on the date, the price and the commit.
+
 ## 2026-11-01 · the pairing exemption let a treatment own a position it never bought (E9)
 
 - **Task:** autonomous improvement pass (cron). No board task; resolving E9, the

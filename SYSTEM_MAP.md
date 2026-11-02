@@ -342,6 +342,38 @@ journal entry.
 │     only as good as the axes it was written on.                 │
 │     docs/proposals/pf-window-verdict-2026-10-23.md               │
 │     tests/test_improvement_pf_window.py                          │
+│                                                                 │
+│ 18. A GATE MUST NAME THE POPULATION IT PROTECTS.                 │
+│     #14/#15/#17 fixed this for MEASUREMENTS; the event blackout  │
+│     is the same defect in a GATE. `risk_state()` opened a 30h    │
+│     stand-down on every High-impact USD release, but its only    │
+│     caller is a crypto book (BTC..XAUT) — so "USD Congressional   │
+│     Elections" (High, not in GOLD_MOVERS, which the module       │
+│     already carries) stopped every crypto entry for 30h for a    │
+│     reason the book does not act on. The trigger is now          │
+│     is_gold_mover(). Same file: this-week + next-week feeds      │
+│     overlap (3 releases written twice in one cache) — collapse   │
+│     before the write; and the last-known-good seed merged        │
+│     forever, so one blocked fetch (HTTP 429) replaced a 116-row  │
+│     cache with 874 rows, 762 of them past. A fallback that only  │
+│     grows is not a fallback: pruned to [-2d, +21d] on merge and  │
+│     on read.                                                     │
+│     docs/proposals/econ-calendar-blackout-scope-2026-11-01.md    │
+│     tests/test_econ_calendar_blackout.py                         │
+│                                                                 │
+│ 19. A STATE FIELD IS A CLAIM SOME CODE MUST HOLD UP.             │
+│     The 11-01 E9 repair left `released_unowned_position` in the  │
+│     demo state: written by hand, not by any shipped code,        │
+│     contradicted by the decision log (0 release rows), naming a  │
+│     commit that does not exist, and never refreshed — so it      │
+│     would still say "released 2026-11-01" after the next         │
+│     release. Trading state was right; the receipt was a story.   │
+│     Rule: every persisted field must be written by code, cleared │
+│     on every transition that invalidates it, and false when a    │
+│     test reads it. The append-only decision log is the audit     │
+│     surface; the state file holds only what a strategy trades on.│
+│     docs/proposals/release-receipt-2026-11-02.md                 │
+│     tests/loop/test_release_receipt_and_reentry.py               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

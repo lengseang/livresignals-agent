@@ -450,8 +450,18 @@ def run_once(dry: bool) -> dict:
             if provers:
                 s.update({"in_pos": False, "stop": 0.0, "qty": 0.0,
                           "entry": 0.0, "symbol": None, "ledger_id": None})
+                # A receipt no code writes cannot be audited. The live state
+                # carried `released_unowned_position` (entry 2241.36, "fixed in
+                # 4xx") that no commit and no pass ever produced, and neither
+                # this path nor strat_state() ever refreshed it -- so it would
+                # still claim "released 2026-11-01" the next time this arm
+                # released something. The decision log is the record; the state
+                # keeps only what a strategy needs to trade.
+                s.pop("released_unowned_position", None)
                 log_decision({"ts_utc": out["ts_utc"], "id": sid, "event":
-                              "released_phantom_claim", "symbol": sym,
+                              ("would_release_phantom_claim" if dry
+                               else "released_phantom_claim"),
+                              "symbol": sym, "dry": dry,
                               "owner": provers[0], "bar": last_bar})
                 out.setdefault("released", []).append((sid, sym, provers[0]))
 

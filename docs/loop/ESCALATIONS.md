@@ -4,6 +4,14 @@ Newest first. The owner answers inline under **Answer:**; the next iteration pic
 
 ## E9 · `ETH_TURTLE_H4` re-acquired the ETH position the 10-31 fix released (2026-11-01)
 **RESOLVED 2026-11-01 by `2ac046e` — no owner decision needed. Answer below.**
+**VERIFIED 2026-11-02 on real data** (the check the answer below said was owed):
+the first NEW-bar passes after the fix — 2026-11-01T20:07Z (20:00 bar) and
+2026-11-02T00:07Z (00:00 bar) — both log `symbol_owned_by_other_strategy` AND
+still evaluate the treatment (`action none`); both arms are at bar 11-02T00:00
+with the treatment flat and the control holding. Demo exchange: ONE 1.2 ETH,
+avg 2241.49, stop 2192.37. The lag is closed. A separate bookkeeping residue
+from that repair (a hand-written `released_unowned_position` field) was removed
+2026-11-02 — see the JOURNAL entry of that date.
 `state/crypto-trend-demo/state.json` now shows TWO arms holding ETHUSDT:
 `ETH_TURTLE_H4` `in_pos:true, qty 1.2, entry 2241.49, ledger_id:null` (no
 ownership flag) and `RANDOM_ENTRY_CONTROL` `in_pos:true, qty 1.2,
