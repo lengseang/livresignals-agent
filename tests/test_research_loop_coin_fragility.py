@@ -42,6 +42,7 @@ live config itself proves fragile by the same tests.
 from __future__ import annotations
 
 import importlib.util
+import json
 import statistics
 import sys
 from pathlib import Path
@@ -525,3 +526,131 @@ def test_a_non_tie_is_never_reported_as_a_tie():
     assert rl._tied_challengers([lead, live], lead, live) == []
     # and the incumbent is never its own tied challenger
     assert rl._tied_challengers([lead, live], live, live) == []
+
+
+# ------------------------------------------------- leave-one-out was a SAMPLE
+# 2026-11-03 overnight shift.
+#
+# `coin_fragility()` drew 12 SEEDED universes out of 23 coins. Measured on the
+# live cache: those 12 draws collapse to 8 distinct universes (DOGE 3x, SOL 2x,
+# LTC 2x, five once). The published band is a min/max, so BOTH tails of it were
+# decided by whichever coin the shuffle happened to land on:
+#
+#     published  [ +7.47, +30.20 ]      floor = DOGE x3, ceiling = LTC x2
+#     exhaustive [ +7.47, +45.64 ]      ceiling is AAVE (+45.64)
+#
+# and with the ceiling honest, the LIVE median 34.26 is INSIDE its own band —
+# the opposite of the "above its own ceiling" sentence the 2026-11-03 morning
+# pass had drawn from the sampled one. Fix: drop every non-BTC coin once. The
+# cost is negligible (23 universes x 4 folds, whole script runs in ~4s).
+#
+# Second finding, from making the band self-consistent: with median/band both
+# computed by this function, the incumbent is inside its own band on ALL SIX
+# measured rows, so `live_fragile` can essentially never fire. The decay test
+# as wired asks "is the incumbent worse than a leave-one-out of ITSELF", which
+# removing the single best coin can only make worse. That is recorded as a
+# finding, not silently fixed — see the proposal for 2026-11-03.
+
+class _FakeHarness:
+    """Minimal stand-in for the walk-forward module: bt() returns a per-coin
+    value so an exhaustive LOO can be checked without the real cache."""
+
+    def __init__(self, coins, ret_by_dropped):
+        self.coins = list(coins)          # includes BTC
+        self.folds = [(0, 1)]
+        self._ret = ret_by_dropped
+        self.calls = []
+
+    def bt(self, a, b, mode, **cfg):
+        # The universe the loop set is the one actually used -> the dropped
+        # coin is the one absent from h.coins.
+        universe = set(self.coins)
+        dropped = next((c for c in self._ret if c not in universe), "BTC")
+        self.calls.append(dropped)
+        return (self._ret.get(dropped, 99.0), 1)
+
+
+def _cfg():
+    return {"cfg": {"topn": 3, "hold": 21, "risk": 0.01, "sma_r": 150}}
+
+
+def test_loo_is_exhaustive_by_default_and_covers_every_coin_once():
+    coins = ["BTC", "ADA", "ETH", "SOL"]
+    ret = {"ADA": 1.0, "ETH": 2.0, "SOL": 3.0, "BTC": 0.0}
+    h = _FakeHarness(coins, ret)
+    frag = rl.coin_fragility(h, _cfg())
+    assert frag["tested"] is True
+    assert set(frag["per_coin"]) == {"ADA", "ETH", "SOL"}, (
+        "BTC is the regime switch and is never dropped")
+    assert frag["draws"] == 3 == frag["distinct_universes"]
+    assert "exhaustive" in frag["basis"]
+    # every coin dropped exactly once, PLUS one baseline call on the full
+    # universe (that call is where `median` comes from — assert it, do not
+    # pretend it is a leave-one-out draw)
+    from collections import Counter
+    assert Counter(h.calls) == Counter({"ADA": 1, "ETH": 1, "SOL": 1,
+                                        "BTC": 1}), h.calls
+    assert h.calls[0] == "BTC", "the baseline runs before any coin is dropped"
+
+
+def test_sampled_mode_still_reports_how_many_distinct_universes_it_saw():
+    """The old mode is kept reachable, and must ANNOUNCE its collision rate."""
+    coins = ["BTC"] + [c for c in "ABCDEFGHIJKLMNOPQRSTUVW"]
+    h = _FakeHarness(coins, {})
+    frag = rl.coin_fragility(h, _cfg(), draws=12)
+    assert frag["draws"] == 12, "draws counts DRAWS, not universes"
+    assert frag["distinct_universes"] < 12, (
+        "12 draws over 23 coins collided on the live cache; the fixture must "
+        "reproduce that or it tests nothing")
+    assert "distinct universes" in frag["basis"]
+
+
+def test_the_live_band_contains_the_published_floor_and_an_honest_ceiling():
+    """Regression on the real cache: the sampled ceiling (30.20) was a seed
+    artefact, and the exhaustive one is materially wider."""
+    frag = rl.coin_fragility.__doc__
+    assert frag and "EXHAUSTIVE" in frag
+    d = json.loads((ROOT / "data" / "research-loop.json").read_text())
+    live = next((r for r in d["rows"]
+                 if r["cfg"] == {"topn": 3, "hold": 21, "risk": 0.01,
+                                 "sma_r": 150}), None)
+    if live is None or not (live.get("fragility") or {}).get("tested"):
+        pytest.skip("no live row in the research state file")
+    f = live["fragility"]
+    assert f.get("basis"), "the band must say what it was measured on"
+    assert f["draws"] == f["distinct_universes"], (
+        "an exhaustive band cannot have duplicate universes")
+    assert f["loo_min"] <= live["median"] <= f["loo_max"], (
+        "with a self-consistent band the incumbent sits INSIDE it; if this "
+        "fails the sampling artefact is back")
+
+
+def test_decay_sentence_names_the_basis_so_a_sample_cannot_look_like_population():
+    live = _live_fragility()
+    live["cfg"] = {"topn": 3, "hold": 21, "risk": 0.01, "sma_r": 150}
+    live["fragility"]["basis"] = "12 seeded draws over 23 coins (8 distinct universes)"
+    # A DECAYED incumbent has fallen BELOW its floor, not above its ceiling:
+    # putting it above the band makes `lead` hugely negative and trips the
+    # "lead erased by one coin" refusal on the challenger instead, so the
+    # decay branch is never reached. Shape the fixture like the real case.
+    live["median"] = 1.0                       # below loo_min 3.58
+    live["pos_folds"] = 2                      # and out-scored by the previous best
+    chal = _sma200_fragility()
+    chal["fragility"].update({"loo_min": 20.0, "loo_max": 40.0,
+                              "loo_drop_max": 2.0, "draws": 40})
+    chal["fragility"]["per_coin"] = {"A": {"ret": 26.0}, "B": {"ret": 29.0}}
+    chal["halves"] = [20.0] * 8
+    live["halves"] = [1.0] * 8
+    v = rl.lead_is_coin_fragile(chal, live, n_folds=4)
+    assert v["fragile"] is False, "the challenger must clear the refusal"
+    assert v["live_fragile"] is True, "the incumbent must be outside its band"
+    assert live["median"] < live["fragility"]["loo_min"]
+    lines = rl._change_lines(
+        # `prev` must be a WEAKER best than the challenger, otherwise the
+        # decay branch is (correctly) never reached: it is gated on the live
+        # row having been out-scored by the previous best. A tie is not news.
+        {"rows": [{"cfg": {"sma_r": 200}, "median": 10.0, "pos_folds": 3}]},
+        {"rows": [chal, live], "bench_btc_median": -19.66}, chal, live)
+    decay = " ".join(lines)
+    assert "8 distinct universes" in decay, (
+        "a decay verdict measured on 8 of 23 universes must say so: " + decay)

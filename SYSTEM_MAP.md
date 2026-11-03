@@ -423,6 +423,48 @@ journal entry.
 │           tighter threshold.                                     │
 │     docs/proposals/incumbent-is-not-a-challenger-2026-11-03.md   │
 │     tests/test_research_loop_coin_fragility.py                   │
+│                                                                  │
+│ 22. A BASELINE REBUILT UNDER AUTHORS' RULES IS STILL A BASELINE. │
+│     The earlier lesson said "a simulation that cannot reproduce  │
+│     its baseline has validated nothing" (#14/#15). This is that  │
+│     rule applied to the research loop's own book. Re-deriving    │
+│     `bt()` with two extra fields (close reason, worst adverse    │
+│     excursion) reproduces all four folds to the cent             │
+│     (49.07/6.66/26.47/42.05) — so the additions are free:        │
+│       (a) THE STOP IS A FLOOR, NOT A LOSS DISTRIBUTION. All 118  │
+│           stop exits book at −10.18% or worse (mean −14.28, min  │
+│           −32.21); not one of 341 trades shows a −10% excursion  │
+│           before booking. The loop sees day-start prices only,   │
+│           so a −10% stop exits at the next close through the     │
+│           gap. The median loss is −1.35% and never sees the      │
+│           stop. Win rate 37.2% overall, 57.0% once the stop      │
+│           exits are removed — the stop alone accounts for the    │
+│           gap, so moving it moves the tail, not the win rate.    │
+│           Same shape #20 found in the paper book, now on the     │
+│           research book with a reproducing baseline.             │
+│       (b) THE BAND AND THE ROW WERE FROM DIFFERENT UNIVERSES.     │
+│           `run()` measures `per_coin` on 12 seeded draws over    │
+│           22 non-BTC coins, then `lead_is_coin_fragile()` puts   │
+│           the 24-coin median beside `loo_min/loo_max`. On        │
+│           today's cache the 12 draws are 8 distinct universes    │
+│           and both ends are repeated draws: floor 7.47 = DOGE    │
+│           3x, ceiling 30.20 = LTC 2x. Full leave-one-out over    │
+│           23 coins gives 7.47..45.64 (ceiling AAVE) and 34.26    │
+│           is INSIDE it — the printed interval is a sampling      │
+│           artefact in both tails, and it is what the "LIVE EDGE  │
+│           DECAYED" sentence quotes.                              │
+│           ✅ SHIPPED 2026-11-03 overnight: `coin_fragility()`    │
+│           is now exhaustive by default (drop each non-BTC coin   │
+│           once, `LOO_DRAWS=None`), stamps `basis` +              │
+│           `distinct_universes` on every band, and the decay      │
+│           sentence names the basis inline. Band is now           │
+│           self-consistent, which exposes finding 2: the          │
+│           incumbent sits INSIDE its own band on all 6 measured   │
+│           rows, so `live_fragile` can essentially never fire.    │
+│     docs/proposals/research-book-stop-and-universe-2026-11-03.md │
+│     docs/proposals/loo-band-was-a-sample-2026-11-03.md           │
+│     tests/test_research_stop_basis.py                            │
+│     tests/test_research_loop_coin_fragility.py                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

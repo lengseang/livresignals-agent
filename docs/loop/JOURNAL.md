@@ -3,6 +3,128 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-03 (overnight shift) · the leave-one-out band was a sample, and a consistent band cannot decay
+
+- **Task:** overnight autonomous improvement pass. The daytime shift left one
+  finding explicitly **unfixed** ("Proposal only; script untouched") — the
+  research loop's fragility band is computed from 12 seeded draws that collide.
+  This pass shipped that repair and measured what the repaired instrument says.
+  Suite run last: **0 failed** (see Evidence).
+- **Need check:** repo-only. `research_loop.py` is a research cron, not an
+  order path. No book, parameter, disable list or state file touched; the only
+  writes are the loop's own `reports/research-findings.md` and
+  `data/research-loop.json`, which it regenerates every run.
+- **Shipped.** `LOO_DRAWS = None` and `coin_fragility()` now drop **every
+  non-BTC coin once** instead of sampling 12 of 23. Payload gains `basis` and
+  `distinct_universes`; `lead_is_coin_fragile()` gains `live_basis`; the
+  `LIVE EDGE DECAYED` sentence and the findings file append the basis inline.
+  Whole run costs **4.3s** — sampling a population of 23 was never warranted.
+- **Confirmed the artefact.** 12 draws over 23 coins = **8 distinct universes**
+  (DOGE 3x, SOL 2x, LTC 2x, five once). Published ceiling `+30.20` (LTC draw);
+  exhaustive ceiling is `+45.64` (**AAVE**), which was never drawn. Floor
+  `+7.47` (DOGE) was right by luck. The LIVE median 34.26 is **inside** the
+  honest band — the morning's "above its own ceiling" was a statement about
+  the seed, now confirmed in code rather than prose.
+- **🔴 Found (the part that matters).** With `median` and band from the same
+  operation, the incumbent sits **inside its own band on all 6 measured rows**
+  (`34.26 in [7.47,45.64]`, `8.44 in [4.76,18.35]`, …). Leave-one-out over 23
+  coins is a small perturbation, so the band is necessarily wide — meaning
+  `live_fragile` can essentially **never fire**. The sampling bug was the only
+  thing making the decay branch reachable; fixing it removed the branch's
+  reachability rather than repairing it. Same shape as the ensemble guard that
+  labelled a defect for 8 days without deciding anything. **Not fixed here**:
+  replacing the test needs a decision about what "decayed" means, and choosing
+  that after seeing the data is the pre-declared-validation error this journal
+  has recorded four times. Recorded as the next research task instead.
+- **Not a finding, stated so it is not re-derived.** 2 of 6 rows invert LOO
+  (`3/14` +12.50pp on 22 of 23 drops; `2/21` +1.42pp). I looked for a rule —
+  by selector (`topn`) and by rank — and none holds: the inverted rows are the
+  two weakest, while the crown is 1/23 and another `topn=3` row is 17/23.
+  Nothing to ship.
+- **Evidence.** `pytest tests/test_research_loop_coin_fragility.py -q`:
+  `23 passed, 1 skipped`. **Mutation check** by file swap (`git show HEAD:` →
+  run → restore → `diff` empty): `4 failed, 19 passed` on the pre-change file,
+  and the 4 failures are exactly the 4 new tests. Loop re-run with the fix
+  reproduces the existing book **unchanged** (`49.07/6.66/26.47/42.05`, median
+  34.26, 697 trades) and emits **no change** — silence by design. Only the
+  fragility band moved; no median, fold count or trade count did.
+- **Anti-slop.** Three fixture errors caught before the tests were believed,
+  and recorded because each would have passed vacuously: the baseline `bt()`
+  call counted as a 13th "drop"; a `prev` row that TIED the challenger so the
+  decay branch was never entered; and an incumbent placed **above** its
+  ceiling when the realistic decay shape is **below** its floor — the
+  above-ceiling version tripped the *challenger's* refusal instead and the
+  assertion read the wrong branch. Also corrected two of my own draft claims
+  against the data ("negative-sum for 4 of 6 rows" → 2 of 6; "topn=4 behaves
+  the same" → untested).
+- **Learned:** a min/max over a sampled population is a statement about the
+  SEED until the draws are de-duplicated or exhausted — and the tell is
+  duplication (12 draws should not contain one outcome 3 times). But the
+  deeper lesson is the second order one: **making the instrument consistent
+  can make the test it feeds vacuous.** A test comparing X against a
+  leave-one-out of X is not asking whether X is decaying; a wide enough band
+  answers "not outside" by construction. Fixing the measurement exposed that
+  the question was malformed, which the biased version had been hiding.
+  Write-up: `docs/proposals/loo-band-was-a-sample-2026-11-03.md`.
+
+## 2026-11-03 (daytime shift) · the research book's stop is a floor, and its fragility band is a sample
+
+- **Task:** daytime autonomous improvement pass (cron). The board's `todo` items
+  are research/design tasks with unmet deps (T3.0 needs T2.6, T3.1 needs T3.0);
+  the morning pass (#21) left two unmeasured claims in its own text, so this
+  pass measured those. Suite run first: **844 passed, 5 skipped, 0 failed**.
+- **Need check:** repo-only. No exchange read, no order path, no parameter,
+  disable list or state file touched. `scripts/research_loop.py` unchanged.
+- **Instrument.** Re-derived `bt()` with two fields it never records (close
+  reason, worst adverse excursion). It reproduces all four folds to the cent —
+  `49.07 / 6.66 / 26.47 / 42.05`, median `34.26`, 341 trades — so the added
+  fields are free. Pinned by
+  `tests/test_research_stop_basis.py::test_the_traced_book_is_the_book_the_loop_prints`.
+- **Found (1) the stop is a floor on the tail.** `hold 128 · sma50 95 · stop
+  118`. All 118 stop exits book at −10.18% or worse (mean −14.28%, worst
+  −32.21%) because the loop sees day-start prices and exits at the close
+  through the gap. **Not one** of the 341 trades ever saw a −10% excursion;
+  median worst excursion −1.35%. Win rate 37.2% overall, **57.0%** once stop
+  exits are removed — the stop alone accounts for the gap, so changing its
+  width moves the tail, not the win rate. Same conditional structure #20 found
+  in the paper book, now with a baseline that reproduces.
+- **Found (2) the LOO band is a sampling artefact in both tails.**
+  `run()` builds `per_coin` from **12 seeded draws over 22 non-BTC coins**; on
+  today's cache those 12 draws are **8 distinct universes**, and the band is
+  min/max over them: floor `7.47` is the **DOGE draw three times** (one at the
+  first shuffle position, where LOO never lands in 6 of 12 draws), ceiling
+  `30.20` is the **LTC draw twice** (the luckiest name). `lead_is_coin_
+  fragile()` then puts the 24-coin LIVE median (34.26) beside that interval and
+  calls it outside — the "regime break, not decay" sentence. **A full
+  leave-one-out over all 23 non-BTC coins gives 15.04..46.57: 34.26 is
+  INSIDE.** The morning entry's "above its ceiling" is therefore a statement
+  about 8 draws, not about the config. No verdict flips today (the loop is
+  silent when it crowns the incumbent); the decay sentence is one refresh from
+  being emitted on the wrong interval.
+- **Found (3) the crown moves on noise.** `150` 34.26 vs `200` 31.83 vs `100`
+  30.95: margins 2.43pp and 3.31pp against a **9.64pp** spread from dropping one
+  coin. Neither sibling could pass the loop's own rule if it won; the rule is
+  never applied to a crown's neighbours. Where the crown and 200 differ, the
+  crown wins 3 of 5 non-identical 150d segments — "not distinguishable", not
+  "200 is worse".
+- **Not shipped.** The two script repairs (hold the universe fixed and report a
+  quantile band; stop calling the −10% a loss cap in the findings file) change
+  what the owner is shown, so they are written up, not committed:
+  `docs/proposals/research-book-stop-and-universe-2026-11-03.md`. No promotion,
+  no pause, no config change implied.
+- **Correction (reported straight, both ways).** The 01:30 entry and the
+  morning proposal both say the research book has **"no fees"**. It has
+  `FEE=0.00144` charged on every exit; what it lacks is measured spread and a
+  shared-account constraint. The error ran in the pessimistic direction, which
+  is still an error. Fixed in the new proposal; the old texts stand as written
+  and are corrected by reference.
+- **Learned:** a baseline can be exact and the conclusion derived from it can
+  still be a property of the *sampler*. The band quoted beside 34.26 had the
+  right formula, the right fee, the right baseline — and eight universes. The
+  tell is duplication: 12 draws should not contain the same three outcomes
+  three times. Any min/max over a seeded sample is a statement about the seed
+  until the draws are de-duplicated or exhausted.
+
 ## 2026-11-03 · the research loop was refusing the incumbent as its own challenger
 
 - **Task:** autonomous improvement pass (cron). No board task; board items are

@@ -31,8 +31,17 @@ LIVE = {"topn": 3, "hold": 21, "risk": 0.01, "sma_r": 150}
 # while hold / topn / risk merely re-slice whatever trades the threshold picked.
 # Ranking across this key compares noise; see collinear_variants().
 FRAGILITY_BY = ("sma_r",)
-# Leave-one-coin-out draws. Deterministic (seeded), so the number is stable.
-LOO_DRAWS = 12
+# Leave-one-coin-out: drop EVERY non-BTC coin once, no sampling.
+#
+# This used to be "12 seeded draws", and on 2026-11-03 those 12 draws were
+# found to collapse to 8 distinct universes over 23 coins (DOGE 3x, SOL 2x,
+# LTC 2x, five once). The band is a min/max, so both tails were then decided
+# by whichever coin the shuffle happened to land on: floor 7.47 = three copies
+# of the DOGE draw, ceiling 30.20 = the LTC draw. Cost of exhausting it is the
+# same order as the sampled version (23 x 4 folds vs 12 x 4) and it is
+# re-derived on every run, so there is no reason to sample a population this
+# small. `draws` is kept in the payload as the number of universes measured.
+LOO_DRAWS = None          # None = exhaustive; an int forces the old sampling
 
 
 def load_harness():
@@ -133,13 +142,19 @@ def _halves(h, cfg):
         return None
 
 
-def coin_fragility(h, r, draws=LOO_DRAWS):
+def coin_fragility(h, r, draws=None):
     """Leave-one-coin-out: how much of this config's median depends on ONE coin?
 
     `bt()` reads the universe from module state (`h.coins`) while sma()/sd()
-    take prices by symbol, so dropping a coin is exactly `h.coins = sub`. The
-    draw is SEEDED: the same ledger always yields the same number, and the
-    number is re-derived on every run rather than quoted (SYSTEM_MAP rule 9).
+    take prices by symbol, so dropping a coin is exactly `h.coins = sub`.
+
+    DEFAULT IS EXHAUSTIVE: every non-BTC coin is dropped once. The old
+    behaviour (`draws=12`) sampled the same space with `random.Random(i)` and
+    the 2026-11-03 run showed 12 draws = 8 universes, so the min/max band was
+    a property of the seed. `draws=<int>` still forces the sampled mode (kept
+    so the sampling behaviour itself stays testable); the payload says which
+    mode produced it in `basis`, because a reader cannot otherwise tell an
+    exhaustive band from an 8-of-23 one.
     """
     import random
 
@@ -147,13 +162,21 @@ def coin_fragility(h, r, draws=LOO_DRAWS):
     med = round(statistics.median(
         [h.bt(a, b, "regime", **r["cfg"])[0] for a, b in h.folds]), 2)
     base = [c for c in full_coins if c != "BTC"]
-    meds, per_coin = [], {}
-    try:
+    if draws is None:
+        dropped_list = list(base)              # one universe per coin
+        basis = f"exhaustive leave-one-coin-out over {len(base)} coins"
+    else:
+        dropped_list = []
         for i in range(int(draws)):
             sub = base[:]
             random.Random(i).shuffle(sub)
-            dropped = sub[-1]
-            h.coins = sorted(sub[:-1])
+            dropped_list.append(sub[-1])
+        basis = (f"{len(dropped_list)} seeded draws over {len(base)} coins "
+                 f"({len(set(dropped_list))} distinct universes)")
+    meds, per_coin = [], {}
+    try:
+        for dropped in dropped_list:
+            h.coins = sorted(c for c in base if c != dropped)
             rets = [h.bt(a, b, "regime", **r["cfg"])[0] for a, b in h.folds]
             m = statistics.median(rets)
             meds.append(m)
@@ -164,6 +187,8 @@ def coin_fragility(h, r, draws=LOO_DRAWS):
     if not meds:
         return {"tested": False, "n_variants": 0}
     return {"tested": True, "draws": len(meds),
+            "distinct_universes": len(set(dropped_list)),
+            "basis": basis,
             "median": med,
             "loo_median": round(statistics.median(meds), 2),
             "loo_min": round(min(meds), 2), "loo_max": round(max(meds), 2),
@@ -301,7 +326,13 @@ def lead_is_coin_fragile(chal, live_row, n_folds=4):
             "is_incumbent": incumbent, "live_band": live_band,
             "inside_live_band": inside, "lead_erased_by_one_coin": erased,
             "seg_lead_frac": frac, "reason": "; ".join(reasons),
-            "basis": (f"{cf.get('draws', 0)} leave-one-coin-out draws; "
+            # Which band the live verdict rests on: exhausted population vs a
+            # seeded sample. Flows into the DECAYED sentence and the findings
+            # file so the owner can see the width of the evidence, not just
+            # the interval.
+            "live_basis": lf.get("basis") or f"{lf.get('draws', 0)} draws",
+            "live_draws": lf.get("draws"),
+            "basis": (f"{cf.get('draws', 0)} leave-one-coin-out universes; "
                       f"lead {lead:+.2f}pp; live band "
                       f"[{live_band[0]:+.2f}, {live_band[1]:+.2f}]")}
 
@@ -389,6 +420,12 @@ def _change_lines(prev, cur, best, live_row):
             else:
                 why = (f"outside its own band [{lf['loo_min']:+.2f}, "
                        f"{lf['loo_max']:+.2f}] but the direction is unclassified")
+            # The band is a statement about a SAMPLE unless the payload says it
+            # is exhaustive. Name the basis inline so a reader cannot mistake
+            # 12 draws (8 universes) for the population — this sentence is what
+            # the owner acts on, and on 2026-11-03 it was 8 of 23 universes.
+            if lf.get("basis"):
+                why += f" [{lf['basis']}]"
             changed.append(f"LIVE EDGE DECAYED: {live_row['cfg']} now "
                            f"median {med}% "
                            f"({live_row['pos_folds']}/{live_row['n_folds']}) "
@@ -462,14 +499,17 @@ def _fragility_line(v):
     if not v:
         return "no live row"
     own = "NO" if v.get("live_fragile") else "yes"
+    basis = f" [{v['live_basis']}]" if v.get("live_basis") else ""
     if v.get("is_incumbent"):
         band = v.get("live_band")
-        b = (f"; band [{band[0]:+.2f}, {band[1]:+.2f}]" if band else "")
+        b = (f"; band [{band[0]:+.2f}, {band[1]:+.2f}]{basis}" if band else "")
         return ("the grid crowns LIVE itself — no challenger to test; "
                 f"live belongs to its own band: {own}{b}")
     verdict = ("FRAGILE — " + v.get("reason", "")) if v.get("fragile") else "holds"
+    basis = v.get("live_basis") or v.get("basis")
+    tail = f" [{basis}]" if basis else ""
     return (f"best vs LIVE {v.get('lead', 0):+.2f}pp; {verdict}; "
-            f"live belongs to its own band: {own}")
+            f"live belongs to its own band: {own}{tail}")
 
 
 def main():
