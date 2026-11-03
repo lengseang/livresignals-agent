@@ -3,6 +3,69 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-03 · the research loop was refusing the incumbent as its own challenger
+
+- **Task:** autonomous improvement pass (cron). No board task; board items are
+  owner-gated or design-only. Suite was run first, on the freshly refreshed
+  cache.
+- **Need check:** repo-only. No exchange read, no order path, no parameter,
+  disable list or live state file touched. One live write: `research_loop.py`
+  regenerated `reports/research-findings.md` and `data/research-loop.json` by
+  its normal entrypoint (01:07, 01:11).
+- **Found (0) the arrival state was red.** Full suite **837 passed, 1 failed** —
+  `test_the_solo_challenger...` asserting the crown's `sma_r` family has one
+  member *on live data*. The 01:00 refresh re-ranked the grid: crown moved from
+  `sma_r=100` (solo) to `sma_r=150` (six siblings). Confirmed by re-running the
+  test against `git show HEAD:research/price-cache-1000d.json`: both tests in
+  that file pass on the old cache and the current cache differs only by one
+  appended bar on 24 of 25 coins. So it is a frozen ranking, not a defect
+  (#11). Fixed by asserting the *property* (whatever is crowned is measured)
+  and skipping when the crown has siblings.
+- **Found (1) the defect, while asking why the crown moved.**
+  `_change_lines()` calls `lead_is_coin_fragile(best_row, live_row)`, and
+  `best_row = max(rows, key=score)` where LIVE is one of the rows. Whenever the
+  incumbent is still best — the healthy, usual outcome — `best_row is
+  live_row`: lead 0.00pp, and all three refusal triggers fire on a row compared
+  with itself. On the 01:07 grid the verdict read
+  *"dropping DOGE alone cuts the challenger's median 26.79pp -> lead -26.79pp;
+  only 0% of 150d segments prefer it"* about `sma_r=150` vs `sma_r=150`. The
+  2026-10-24 fix stopped the NEW BEST and DECAYED branches contradicting *each
+  other*; it did not stop one branch contradicting itself.
+- **Found (2) the tie, which the same run surfaced.** `score()` is
+  `(pos_folds, median_2dp)` and `max()` returns the first; LIVE is second in
+  the grid, so an exact tie ALWAYS crowns the challenger and the refusal branch
+  then refuses it for a 0.00pp "lead". The 01:05 run with the incumbent guard
+  alone printed `NEW BEST config: {sma_r: 150} …` — the live config announced
+  as its own challenger. A refusal or an announcement whose content is decided
+  by the order of a list is not a verdict.
+- **Done.** `lead_is_coin_fragile()` reports `is_incumbent` and emits no
+  refusal reason for that row (the three triggers are untouched for a real
+  challenger; `live_fragile` is still answered, since it is the only question
+  the row can answer). `_tied_challengers()` makes a tie a stated TIE ("No
+  config change is implied"). `_fragility_line()` stops writing *"best vs LIVE
+  +0.00pp; holds"* into the findings file for the incumbent and states its band
+  instead. Lesson recorded as SYSTEM_MAP #21; design in
+  `docs/proposals/incumbent-is-not-a-challenger-2026-11-03.md`.
+- **Evidence.** RED first: 4 new tests failed on HEAD (`is_incumbent` absent,
+  two `KeyError: 'cfg'`). GREEN: file **19 passed, 1 skipped**; full suite
+  **845 passed, 4 skipped, 0 failed**. Four mutations, each caught: remove the
+  incumbent guard; exempt on `lead == 0` rather than identity (a point-tie
+  challenger must still be refused); remove the tie branch; define a tie by
+  fold count alone. Real run: `no change (silence by design)`.
+- **Not claimed.** The research loop is a simulation: 1000 daily bars × 25
+  coins from `research/price-cache-1000d.json`, regime L/S, no fees, one
+  account. Its LIVE row is currently ABOVE its own leave-one-coin-out ceiling
+  (34.26% vs `[+7.47, +30.20]`) — a regime-break flag on a simulation, not a
+  P&L statement, and the same state the 2026-10-20 entry recorded. No config
+  was promoted; the incumbent stands on its own numbers, not because a guard
+  was silenced.
+- **Learned:** a guard is a function of TWO populations — the one the verdict
+  is computed on (#14/#15) and the one the checker is handed. Here the second
+  one contained the answer. The tell was in the output all along: a refusal
+  whose quoted lead is exactly `+0.00pp`, and a refusal that names the same
+  numbers as the incumbent. Any self-comparison passes every test that asks
+  "is it different?"; the fix is an identity check, never a tighter threshold.
+
 ## 2026-11-02 (overnight shift) · the 2.5% stop was rarely what closed a paper trade
 
 - **Task:** overnight improvement shift. Verify the morning's paper-stop fix is

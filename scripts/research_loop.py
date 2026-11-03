@@ -247,8 +247,20 @@ def lead_is_coin_fragile(chal, live_row, n_folds=4):
     """
     cf = (chal or {}).get("fragility") or {}
     lf = (live_row or {}).get("fragility") or {}
+    # THE INCUMBENT IS NOT A CHALLENGER. `best_row` is max(rows, key=score)
+    # and the LIVE config is one of the rows, so on any run where the
+    # incumbent is still best (or merely TIES a challenger, max() takes the
+    # first in grid order) `chal is live_row` and every test below fires on
+    # itself: lead is 0.00pp by construction, 0.00 is inside the live band,
+    # 0 - drop_max <= 0 always, and a row cannot prefer itself in 75% of
+    # segments. The run then refuses the incumbent in one line and calls it
+    # the incumbent in the next — the 2026-10-24 contradiction. The
+    # `live_fragile` question below is the only one that can be asked of
+    # this row, and it is asked.
+    incumbent = chal is live_row
     if not cf.get("tested") or not lf.get("tested"):
         return {"fragile": False, "live_fragile": False,
+                "is_incumbent": incumbent,
                 "basis": "fragility untested (no leave-one-coin-out data)",
                 "reason": ""}
 
@@ -267,24 +279,26 @@ def lead_is_coin_fragile(chal, live_row, n_folds=4):
     frac = _seg_lead_frac(chal.get("halves"), live_row.get("halves"))
 
     reasons = []
-    if inside:
-        reasons.append(f"lead {lead:+.2f}pp sits inside the LIVE config's own "
-                       f"leave-one-coin-out band [{live_band[0]:+.2f}, "
-                       f"{live_band[1]:+.2f}]")
-    if erased:
-        reasons.append(f"dropping {worst} alone cuts the challenger's median "
-                       f"{drop_max:.2f}pp -> lead {lead - drop_max:+.2f}pp")
-    if frac is not None and frac < 0.75:
-        reasons.append(f"only {frac:.0%} of 150d segments prefer it")
+    if not incumbent:          # a row cannot be one-coin luckier than itself
+        if inside:
+            reasons.append(f"lead {lead:+.2f}pp sits inside the LIVE config's own "
+                           f"leave-one-coin-out band [{live_band[0]:+.2f}, "
+                           f"{live_band[1]:+.2f}]")
+        if erased:
+            reasons.append(f"dropping {worst} alone cuts the challenger's median "
+                           f"{drop_max:.2f}pp -> lead {lead - drop_max:+.2f}pp")
+        if frac is not None and frac < 0.75:
+            reasons.append(f"only {frac:.0%} of 150d segments prefer it")
     fragile = bool(reasons)
     if fragile:
         reasons.append(f"challenger band [{chal_band[0]:+.2f}, "
                        f"{chal_band[1]:+.2f}] vs LIVE {live_row.get('median')}%")
 
     # Is the INCUMBENT itself outside its own noise? A live median below its
-    # leave-one-out floor, or above its ceiling, is a genuine regime change.
+    # leave-one-coin-out floor, or above its ceiling, is a genuine regime change.
     live_fragile = not (live_band[0] <= live_row.get("median", 0) <= live_band[1])
     return {"fragile": fragile, "live_fragile": live_fragile, "lead": lead,
+            "is_incumbent": incumbent, "live_band": live_band,
             "inside_live_band": inside, "lead_erased_by_one_coin": erased,
             "seg_lead_frac": frac, "reason": "; ".join(reasons),
             "basis": (f"{cf.get('draws', 0)} leave-one-coin-out draws; "
@@ -315,26 +329,45 @@ def _change_lines(prev, cur, best, live_row):
             print(f"  SUPPRESSED: best config does not beat BTC buy&hold "
                   f"— not announcing an edge")
         else:
-            # A NEW BEST that is one coin's luck is not a new best. Refuse it,
-            # and SAY SO — a silent refusal looks like nothing happened.
-            v = lead_is_coin_fragile(best_row, live_row,
-                                     n_folds=best_row.get("n_folds", 4))
-            if v["fragile"]:
-                name = (best_row.get("cfg") or
-                        f"median {best_row['median']}%")
+            # A tie on (fold count, median) is not news, and what it reports is
+            # an artefact of grid ORDER: max() takes the first, and `best` is
+            # never the live row on a tie, so the refusal branch above would
+            # name the identical numbers and this branch would crown LIVE as
+            # its own challenger in the same message. Say there was a tie.
+            tied = _tied_challengers(cur.get("rows") or [], best_row, live_row)
+            if tied:
+                names = ", ".join(str(r["cfg"]) for r in tied)
                 changed.append(
-                    f"REFUSED 'NEW BEST' {name} (median "
-                    f"{best_row['median']}%, {best_row['pos_folds']}/"
-                    f"{best_row['n_folds']} folds): the lead over LIVE is "
-                    f"one-coin luck — {v['reason']}. Not an edge; "
-                    f"the incumbent stands.")
-                print(f"  REFUSED NEW BEST: {v['reason']}")
+                    f"NEW BEST config: {best_row['cfg']} "
+                    f"(median {best_row['median']}%, "
+                    f"{best_row['pos_folds']}/{best_row['n_folds']} folds) "
+                    f"— {bench_detail}")
+                changed.append(
+                    f"TIE on (folds, median): {names} and LIVE "
+                    f"{live_row['cfg']} are identical — the grid's order chose "
+                    f"the winner, not the data. No config change is implied.")
+                print(f"  TIE at the crown: {names} == LIVE")
             else:
-                changed.append(f"NEW BEST config: {best_row['cfg']} "
-                               f"(median {best_row['median']}%, "
-                               f"{best_row['pos_folds']}/"
-                               f"{best_row['n_folds']} folds) "
-                               f"— {bench_detail}")
+                # A NEW BEST that is one coin's luck is not a new best. Refuse it,
+                # and SAY SO — a silent refusal looks like nothing happened.
+                v = lead_is_coin_fragile(best_row, live_row,
+                                         n_folds=best_row.get("n_folds", 4))
+                if v["fragile"]:
+                    name = (best_row.get("cfg") or
+                            f"median {best_row['median']}%")
+                    changed.append(
+                        f"REFUSED 'NEW BEST' {name} (median "
+                        f"{best_row['median']}%, {best_row['pos_folds']}/"
+                        f"{best_row['n_folds']} folds): the lead over LIVE is "
+                        f"one-coin luck — {v['reason']}. Not an edge; "
+                        f"the incumbent stands.")
+                    print(f"  REFUSED NEW BEST: {v['reason']}")
+                else:
+                    changed.append(f"NEW BEST config: {best_row['cfg']} "
+                                   f"(median {best_row['median']}%, "
+                                   f"{best_row['pos_folds']}/"
+                                   f"{best_row['n_folds']} folds) "
+                                   f"— {bench_detail}")
     if live_row and pb and score(live_row) < score(pb):
         # A decay claim must clear the SAME fragility idea: the live config
         # being out-scored is only news if it fell OUT of its own noise band.
@@ -392,6 +425,51 @@ def admissible(r, bench_btc_median):
     detail = (f"{'BEATS' if ok else 'LAGS'} BTC buy&hold by {edge_pp:+.2f}pp "
               f"(config {med}% vs BTC {bench_btc_median}%)")
     return ok, detail
+
+
+def _tied_challengers(rows, best, live_row):
+    """Rows that TIE the crown and are NOT the incumbent.
+
+    `score()` is (pos_folds, median) — integer fold counts and a median
+    rounded to 2dp, so exact ties are ordinary. `max()` returns the FIRST, and
+    LIVE is second in the grid (`run()`), so a tie is always won by whichever
+    challenger sorts first. That is a fact about grid ORDER, not about the
+    configs: `_change_lines()` would refuse the tied challenger (its lead is
+    0.00pp, inside the live band) and announce the identical live row as a
+    "NEW BEST" in the same message.
+
+    Returns [] when the crown is not an exact tie, so the normal path is
+    untouched.
+    """
+    if not best or not live_row or best is live_row:
+        return []
+    if score(best) != score(live_row):
+        return []
+    # The crown and the incumbent are already known, so they cannot also be
+    # the "second" row. Everything else that scores the same is a tie.
+    return [r for r in rows
+            if r is not best and r is not live_row
+            and score(r) == score(best)]
+
+
+def _fragility_line(v):
+    """One sentence about the leave-one-coin-out verdict, for the findings file.
+
+    A crowning of the incumbent has NO challenger, and saying "best vs LIVE
+    +0.00pp; holds" reads as a passed test it never took. The band is the
+    only measurement that exists on that row, so state it.
+    """
+    if not v:
+        return "no live row"
+    own = "NO" if v.get("live_fragile") else "yes"
+    if v.get("is_incumbent"):
+        band = v.get("live_band")
+        b = (f"; band [{band[0]:+.2f}, {band[1]:+.2f}]" if band else "")
+        return ("the grid crowns LIVE itself — no challenger to test; "
+                f"live belongs to its own band: {own}{b}")
+    verdict = ("FRAGILE — " + v.get("reason", "")) if v.get("fragile") else "holds"
+    return (f"best vs LIVE {v.get('lead', 0):+.2f}pp; {verdict}; "
+            f"live belongs to its own band: {own}")
 
 
 def main():
@@ -465,12 +543,7 @@ def main():
               f"**BENCHMARK (rule 3):** {bench_detail} — "
               f"{'ADMISSIBLE' if ok_bench else 'NOT AN EDGE'}",
               "",
-              "**COIN FRAGILITY (leave-one-coin-out):** "
-              + (f"best vs LIVE {v.get('lead', 0):+.2f}pp; "
-                 f"{'FRAGILE — ' + v.get('reason', '') if v.get('fragile') else 'holds'}"
-                 f"; live belongs to its own band: "
-                 f"{'NO' if v.get('live_fragile') else 'yes'}"
-                 if v else "no live row")]
+              "**COIN FRAGILITY (leave-one-coin-out):** " + _fragility_line(v)]
     FINDINGS.parent.mkdir(parents=True, exist_ok=True)
     FINDINGS.write_text("\n".join(lines) + "\n")
     print(f"  {guard_txt}")

@@ -401,6 +401,28 @@ journal entry.
 │           file, two meanings, one of them unstated.              │
 │     docs/proposals/paper-stop-basis-2026-11-02.md                │
 │     tests/test_paper_stop_basis.py                                │
+│                                                                  │
+│ 21. A GUARD MUST NOT BE ASKED TO JUDGE ITS OWN SUBJECT.          │
+│     #14/#15 fixed the population a verdict is computed ON; this  │
+│     is the population the CHECKER is handed. `_change_lines()`   │
+│     asks `lead_is_coin_fragile(best_row, live_row)` — and        │
+│     `best_row` is max(rows) over the SAME list the live config   │
+│     is in, so "the incumbent is still best" (the normal, healthy │
+│     outcome) makes challenger IS incumbent: lead 0.00pp, inside  │
+│     its own band, erased by every drop, 0% of segments — all     │
+│     three refusals fire on a row compared with itself. On the    │
+│     2026-11-03 grid: "dropping DOGE cuts the challenger 26.79pp  │
+│     -> lead -26.79pp" about sma_r=150 vs sma_r=150.              │
+│     Two lessons:                                                 │
+│       (a) A TIE IS RESOLVED BY LIST ORDER. `max()` returns the   │
+│           first, LIVE is second in the grid, so an exact tie     │
+│           always crowns the challenger and then refuses it for   │
+│           a 0.00pp "lead". Say TIE; that is all the data says.   │
+│       (b) A SELF-COMPARISON PASSES EVERY TEST THAT ASKS "is it   │
+│           different?" — the guard needs an identity check, not a │
+│           tighter threshold.                                     │
+│     docs/proposals/incumbent-is-not-a-challenger-2026-11-03.md   │
+│     tests/test_research_loop_coin_fragility.py                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

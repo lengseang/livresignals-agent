@@ -46,6 +46,8 @@ import statistics
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
     "research_loop", ROOT / "scripts" / "research_loop.py")
@@ -301,7 +303,15 @@ def test_the_solo_challenger_is_measured_even_when_it_has_no_family():
     """
     cur = rl.run()
     best = max(cur["rows"], key=rl.score)
-    assert len(rl.collinear_variants(cur["rows"])[best["cfg"]["sma_r"]]) == 1
+    # This test is about a SOLO family. When the grid crowns a config with
+    # siblings (sma_r=150 has six), the coverage half of this test is
+    # `test_run_measures_fragility_on_every_multi_variant_family`'s job.
+    # Until 2026-11-03 this asserted `len(family) == 1` unconditionally and
+    # went red the moment the incumbent re-took the crown, for a change of
+    # ranking, not a defect — the #11 shape this file's own docstring warns
+    # about. Assert the property: WHATEVER is crowned is measured.
+    if len(rl.collinear_variants(cur["rows"])[best["cfg"]["sma_r"]]) != 1:
+        pytest.skip("today's crown has siblings — not a solo-challenger day")
     frag = best.get("fragility") or {}
     assert frag.get("tested") is True, frag
     assert frag["per_coin"]
@@ -346,3 +356,172 @@ def test_the_solo_challenger_is_measured_even_when_it_has_no_family():
         else:
             assert "ceiling" in decay[0] and "floor" not in decay[0], (
                 f"LIVE is ABOVE its ceiling but the line claims a floor: {decay[0]}")
+
+
+# ------------------------------------------- the incumbent is not a challenger
+def test_the_crowned_incumbent_is_not_refused_for_not_beating_itself():
+    """A guard that fires on the right answer is worse than no guard.
+
+    Found 2026-11-03 (cron improvement pass). `_change_lines()` calls
+    `lead_is_coin_fragile(best_row, live_row)` for the NEW BEST branch — but
+    `best_row` is `max(rows, key=score)`, and the LIVE config is itself one of
+    the rows. Whenever the incumbent is still the best config (the normal case:
+    a challenger gets refused, or a TIE takes the max because it is first in
+    the grid), `best_row IS live_row`, so `lead` is 0.00pp by construction and:
+
+      (a) 0.00 sits inside the live config's own band -> "inside" fires;
+      (b) 0 - drop_max <= 0 always -> "erased" fires;
+      (c) the live row cannot prefer itself -> seg_frac 0.0 -> "one hot
+          quarter" fires.
+
+    `live_fragile` asks a DIFFERENT question (is the incumbent itself outside
+    its own band?) and is evaluated on the same row, so the run emits a
+    refusal of the incumbent in the SAME message that calls it the incumbent —
+    the 2026-10-24 contradiction, re-entered through the front door.
+
+    Pinned on the live grid's real 2026-11-03 numbers: sma_r=150 crowns at
+    34.26% (4/4) over sma_r=200 at 31.83%.
+    """
+    live = _clean_pair(lead_gap=0.0)[1]          # the live row, clean band
+    live["median"] = 34.26
+    live["fragility"].update({"median": 34.26, "loo_min": 7.47, "loo_max": 30.20,
+                              "loo_drop_max": 26.79})
+    live["rets"] = [59.1, 30.2, 30.0, 17.7]
+    live["halves"] = [10.0] * 8
+    v = rl.lead_is_coin_fragile(live, live, n_folds=4)
+    assert v["lead"] == 0.0
+    assert v["is_incumbent"] is True
+    assert v["fragile"] is False, (
+        "the incumbent was refused for failing to beat itself: " + v["reason"])
+    assert not v["reason"], v["reason"]
+    # the OTHER question is untouched: 34.26 is above its own ceiling
+    assert v["live_fragile"] is True, v
+    # and the live_fragile path needs a row that is really outside its band
+    assert "fragility untested" not in v["basis"]
+
+
+def test_an_incumbent_crowned_above_its_own_ceiling_says_regime_break(monkeypatch):
+    """End-to-end through `_change_lines()`: the second call site.
+
+    The decay branch evaluates the live row when it is out-scored; it must
+    still fire on the same numbers, and it must state the direction. The point
+    of this test is that fixing the first call site must not silence the
+    second — they ask different questions of the same row.
+    """
+    live = _clean_pair()[1]
+    live["cfg"] = dict(rl.LIVE)                  # a grid row carries its config
+    live["median"] = 34.26
+    live["fragility"].update({"median": 34.26, "loo_min": 7.47, "loo_max": 30.20})
+    # a previous best the live row now loses to, so the decay branch is reached
+    live["rets"] = [59.1, 30.2, 30.0, 17.7]
+    prev = {"rows": [dict(_row(150, 40.0), rets=[50.0, 45.0, 40.0, 40.0])]}
+    changed = rl._change_lines(
+        prev=prev, cur={"ts": "2026-11-03T01:30:00+00:00", "rows": [live],
+                        "bench_btc_median": -20.0, "bench_eql_median": -45.0},
+        best=live, live_row=live)
+    assert any("LIVE EDGE DECAYED" in c for c in changed), changed
+    assert any("ABOVE its own leave-one-coin-out ceiling" in c for c in changed), changed
+    assert not any("REFUSED" in c for c in changed), (
+        "the incumbent was also refused as its own challenger: " + repr(changed))
+
+
+def test_a_real_challenger_is_still_refused_when_it_is_distinguishable():
+    """Guard against over-fixing: the incumbent exemption must key on identity,
+    not on `lead == 0`. A different config that merely TIES the live median is
+    still a challenger and is still refused."""
+    live, chal = _clean_pair(lead_gap=0.0)
+    chal["cfg"] = dict(rl.LIVE, hold=30)     # a different config, same median
+    v = rl.lead_is_coin_fragile(chal, live, n_folds=4)
+    assert v["lead"] == 0.0
+    assert v["is_incumbent"] is False
+    assert v["fragile"] is True, v
+
+
+def test_the_crowned_row_on_the_real_grid_is_the_live_row_today():
+    """Pin the SHAPE that made the defect reachable, not the ranking.
+
+    On 2026-11-03 the freshly refreshed cache crowns the LIVE config at 34.26%
+    (4/4) over sma_r=200 at 31.83% (4/4) — i.e. the `best_row is live_row` case
+    is the DEFAULT outcome of a healthy run, not an edge case. Re-derived each
+    run, so a cache refresh cannot red-line this for a non-defect.
+    """
+    cur = rl.run()
+    live = next(r for r in cur["rows"] if r["cfg"] == rl.LIVE)
+    best = max(cur["rows"], key=rl.score)
+    if best is not live:
+        pytest.skip("today the grid crowns a challenger — not the case under test")
+    v = rl.lead_is_coin_fragile(best, live, n_folds=4)
+    assert v["is_incumbent"] is True
+    assert v["fragile"] is False, v["reason"]
+
+
+def test_the_findings_line_does_not_claim_a_test_that_never_ran():
+    """`best vs LIVE +0.00pp; holds` about the incumbent reads as a passed
+    head-to-head. There was no head-to-head: best IS live."""
+    live = _clean_pair()[1]
+    live["cfg"] = dict(rl.LIVE)
+    live["median"] = 34.26
+    live["fragility"].update({"median": 34.26, "loo_min": 7.47, "loo_max": 30.20})
+    v = rl.lead_is_coin_fragile(live, live, n_folds=4)
+    line = rl._fragility_line(v)
+    assert "no challenger" in line, line
+    assert "best vs LIVE" not in line, line
+    assert "[+7.47, +30.20]" in line, line
+    # and a real challenger's line is unchanged in substance
+    lead, live2 = _clean_pair()
+    line2 = rl._fragility_line(rl.lead_is_coin_fragile(lead, live2, n_folds=4))
+    assert line2.startswith("best vs LIVE +14.00pp; holds"), line2
+
+
+def test_an_exact_tie_with_the_incumbent_is_not_announced_as_a_new_best():
+    """`max()` takes the FIRST on a tie and LIVE is second in the grid, so a
+    tie always crowns the challenger. Then `lead_is_coin_fragile()` refuses it
+    (lead 0.00pp) and the run reports the identical numbers as a refusal — a
+    refusal of a config that is not different from the incumbent, produced by
+    the ORDER of a list. A tie is not news and must not be dressed as one.
+    """
+    live = _clean_pair()[1]
+    live["cfg"] = dict(rl.LIVE)
+    live["median"] = 34.26
+    live["rets"] = [59.1, 30.2, 30.0, 17.7]
+    lead = _clean_pair(lead_gap=0.0)[0]
+    lead["cfg"] = dict(rl.LIVE, sma_r=200)      # ties on (folds, median)
+    # `_fragility_line` is out of scope here; the tie is about scores only
+    lead.pop("fragility")
+    live.pop("fragility")
+    lead.pop("halves", None)
+    live.pop("halves", None)
+    lead["median"] = 34.26
+    lead["rets"] = [59.1, 30.2, 30.0, 17.7]
+    rows = [lead, live]
+    assert rl.score(lead) == rl.score(live), (rl.score(lead), rl.score(live))
+    # LEAD is the crown, so with only these two rows there is no "second" row.
+    # Add the LIVE config's own duplicate (the grid carries six sma_r=150
+    # variants): THAT is the row the incumbent ties with.
+    twin = dict(live, cfg=dict(rl.LIVE, hold=21), rets=list(live["rets"]))
+    rows.append(twin)
+
+    # identity, not equality: the tied neighbour is the twin, not the crown
+    tied = rl._tied_challengers(rows, best=lead, live_row=live)
+    assert len(tied) == 1 and tied[0] is twin, tied
+
+    changed = rl._change_lines(
+        prev={"rows": [dict(_row(150, 10.0), rets=[10.0] * 4)]},
+        cur={"ts": "2026-11-03T01:30:00+00:00", "rows": rows,
+             "bench_btc_median": -20.0, "bench_eql_median": -45.0},
+        best=lead, live_row=live)
+    assert any("TIE on (folds, median)" in c for c in changed), changed
+    assert not any("REFUSED" in c for c in changed), (
+        "a tie was refused as one-coin luck: " + repr(changed))
+    assert any("No config change is implied" in c for c in changed), changed
+
+
+def test_a_non_tie_is_never_reported_as_a_tie():
+    """The tie branch must be unreachable unless the scores are EQUAL."""
+    live, _ = _clean_pair()
+    live["cfg"] = dict(rl.LIVE)
+    lead = _clean_pair(lead_gap=14.0)[0]
+    lead["cfg"] = dict(rl.LIVE, sma_r=200)
+    assert rl._tied_challengers([lead, live], lead, live) == []
+    # and the incumbent is never its own tied challenger
+    assert rl._tied_challengers([lead, live], live, live) == []
