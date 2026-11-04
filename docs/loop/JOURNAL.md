@@ -3,6 +3,76 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-04 (overnight, second pass) · the paper-fill bound's input does not exist, and its fixture never tested the rule
+
+- **Task:** overnight autonomous improvement pass, second pass of the night. The
+  first pass (below) recorded that it did not touch the paper book; this one
+  picked up the untracked `scripts/paper_exit_fill.py` that the daytime shift
+  left with a red test — "why is the paper book's net basis unbounded?"
+- **Need check:** repo-only. No exchange read, no order path, no parameter,
+  disable list, book or live state file touched. One commit touches
+  `scripts/paper_exit_fill.py` and its tests; the research loop was not run.
+  Reading only: `unified-paper.json`, `trading.db` (read-only URI), the ingester
+  logs and the two book summaries. Suite run **in this session**:
+  `869 passed, 4 skipped, 1 xfailed` with one pre-existing level pin deselected
+  (see below); `tests/test_paper_exit_fill.py` alone: `12 passed, 1 xfailed`.
+- **Arrival state was red, and it was a real defect, not drift.** The 2026-11-04
+  daytime shift left `scripts/paper_exit_fill.py` (untracked) with
+  `test_adversarial_pnl_charges_the_worst_bar_through_the_stop` failing
+  `TypeError: cannot unpack non-iterable NoneType`. Fixing that exposed two more
+  layers, and the second one is the finding.
+- **Found (1) the fixture asserted behaviour the module never had.** Under the
+  module's own rule a bar carries a bound only when `close > open` and
+  `range > body`; the fixture's bars closed BELOW their opens, so `None` was the
+  rule working. The rewrite reproduces the rule deliberately instead of hoping a
+  bar happens to satisfy it. Also hit: `1790812800000` is 2026-10-01 00:00Z and
+  the fixture comment was right; a one-bar list with an index-2 lookup raises
+  `IndexError` rather than returning `None` — check the fixture, not the code.
+- **Found (2) — the input does not exist.** `avg_gain_in_force()`, the constant
+  the whole bar bound is built on, returns a **negative** mean at every stop
+  level of the live book: −0.52% (n=421) at −1.0%, −0.94% (n=768) at −2.0%,
+  −0.92% (n=495) at −2.5%. It is the mean booked outcome of trades that *closed
+  near that stop* — 526 below-entry SL closers average **−2.29%** — i.e. a
+  quantity selected on the outcome it is used to estimate. The reading of the
+  sign in the docstring is wrong by construction and `abs()` would hide it.
+  Separately, `adversarial_pnl` walks to the end of the series, not to the
+  record's close, so its window is the trade's whole future — the `summarise`
+  docstring already admits this. **The bar method cannot be computed from this
+  book; the `min(adv, booked)` clamp is the only thing making it safe.**
+- **What IS citable from that module** (`bracket_vs_level`, no bars needed):
+  1,332 SL records with a constant level, **1,269 booked beyond it, 0 inside**,
+  63 exactly at it, mean gap −0.52pp (below-entry n=526: 517 beyond, −0.62pp).
+  **98.3% of below-entry SL fills are one-directionally worse than their own
+  stop.** The write-path rounding tolerance is 0.02% and cannot explain 0.52pp.
+  This says the fill is not the level; it does not say by how much.
+- **Shipped (small, safe, no estimate):** `adversarial_pnl` accepts
+  `avg_gain_in_force`'s `(mean, n)` tuple as well as a float and refuses a
+  non-positive gain instead of sign-flipping. Two tests pin the seam and the
+  refusal; `test_summarise_is_one_sided…` was the only caller-side coverage and
+  it monkeypatches the bar method out, so the type contract existed nowhere.
+- **Not shipped, deliberately:** any new estimate of the adverse fill (the input
+  is mis-conditioned, so a number would be invented, not measured), a change to
+  `summarise()`, and the `agreement()` xfail — its stated reason still holds.
+  Write-up: `docs/proposals/paper-fill-bound-never-ran-2026-11-04.md`.
+- **Red left standing, named:** `test_research_stop_basis.py::test_the_traced_book
+  _is_the_book_the_loop_prints` is `assert 36.11 == 34.26` — the same one-bar
+  cache roll the earlier shift recorded as the third instance of pinning a level
+  on a daily-refreshed cache. Not touched here; it is a test-design debt that
+  needs a shape assertion, not a new constant.
+- **System checks in passing (not this pass's work):** 60 series current across
+  10 symbols × 6 tfs, both ingesters printing per-series verdicts (18 and 42
+  series), `close_time_utc > now` = 0 rows, `LIVE_ENABLED` present and git-tracked
+  (not touched). Paper book collapse: 3,568 raw → 2,793 collapsed, 775 removed,
+  gross +16.198 vs raw +24.712 — phantom rows are 34% of the raw gross, so any
+  quoted unified-book gross must say `collapsed`.
+- **Learned:** two defects stacked and the unexercised seam is what let the first
+  hide the second — but the one worth carrying is the follow-on: **a proxy for
+  "edge in force" selected on the trade's exit is not a proxy, it is the
+  outcome.** When the conditioning variable is the quantity being estimated the
+  sign is wrong by construction, and `abs()` makes it look fine. The honest
+  output of this pass is a bound that cannot be computed plus one one-sided fact
+  that can.
+
 ## 2026-11-04 (overnight shift) · the risk rule is a cap, and the crown is a function of it
 
 - **Task:** overnight autonomous improvement pass. Yesterday left the decay test
