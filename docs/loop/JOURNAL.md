@@ -3,6 +3,57 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-04 (overnight shift) · the risk rule is a cap, and the crown is a function of it
+
+- **Task:** overnight autonomous improvement pass. Yesterday left the decay test
+  as "needs a decision about what decayed means"; this pass did **not** take that
+  decision. It went after why the instrument is flat and found a different,
+  larger object — the sizer.
+- **Need check:** repo-only. No exchange read, no order path, no parameter,
+  disable list, book or live state file touched. One write by the loop's own
+  entrypoint (`research_loop.py`, 01:02 → its two files); one Telegram notice to
+  `reports` (message 5500) because the finding changes what a printed number
+  means and the owner reads those numbers.
+- **Arrival state was red, and it was cache drift.** `36.11 == 34.26` failed:
+  the 01:00 refresh rolled the window **one bar** (all 24 coins, every date key
+  +1). Windows are offsets, and LIVE's fold 1 deploys 113% of fold capital, so
+  its fold 1 is a cliff function of where the window starts
+  (`49.59 / 5.32 / 28.34 / 43.87`, fold 1 tops at day 271 and never returns).
+  Third pin-the-level-on-a-daily-cache failure; the test is left as-is and the
+  shape recorded.
+- **🔴 Found.** `size = min(cash·risk/σ, cash/topn)` then `if sz < 0.05: skip`.
+  Liquid σ/px ≈ 0.03–0.05, so `risk/σ` is 4–7× the `1/3` cap: **the risk term
+  never binds**. Measured max position **60.5% of equity** (BTC, day 289),
+  median 10.7%, and a 60% name falling 10% is −6% of equity. The 2% is the
+  *floor* of what the rule can express, not its target. Also: **79 rejected
+  candidate entries, all `raw < cap`** — the 5% floor, not room. Repricing at a
+  3% floor: 0 skips, median **33.04** vs **36.11**.
+- **And the crown rides on it.** Same entries, one sizing change each: no 5%
+  floor 33.04 · no topn cap 36.95 · max 30% 36.36 · max 15% 30.59 · equal weight
+  **14.68** (−21.43). A nine-config grid whose ranking moves 21pp under a rule
+  it does not vary is ranking the sizer — and the LIVE-vs-BTC +54.6pp headline
+  with it.
+- **The band is [36.11, 36.11].** Universe-only LOO over 24 coins returns one
+  number. Yesterday's `[7.47, 45.64]` was one bar away and 38pp wide: that
+  spread was **one-coin sensitivity of the sizing**, i.e. §2 again, not decay.
+  Pinned by `tests/test_research_loop_flat_band.py` — 2 passed, 1 skipped, and
+  the skip is the defect stated out loud instead of a number a refresh breaks.
+- **Probe that did not pan out (recorded so it is not repeated).** I first
+  suspected a basket re-rating (BTC 45k→69k across the window start). Equal
+  weight buy&hold does not co-move with the book and a zero-wedge rebooking
+  costs only 4.6pp of the median. Not a start-bar artefact.
+- **Not shipped:** sizing. Choosing a sizing rule after reading the numbers
+  above is the pre-declared-validation error this journal has recorded four
+  times. §3 of the write-up is the menu; the pick has to precede the look.
+  `docs/proposals/risk-pct-is-a-cap-2026-11-04.md`.
+- **Learned:** yesterday's lesson was "a consistent instrument can make a test
+  vacuous". This one is the step before it: **check that the knob the claim is
+  about is the knob that moves the number.** The loop varies `topn/hold/risk/sma_r`
+  and attributes the ranking to them, while `risk` silently does nothing above
+  the cap and the *cap* does everything. A parameter that cannot bind is not a
+  parameter, it is a comment — and a grid ranked on it inherits the luck of the
+  thing that did bind: where the window starts.
+
 ## 2026-11-03 (overnight shift) · the leave-one-out band was a sample, and a consistent band cannot decay
 
 - **Task:** overnight autonomous improvement pass. The daytime shift left one
