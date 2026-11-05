@@ -91,10 +91,11 @@ PF_WINDOW_DAYS = 28
 # suggestion is not a backlog item, it is a fixed cost the owner pays on every
 # read — and it trains the eye to skim priority 4.
 #
-# So closures live in ONE register that `_emit_explorations()` consults. A key
-# present here can never be emitted as an open `explore` again, no matter what
-# any caller passes in. Each entry must carry evidence: a verdict nobody can
-# check is a rumour with a date on it.
+# So an idea is PROPOSED in `_explorations()` and CLOSED here. A closed key
+# renders as an `explore_result` carrying its verdict — never as an open task,
+# and never as silence: the point is to keep the negative knowledge while
+# stopping the re-run. Each entry must carry evidence, because a verdict nobody
+# can check is a rumour with a date on it.
 CLOSED_HYPOTHESES: dict[str, dict] = {
     "volume-spike-gate": {
         "verdict": (
@@ -891,19 +892,9 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
                      "independent confirmation, and do not tune the copy "
                      "separately from its parent."),
         })
-    # 5. Unique/outside-the-box ideas (always add a couple)
-    # TESTED-NEGATIVE (2026-10-10): the volume-spike idea below was run through
-    # hunt.py's IS/OOS funnel (dip_vol + brk_vol families, 24 candidates, at
-    # exchange cost). 0 of 24 beat PF 1.0 in the screen window, so none reached
-    # IS/OOS. Evidence: docs/proposals/volume-gate-negative.md and
-    # reports/hunt/2026-10-10T011755Z_15m.json. Reported as a closed result, not
-    # re-proposed as an open idea, so the loop stops repeating it.
-    #
-    # 2026-11-05: suggestions and closures are now the same channel. An idea is
-    # PROPOSED by being listed in `_explorations()` as open and CLOSED by a key
-    # in CLOSED_HYPOTHESES — never by hand-editing a literal, which is how the
-    # volume-gate entry used to be the only thing keeping its idea from
-    # returning. See _emit_explorations().
+    # 5. Explorations — proposed in _explorations(), closed in CLOSED_HYPOTHESES.
+    # The volume-gate run's raw funnel output lives at
+    # reports/hunt/2026-10-10T011755Z_15m.json (24 candidates, 0 beat PF 1.0).
     out.extend(_emit_explorations(_explorations()))
     out.sort(key=lambda s: s["priority"])
     return out
