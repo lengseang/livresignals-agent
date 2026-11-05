@@ -3,6 +3,67 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-05 (daytime shift) · the advice channel could not close an item, and an early return was deleting what it did close
+
+- **Task:** autonomous improvement pass, following the overnight shift (below).
+  That pass went below the config dict to a literal; this one went to the
+  *suggestion channel itself* — the list the owner reads every 40 minutes.
+- **Need check:** repo-only. No exchange read, no order path, no parameter,
+  disable list, book or live state file touched. The research loop was not run.
+  Reading only: `unified-paper.json`, `reports/improvement-report.json`,
+  `data/fee-audit.json`.
+- **Arrival state:** `1 failed, 496 passed, 2 skipped, 1 xfailed` — the known
+  daily-cache level pin (`test_research_stop_basis.py`), named again, left as-is.
+- **🔴 Found (1).** `_suggest()` ended with a hardcoded literal:
+  `{"priority": 4, "type": "explore", "idea": "Explore: time-of-day filter —
+  capitulation bounces may cluster around US session open (13:30-16:00 UTC)…"}`.
+  `git log -S` puts it at the repo's **first commit** (`cb1af99`); it printed on
+  every run since. No code path could retire it. The volume-gate idea beside it
+  had stopped repeating only because someone hand-edited its literal into an
+  `explore_result` — which also deleted the record that it was ever tried.
+- **Tested it, because an un-retired idea is a debt either way.** Design fixed
+  before any outcome was seen (`research/_session_cluster_probe.py`): production
+  `collapse_multitf` (3573→2798, 775 removed), **net** pnl, costed only
+  (1986 uncosted dropped — all pre-2026-10-10, all `loose: true`), keyed on UTC
+  hour in four a-priori bands. Book: **n=812, net −3.484, mean −0.00429**.
+  `Asia 221 −3.161 t=−2.06 | London 190 +0.039 t=+0.99 | NY 328 +0.524 t=+1.64
+  | Late 73 −0.886 t=−0.88`.
+- **NEGATIVE, twice over.** (a) Every band flips across the 10-22 split: Asia
+  H1 t=−3.24 → H2 t=+0.15; NY H1 t=+2.40 → H2 t=−0.42. (b) NY's entire +0.524 is
+  **one day** — 2026-10-18 contributes +3.21, the breadth flush already
+  documented in `unified-book-one-day-dependency-2026-10-23.md`. Drop it and
+  NY reads t=−0.12 and the book is −6.670. London's t *rises* to +1.96 purely
+  from that removal, then flips across its own halves (−0.00485 → +0.00505) and
+  its hourly cells run +0.20/−0.50/−0.09/+0.83/−0.33/−0.10. An artefact that
+  depends on which day you drop is not a session effect.
+- **🔴 Found (2), while wiring the fix.** The `wait_for_data` gate
+  (`if not paper or paper["n"] < 20`) did `return out` — dropping **section 5
+  entirely**, i.e. every exploration *and every closure record*. A thin book
+  says nothing about a hypothesis tested on a full one, but the early return
+  deleted that knowledge silently. Verified: with `paper={'n':3}` the old path
+  emitted `['wait_for_data']` and no closures.
+- **Shipped.** `scripts/improvement_loop.py`: `_explorations()` holds the ideas,
+  `CLOSED_HYPOTHESES` holds the verdicts; `_emit_explorations()` renders each as
+  `explore` or `explore_result` by register lookup alone, so a closed idea can
+  never come back as a task even if a caller passes live-sounding text. The
+  `wait_for_data` path now emits the exploration list too.
+  `tests/test_improvement_explore_closure.py` (5 tests).
+- **Mutations run:** register ignored (`closed = None`) → 2 failed; early return
+  restored → 1 failed; evidence path pointed at a nonexistent file → 1 failed.
+  Harness restored by `diff -q`, identical. Suite in this session: see below.
+- **Live report after the change:** 8 suggestions, both closures visible
+  (`CLOSED (tested NEGATIVE 2026-10-10)` volume-spike, `… 2026-11-05` session),
+  the six real findings unchanged.
+- **Not shipped, deliberately:** any session filter (the evidence is negative);
+  any change to the priority-1/2/3 findings; any promotion or re-rank.
+- **Learned:** a suggestion channel is a *contract*, and an item with no closed
+  state is a recurring charge, not a backlog item. Deleting the line is the
+  wrong fix because it also deletes the negative knowledge — the loop needs a
+  **closed rendering**, not an absence. And an early `return` is a silent
+  policy on every section below it: it is easy to add one at a data gate and
+  never notice that it also deleted a section that was not about the data.
+  Write-up: `docs/proposals/session-filter-closed-2026-11-05.md`; SYSTEM_MAP #24.
+
 ## 2026-11-05 (overnight shift) · the 5% minimum position is the knob nobody chose, and it decides the ranking
 
 - **Task:** overnight autonomous improvement pass. Yesterday's proposal left the

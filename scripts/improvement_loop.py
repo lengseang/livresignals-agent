@@ -82,6 +82,86 @@ PF_MIN_LIVE_N = 20
 # window cannot manufacture advice either.
 PF_WINDOW_DAYS = 28
 
+# CLOSED HYPOTHESES (2026-11-05)
+# Every exploration the loop has proposed is supposed to end in a verdict. The
+# volume-gate idea did — but only because a human edited the literal out of
+# `_suggest()` by hand. The time-of-day idea sat in the report UNTOUCHED from the
+# first commit until 2026-11-05: a hardcoded "explore" line no run could ever
+# close, printed every 40 minutes under the real findings. An un-closeable
+# suggestion is not a backlog item, it is a fixed cost the owner pays on every
+# read — and it trains the eye to skim priority 4.
+#
+# So closures live in ONE register that `_emit_explorations()` consults. A key
+# present here can never be emitted as an open `explore` again, no matter what
+# any caller passes in. Each entry must carry evidence: a verdict nobody can
+# check is a rumour with a date on it.
+CLOSED_HYPOTHESES: dict[str, dict] = {
+    "volume-spike-gate": {
+        "verdict": (
+            "CLOSED (tested NEGATIVE 2026-10-10): volume-spike confirmation "
+            "(volume z-score > 2 as an extra gate) adds no edge — 0/24 "
+            "candidates beat PF 1.0 at cost. See "
+            "docs/proposals/volume-gate-negative.md. Do not retest this form."),
+        "evidence": "docs/proposals/volume-gate-negative.md",
+    },
+    "session-filter": {
+        "verdict": (
+            "CLOSED (tested NEGATIVE 2026-11-05): no UTC session band survives "
+            "on the costed paper book (n=812, net -3.48). Asia t=-2.06 pooled "
+            "but flips to +0.15 in the second half; NY's +0.52 is one day "
+            "(2026-10-18, +3.21) and reads t=-0.12 without it; London's rise is "
+            "an artefact of removing that day and flips sign across its own "
+            "halves. No session filter proposed. Re-open only with a "
+            "pre-declared band set plus a walk-forward split that a band must "
+            "survive in BOTH halves. See "
+            "docs/proposals/session-filter-closed-2026-11-05.md."),
+        "evidence": "docs/proposals/session-filter-closed-2026-11-05.md",
+    },
+}
+
+
+def _explorations():
+    """The single list of explorations this loop knows about.
+
+    Every entry is `(key, open_text)`. Whether it is emitted as an OPEN
+    suggestion or as a CLOSED result is decided by CLOSED_HYPOTHESES alone —
+    the list here says what the loop has considered, the register says where
+    each one landed. Adding an idea = one line here; closing it = one entry in
+    the register. Neither requires editing the other.
+    """
+    return [
+        ("volume-spike-gate",
+         "Explore: volume-spike confirmation (volume z-score > 2 as an extra "
+         "gate) — does demanding volume confirm the dip?"),
+        ("session-filter",
+         "Explore: time-of-day filter — do capitulation bounces cluster in a "
+         "UTC session, and does a session filter raise net win rate?"),
+    ]
+
+
+def _emit_explorations(hypotheses) -> list:
+    """Render each hypothesis as an open `explore` or a closed `explore_result`.
+
+    A key in CLOSED_HYPOTHESES is emitted as `explore_result` carrying its
+    verdict — so the owner still sees that it was tested and what the answer
+    was (negative knowledge is knowledge, SYSTEM_MAP §6), but never as a live
+    to-do. That is the actual defect this closes: the old code could only stop
+    repeating an idea by deleting the line, which also deleted the record that
+    the idea had been tried.
+
+    The register is the authority: a caller passing a key that is closed gets
+    the closed rendering regardless of what text it passed in.
+    """
+    out = []
+    for key, idea in hypotheses:
+        closed = CLOSED_HYPOTHESES.get(key)
+        if closed is not None:
+            out.append({"priority": 4, "type": "explore_result",
+                        "idea": closed["verdict"]})
+            continue
+        out.append({"priority": 4, "type": "explore", "idea": idea})
+    return out
+
 
 def _load_json(path: Path, default):
     if path.exists():
@@ -554,6 +634,14 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
             "priority": 1, "type": "wait_for_data",
             "idea": "Not enough trades yet (need ~30) to trust any tuning. Keep paper running; do not change params on <30 trades.",
         })
+        # 2026-11-05: this used to `return out` here, which silently dropped
+        # section 5 — every exploration AND every closure record. A thin book
+        # says nothing about a hypothesis that was already tested on a full
+        # one, so the wait_for_data verdict must not delete that knowledge.
+        # The sections between here and section 5 read per-edge/per-regime
+        # statistics and are correctly skipped; the exploration list is not
+        # a statistic about this book.
+        out.extend(_emit_explorations(_explorations()))
         out.sort(key=lambda s: s["priority"])
         return out
     # 2. Edge drift
@@ -810,17 +898,13 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     # IS/OOS. Evidence: docs/proposals/volume-gate-negative.md and
     # reports/hunt/2026-10-10T011755Z_15m.json. Reported as a closed result, not
     # re-proposed as an open idea, so the loop stops repeating it.
-    out.append({
-        "priority": 4, "type": "explore_result",
-        "idea": "CLOSED (tested NEGATIVE 2026-10-10): volume-spike confirmation "
-                "(volume z-score > 2 as an extra gate) adds no edge — 0/24 "
-                "candidates beat PF 1.0 at cost. See "
-                "docs/proposals/volume-gate-negative.md. Do not retest this form.",
-    })
-    out.append({
-        "priority": 4, "type": "explore",
-        "idea": "Explore: time-of-day filter — capitulation bounces may cluster around US session open (13:30-16:00 UTC). Test if a session filter raises win rate.",
-    })
+    #
+    # 2026-11-05: suggestions and closures are now the same channel. An idea is
+    # PROPOSED by being listed in `_explorations()` as open and CLOSED by a key
+    # in CLOSED_HYPOTHESES — never by hand-editing a literal, which is how the
+    # volume-gate entry used to be the only thing keeping its idea from
+    # returning. See _emit_explorations().
+    out.extend(_emit_explorations(_explorations()))
     out.sort(key=lambda s: s["priority"])
     return out
 

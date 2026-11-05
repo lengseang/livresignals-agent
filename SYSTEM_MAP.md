@@ -483,6 +483,33 @@ journal entry.
 │     READS THAT THE GRID DOES NOT WRITE.                          │
 │     docs/proposals/min-position-floor-2026-11-05.md              │
 │     tests/test_research_loop_min_position_floor.py               │
+│                                                                  │
+│ 24. AN ADVICE CHANNEL THAT CANNOT CLOSE AN ITEM IS AN            │
+│     UNBOUNDED COST. `_suggest()` ended with a hardcoded          │
+│     "Explore: time-of-day filter…" literal that survived from    │
+│     the first commit and printed on every run — every 40 min     │
+│     — under the real findings. Nothing could retire it: the      │
+│     volume-gate idea next to it only stopped repeating because   │
+│     a human hand-edited the literal, which also erased the       │
+│     record that it had been tried. Tested it 2026-11-05:         │
+│     NEGATIVE — Asia t=-2.06 pooled flips to +0.15 in H2; NY's    │
+│     +0.52 is one day (10-18, +3.21) and reads t=-0.12 without    │
+│     it; London's rise is that same removal and flips its own     │
+│     halves. No session effect is measurable at n=812.            │
+│     Two lessons:                                                 │
+│       (a) A HYPOTHESIS NEEDS A CLOSED STATE, NOT A DELETION.     │
+│           Propose in `_explorations()`, close in                 │
+│           `CLOSED_HYPOTHESES`; a closed key renders as an        │
+│           `explore_result` carrying its verdict, so negative     │
+│           knowledge survives and the task stops re-appearing.    │
+│       (b) AN EARLY RETURN IS A SILENT POLICY ON EVERY SECTION    │
+│           BELOW IT. `wait_for_data` returned at the n<20 gate    │
+│           and dropped section 5 entirely — every closure record  │
+│           vanished on a thin book. A thin book says nothing      │
+│           about a hypothesis tested on a full one, so the        │
+│           exploration list now runs on both paths.               │
+│     docs/proposals/session-filter-closed-2026-11-05.md           │
+│     tests/test_improvement_explore_closure.py                    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
