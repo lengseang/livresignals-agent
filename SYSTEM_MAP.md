@@ -510,6 +510,35 @@ journal entry.
 │           exploration list now runs on both paths.               │
 │     docs/proposals/session-filter-closed-2026-11-05.md           │
 │     tests/test_improvement_explore_closure.py                    │
+│                                                                  │
+│ 25. A LABEL THAT NAMES A BOOK IS NOT THE BOOK IT READS.          │
+│     `expectancy_vs_fee.py` prints `trend_follower (REAL $)` and  │
+│     reads `trend-state.json` -> `log`, a 53-symbol PAPER scan    │
+│     log; real money lives in `real.closed`. Measured 2026-11-05: │
+│       row printed   n=206  +1.451%/trade  t=+1.98              │
+│       real.closed   n=18   +6.19% mean, median -1.03%, t=+0.97  │
+│         pnl_usd null on 18/18, fee_status UNKNOWN 18/18         │
+│         WITHOUT NEAR (one +109.8% record, entry BOOKED):        │
+│         +0.09%, n=17, t=+0.05 — noise.                          │
+│     `fee_audit.py` reads the same log and multiplies it by a    │
+│     hardcoded `stake = 5.0`; the real records imply ~$5.49 and  │
+│     paid $0.07 of BNB fee on ~$96 notional, so the 0.1594% RT   │
+│     fee is ~2x the rate this book actually paid.                │
+│     `check-books.py` §1 unit-checks four books and NOT          │
+│     `trend-state.json`: paper gets a unit check, real money     │
+│     does not. Three rules:                                      │
+│       (a) WHEN A ROW NAMES A MONEY BASIS, GREP THE KEY IT       │
+│           OPENS. `log` and `real.closed` are one keystroke      │
+│           apart and a different universe.                       │
+│       (b) A HARDCODED STAKE IS A FABRICATED SIZE. Read it from  │
+│           the record or print UNKNOWN.                          │
+│       (c) ONE RECORD THAT FLIPS THE SIGN IS NOT A TRACK         │
+│           RECORD — print the remove-top-record figure beside    │
+│           the headline. (Third instance: demo-0004-NEARUSDT on  │
+│           the public ledger, the loop's stop tail, and this).    │
+│     Readers NOT edited: owner-facing + one is a scheduled job   │
+│     (09:50). Design ready for T0.10's own PR.                   │
+│     docs/proposals/real-book-reported-on-paper-log-2026-11-05.md│
 └─────────────────────────────────────────────────────────────────┘
 ```
 

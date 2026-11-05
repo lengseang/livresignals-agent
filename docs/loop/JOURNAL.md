@@ -3,6 +3,61 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-05 (overnight shift) · the row labelled "REAL $" reads the PAPER log, and the real record is one trade
+
+- **Task:** overnight autonomous improvement pass, following the daytime shift (below).
+  That pass went to the suggestion channel; this one went to the one row in the
+  owner's daily report that names a money basis — `expectancy_vs_fee.py`'s
+  `trend_follower (REAL $)`.
+- **Need check:** repo-only, read-only. No exchange read, no order path, no parameter,
+  disable list, book or live state file touched; **neither reader was edited**
+  (`expectancy_vs_fee.py`, `fee_audit.py`) — owner-facing numbers and `fee_audit.py`
+  is the 09:50 cron job. Measurements read `data/trend-state.json`,
+  `data/unified-paper.json`, `data/signals-state.json` and the BNB price.
+- **Arrival state:** `1 failed, 876 passed, 5 skipped, 1 xfailed` — the known
+  daily-cache level pin (`test_research_stop_basis.py::test_the_traced_book_is_the_book_the_loop_prints`,
+  now `38.94 != 34.26`; same class as the four prior instances — a level pinned on a
+  cache that refreshes; test-design debt, left as-is and named again).
+- **🔴 Found.** `expectancy_vs_fee.py` prints `trend_follower (REAL $)  n=206
+  +1.451%/trade t=+1.98` — read from `trend-state.json` → **`log`**, a 53-symbol PAPER
+  scan log. Real money is `trend-state.json` → **`real.closed`**, and T0.10's design
+  (`designs/T0.5.md` §4) called for this fix three weeks ago.
+- **What the real record says (n=18):** mean exit-vs-entry **+6.19%**, median
+  **−1.03%**, t=+0.97; `pnl_usd` **null on all 18**, `fee_status UNKNOWN` on all 18.
+  **Remove one record (NEAR, +109.8%, `entry_status: BOOKED`) and 17 read +0.09%,
+  t=+0.05** — the headline is one pre-existing position, not the book's edge. Win rate
+  22.2% matches the log's 21.8%, so the sign agreement is genuine; the magnitude is not.
+  `real.open` empty; last real close 2026-10-29 — the book has been idle a week and the
+  report prints no such thing.
+- **Fee basis is also wrong in size, not just in label.** `fee_audit.py` multiplies the
+  log by a hardcoded `stake = 5.0`. The real records imply ~$5.49 notional and paid
+  **0.00010317 BNB ≈ $0.071** across 18 closes on ~$96 notional — about 0.07% RT, not
+  the 0.1594% the report charges. Direction of the conclusion unchanged; the net number
+  is not a net number until `fee_usd` is resolved. `check-books.py` §1 unit-checks four
+  books and **not** `trend-state.json` — paper gets a unit check, real money does not.
+- **Shipped:** `docs/proposals/real-book-reported-on-paper-log-2026-11-05.md` (design +
+  pre-mortem + 5-test plan for the T0.10 reader PR); SYSTEM_MAP #25; TASKS.md gains
+  a `todo` under T0.10 with the measured evidence, and T0.13 for the missing unit check.
+  No code change, therefore no mutation run — there is nothing to mutate.
+- **Also measured, no change made:** the paper book on the production collapser is now
+  **3619 raw → 2832 collapsed, 787 removed** — 111 more phantom rows than the
+  daytime shift's 3573→2798, because the scanner wrote 106 rows since. The
+  `trail (sl>=entry)` vs `risk-level` split the skill carries holds up on the larger
+  book and is **stable in both halves** (trail H1 +39.74 / H2 +31.68; risk H1 −30.15 /
+  H2 −34.25), and on **14 of 14 symbols** — which is the property the skill said was
+  still unverified ("harness still unverified"). It is a *book-keeping* split (trails are
+  never the losing side by construction once `sl >= entry`), so it is NOT evidence a
+  trailing stop earns anything; quote it as a labelling fact, never as an edge.
+- **Not shipped, deliberately:** any reader edit (escalated as T0.10's PR); any change to
+  `trend_follower.py`'s `real.closed` write path (real-money script, T8.1 design
+  unapproved); any change to the paper book, parameters, disable list or live state.
+- **Learned:** **a label that names a book is not the book it reads.** `log` and
+  `real.closed` are one keystroke apart in the same file and describe different
+  universes; the row's label came from the design intent and the key from habit, and
+  nothing in the stack compared them. Same family as the ask-2 "a hardcoded stake is a
+  fabricated size" rule, and the third instance of "one record flips the sign" (see
+  `demo-0004-NEARUSDT`). Write-up: the proposal above; SYSTEM_MAP #25.
+
 ## 2026-11-05 (daytime shift) · the advice channel could not close an item, and an early return was deleting what it did close
 
 - **Task:** autonomous improvement pass, following the overnight shift (below).

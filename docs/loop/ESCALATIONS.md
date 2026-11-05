@@ -89,6 +89,19 @@ charged on 3x the margin. Recommendation: pause its cron line (your action) unti
 Also: which crontab is live? (`crontab -l`, E1)
 **Answer:**
 
+## E10 · Reader fix for the "REAL $" row (T0.10, measured 2026-11-05)
+Two readers report real money from the wrong record. `expectancy_vs_fee.py` prints
+`trend_follower (REAL $)` from `trend-state.json` → `log` (a 53-symbol PAPER log);
+`fee_audit.py` (09:50 daily) does the same and multiplies it by a hardcoded $5 stake.
+The real record is `real.closed`: n=18, `pnl_usd` null on all 18, mean +6.19% but
+**+0.09% (t=+0.05) once one pre-existing NEAR record is removed**, and fees actually
+paid ≈0.07% RT, not 0.1594%.
+Proposal + test plan: `docs/proposals/real-book-reported-on-paper-log-2026-11-05.md`.
+Q: **yes/no to editing these two readers in one PR (output wording + which key is read;
+no trading logic, no state writes)?** Until answered, the report keeps printing the
+paper log under a REAL label and I keep annotating it in shift reports.
+**Answer:**
+
 ## E6 · Source decisions (T1.2, PR #9)
 (a) CryptoPanic is now paid-only: subscribe, or skip it (the RSS feeds are used instead)? (b) Reading public Telegram channels
 via `t.me/s/<channel>` is reachable but a terms gray area; allow it, use the official Telegram API with your account, or skip?
