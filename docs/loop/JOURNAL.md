@@ -3,6 +3,54 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-05 (overnight shift) · the 5% minimum position is the knob nobody chose, and it decides the ranking
+
+- **Task:** overnight autonomous improvement pass. Yesterday's proposal left the
+  sizing menu open and said the pick must precede the look; this pass did not
+  pick. It went one level below the menu — to the literal in `bt()` that is not
+  in any config dict at all.
+- **Need check:** repo-only. No exchange read, no order path, no parameter,
+  disable list, book or live state file touched. `scripts/research_loop.py` was
+  **not** run (its output is the thing being measured); measurements load
+  `research/06-walkforward.py` through importlib from a temp copy. One commit:
+  a test file, a proposal, a SYSTEM_MAP lesson, this entry.
+- **Arrival state:** `1 failed, 868 passed, 5 skipped, 1 xfailed` — the failure
+  is the known daily-cache level pin
+  (`test_research_stop_basis.py::test_the_traced_book_is_the_book_the_loop_prints`),
+  fourth instance, left as-is and named again.
+- **🔴 Found.** `run()`'s grid varies `topn/hold/risk/sma_r`. `bt()` sizes with
+  `sz = min(cash·risk/σ, cash/slots)` and then `if sz < 0.05: continue`.
+  **The floor is in no row and in no output.** LIVE config, same folds, one
+  literal:
+  `0.05 → 53.58/6.41/30.23/47.65, med 38.94, 698 tr`;
+  `0.03 → 54.44/7.48/29.95/43.32, med 36.64, 709 tr`.
+  **0.03, 0.02, 0.01 and none are identical** — below 3% the knob is dead, so
+  "minimum position" is one step of a step function, not a parameter.
+  Per-fold floored-minus-none `−0.86 −1.07 +0.28 +4.33`: the median prefers the
+  floor, three of four folds do not, and fold 4 carries the whole 2.30pp.
+- **Shipped.** `tests/test_research_loop_min_position_floor.py` (3 tests):
+  the floor is live (with a `MUTANT_NO_FLOOR` fixture that keeps the literal and
+  neutralises the skip, so the assertion bites on behaviour); the per-fold sign
+  disagrees (shape, never level — #11); and the shift must stay inside one
+  fold's spread so the write-up cannot quietly become an understatement.
+  Mutations run: literal moved to 0.5 → 3 errors on the count assertion; test
+  repointed at the mutant instead of 0.05 → `1 failed, 2 passed`. Harness
+  restored by `diff -q`, identical.
+- **Measured in passing (no change made).** Paper book with the production
+  collapser: 3571 raw → 2796 collapsed, 775 removed, gross `+24.669 → +16.155`,
+  **phantom rows +8.514 = 34.5% of raw gross** (SL 298, TIME 292, TP 107,
+  STALL 78). Collapsed mean +0.578%/trade on $5 = 2.9c vs 1.4c assumed fee —
+  same order, which is the number to hold next to any quoted "+$24".
+- **Not shipped, deliberately:** removing or changing the floor (picking after
+  reading the numbers is the pre-declared-validation error, four prior
+  instances), any re-rank, any promotion, the decay question.
+- **Learned:** yesterday's lesson ("check that the knob the claim is about is the
+  knob that moves the number") needed one more rung. **A knob that is not a
+  parameter is still a knob.** The grid can vary every key in the dict and be
+  ranked by a literal three lines below it; because it never appears in a row,
+  no consistency check inside the grid can see it. Write-up:
+  `docs/proposals/min-position-floor-2026-11-05.md`; SYSTEM_MAP #23.
+
 ## 2026-11-04 (overnight, second pass) · the paper-fill bound's input does not exist, and its fixture never tested the rule
 
 - **Task:** overnight autonomous improvement pass, second pass of the night. The

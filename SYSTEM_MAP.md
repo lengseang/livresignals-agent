@@ -465,6 +465,24 @@ journal entry.
 │     docs/proposals/loo-band-was-a-sample-2026-11-03.md           │
 │     tests/test_research_stop_basis.py                            │
 │     tests/test_research_loop_coin_fragility.py                   │
+│                                                                  │
+│ 23. A KNOB THAT IS NOT A PARAMETER IS STILL A KNOB.              │
+│     #19 said the ranking was ranking the SIZER. This is the      │
+│     same claim from below the config dict: `bt()` skips any      │
+│     position under 5% of cash (`if sz < 0.05: continue`) and     │
+│     no grid row varies it, so no consistency check INSIDE the    │
+│     grid can see it. LIVE config, same folds, one literal:      │
+│       floor 0.05    53.58  6.41 30.23 47.65  med 38.94  698 tr  │
+│       floor <=0.03  54.44  7.48 29.95 43.32  med 36.64  709 tr  │
+│       0.03/0.02/0.01/none are IDENTICAL — below 3% the knob is   │
+│       dead, so the "parameter" is one step of a step function.   │
+│     Per-fold floored-minus-none: −0.86 −1.07 +0.28 +4.33. The    │
+│     median prefers the floor; three of four folds do not, and    │
+│     fold 4 carries the whole 2.30pp. A tie-breaker, not a rule.  │
+│     Before quoting a ranking, LIST WHAT THE RANKING FUNCTION     │
+│     READS THAT THE GRID DOES NOT WRITE.                          │
+│     docs/proposals/min-position-floor-2026-11-05.md              │
+│     tests/test_research_loop_min_position_floor.py               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
