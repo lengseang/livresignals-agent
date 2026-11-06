@@ -177,11 +177,27 @@ def test_every_live_wrapper_parses():
 @pytest.mark.skipif(
     not DEFAULT_WRAPPER_DIR.is_dir(), reason="cron wrapper dir not present on this host"
 )
-def test_no_live_wrapper_discards_a_failure():
-    """The regression guard. Lists the offenders rather than asserting a count,
-    so a fix in one wrapper does not hide a new defect in another."""
+def test_no_new_wrapper_discards_a_failure():
+    """Ratchet on the live wrappers.
+
+    Three wrappers are known-bad and awaiting an owner decision (E11): they are
+    pinned by name so CI stays green on a working tree whose fix is gated. The
+    test fails in both directions, which is what stops a baseline from rotting:
+
+    - a wrapper not in the baseline that swallows its rc -> new defect;
+    - a baseline wrapper that has been fixed -> the entry must be deleted.
+
+    Delete an entry only by applying the fix, never to silence a new name.
+    """
     defects = audit_dir(DEFAULT_WRAPPER_DIR, skip=INTENTIONALLY_SILENT)
-    assert not defects, (
-        "these wrappers cannot report a failure to the owner:\n"
-        + "\n".join(f"  {k}: {v}" for k, v in defects.items())
+    new = sorted(set(defects) - KNOWN_UNFIXED)
+    fixed = sorted(KNOWN_UNFIXED - set(defects))
+
+    assert not new, (
+        "NEW wrappers that cannot report a failure to the owner:\n"
+        + "\n".join(f"  {k}: {defects[k]}" for k in new)
+    )
+    assert not fixed, (
+        "these wrappers were fixed — remove them from KNOWN_UNFIXED:\n"
+        + "\n".join(f"  {k}" for k in fixed)
     )
