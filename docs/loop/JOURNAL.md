@@ -3,6 +3,55 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-06 · a quiet job that forces `exit 0` cannot report its own death
+
+- **Task:** T0.12 (first pickable `todo`; T0.10's reader PR waits on E10).
+  Audit every quiet cron job for the 2026-10-19 shape.
+- **Need check:** repo-only plus read-only reads of `~/hermes-home/cron/`
+  (`jobs.json`, `executions.db`) and the wrapper scripts. No exchange read, no
+  order path, no parameter/disable list/book/live-state touched. **No wrapper was
+  edited** — they are the owner's delivery surface (E11).
+- **Arrival state:** `386 passed, 3 skipped, 1 failed` in `tests/loop` — the one
+  failure is this task's own guard, deliberately red on the two un-fixed wrappers.
+  The older daily-cache level pin was not in this selection.
+- **First, measured the scheduler instead of assuming it.** `hermes cron runs` and
+  `cron/executions.db` show a non-zero exit is recorded `failed` **with its full
+  stdout** and delivered: job `d071de6fa4a4` failed 2026-11-05T09:00 and 21:00 and
+  both `V2 GATE FAILURE` texts are in the attempt records. So the scheduler is
+  not the problem — a wrapper that forces `exit 0` is, because it converts a crash
+  into a `completed` run that delivers nothing.
+- **🔴 Found (1).** `run_scan_ping.sh` (48×/day) and `run_trading_digest.sh`
+  (1×/day) are the pre-2026-10-19 template verbatim: capture `$OUT`, echo it,
+  `exit 0`, rc never read. Reproduced on a throwaway crash script: the wrapper
+  prints `[SCAN] Traceback …` and **exits 0**. The failure is not hidden, it is
+  *disguised* — a traceback delivered in the normal scan format, marked successful.
+  `scan_ping.py` is the STALL ALERT monitor, so its own death is the one failure
+  it exists to report. No failure in 88 attempts yet: latent, not active.
+- **🔴 Found (2).** `run_strategy_book.sh` checks `strategy_book.py`'s rc but not
+  `strategy_compact.py`'s (a `timeout 600` step), then ends `exit 0`.
+- **Cleared, not assumed:** `crypto_trend_demo.sh` and `v2_gate_roll.sh` *look*
+  like the defect but guard `exit 0` inside `if [ "$RC" = ... ]` blocks — a
+  conditional exit is a decision, not a swallow. `run_hunt.sh` is deliberately
+  silent on "nothing found" (documented) and is excluded by name. My analyser's
+  first version flagged all three; that was a false-positive bug in the tool, not
+  a finding, and the fix is in the diff history of this branch.
+- **Shipped:** `src/trading/ops/cron_exit_audit.py` (paren-aware capture scanner,
+  block-aware `exit 0` detector, `bash -n`), `tests/loop/test_quiet_cron_exit.py`
+  (11 tests), `designs/T0.12.md`, E11, TASKS updated. The live-directory test is
+  the regression guard: it names any wrapper that cannot report a failure, so a
+  re-templated `exit 0` fails CI without anyone remembering to add it to a list.
+- **Mutations run:** ignore the block-depth guard → 1 failed; treat `$(date …)` as
+  a work capture → 1 failed; never detect a capture → 1 failed. Harness restored
+  by `diff -q`, identical.
+- **Not shipped, deliberately:** the three wrapper edits (E11: the rc-to-message
+  wording is owner-facing); any change to `hunt`'s silence; any job schedule.
+- **Learned:** `executions.db` is the only place a cron failure survives — the
+  Telegram message scrolls away, but the attempt record keeps the stdout. And the
+  dangerous version of this bug is not the silent one: `exit 0` plus an echoed
+  trace delivers a *noisy* success, which reads like the job working. Ask "what
+  would a crash look like here?" — if the answer is "the same as a quiet normal
+  run", the rc is the only remaining channel, and it must be kept.
+
 ## 2026-11-05 (overnight shift) · the row labelled "REAL $" reads the PAPER log, and the real record is one trade
 
 - **Task:** overnight autonomous improvement pass, following the daytime shift (below).

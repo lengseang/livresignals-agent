@@ -2,6 +2,37 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
+## E11 · Two quiet cron wrappers still lose a failure (T0.12, 2026-11-06)
+T0.12 audited every scheduled job. `~/hermes-home/cron/executions.db` proves a
+non-zero exit **is** delivered (`d071de6fa4a4` failed twice on 2026-11-05 and the
+full gate text is in the record), so the only way a quiet job hides a crash is
+a wrapper that forces `exit 0`. **Two still do**, both with the exact
+pre-2026-10-19 template:
+
+```
+OUT="$(... scan_ping.py 2>&1)"
+if [ -n "$OUT" ]; then printf '[SCAN] %s\n' "$OUT"; fi
+exit 0                                  # <- rc never read
+```
+
+1. **`run_scan_ping.sh`** — the STALL ALERT monitor, 48×/day. If it raises, the
+   monitor that is supposed to notice a dead bot is itself dead, and cron records
+   `completed` + delivers the traceback as though it were a normal scan line.
+   No failure yet in 88 attempts; this is latent, not active.
+2. **`run_trading_digest.sh`** — 1×/day, same shape.
+3. Related, same family: **`run_strategy_book.sh`** checks `strategy_book.py`'s
+   rc but **not** `strategy_compact.py`'s (up to 10 min), then ends `exit 0`.
+
+Fix is 3 lines per file and changes no message wording: capture `RC=$?`, print
+the trace only on failure, `exit "$RC"`. I did **not** apply it — these are the
+job wrappers that deliver to the owner, and T0.12 says the rc-to-message wording
+is yours. The template is proven in `tests/loop/test_quiet_cron_exit.py`.
+
+**Needed:** yes/no to apply the rc-preserving template to those three wrappers?
+On yes, failures start arriving as a `⚠️ … exited N` line plus the scheduler's
+`exited with code N`; no-op runs stay exactly as silent as today.
+**Answer:**
+
 ## E9 · `ETH_TURTLE_H4` re-acquired the ETH position the 10-31 fix released (2026-11-01)
 **RESOLVED 2026-11-01 by `2ac046e` — no owner decision needed. Answer below.**
 **VERIFIED 2026-11-02 on real data** (the check the answer below said was owed):
