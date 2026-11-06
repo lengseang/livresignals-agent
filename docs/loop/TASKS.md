@@ -29,6 +29,7 @@ Pick the first `todo` whose deps are `done` or `review`. Add tasks you discover 
 | T1.4 | Inventory of existing strategies already in the repo (unified_trader, adaptive_engine, regime_trader, scalping_sweep, gold_scanner...) with their claimed evidence and where it lives | T0.1 | review (#11) |
 | T1.5 | Plan to re-verify the `unified_trader.py:68` claim (5m 69% WR, +$0.37) from the ledger; list the exact files needed | T1.4 | review (#13) |
 | T1.4b | Add `futures_executor.py` + `lev_satellite_manage.py` (real-money futures, no enable flag) to LOOP.md never-run/never-edit lists and to `tests/loop` BLOCKED_MODULES | T1.4 | review (#12) |
+| T1.6 | Measure whether the strategy lab's 54-point grid is producing observations or one observation repeated (novelty, grid reach, frozen-half, archive cost). Read-only analysis; the schedule decision is the owner's (**E12**) | T1.1 | review — tool + 14 tests shipped, 2/2 mutations caught. **Measured 2026-11-06T18:00:** 3,274 runs / 166,119 rejects; 96.2 runs/day; **8 of 54 grid points have EVER cleared the split gate, all SOL**; BTC+ETH = 66.7% of the grid and have never produced one; 1,538 runs had a survivor and **1,538 (100%) died at the boundary gate**; last NEW point 2026-10-22T09:15; `rejected.jsonl` 27.9 MB at +0.82 MB/day. Carries no `timeframe` field, so the tool documents 1h (`strategy_lab.py:69 TIMEFRAME="1h"`) — an earlier draft mislabelled these runs "15m" |
 
 ## Phase 2: Data
 | ID | Task | Deps | Status |

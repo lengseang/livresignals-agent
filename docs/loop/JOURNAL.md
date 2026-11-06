@@ -3,6 +3,70 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-06 (overnight shift) · the lab runs 96×/day and has tried 8 configurations in 6 weeks
+
+- **Task:** T1.6 (new; not on the board when the shift started — the untracked
+  `src/trading/ops/lab_repetition.py` + its 204-line test file were the arrival).
+  Read-only measurement of whether `strategy_lab.py`'s 54-point grid produces
+  observations or one observation repeated.
+- **Need check:** repo + live lab logs (`data/strategy-lab/`) + the candle DB,
+  all read-only. No order path, no parameter, no crontab, no book. **No wrapper
+  edited**; the schedule decision is E12 (owner).
+- **Arrival defects, both fixed:**
+  1. `tests/loop/test_quiet_cron_exit.py` on `HEAD` (`6739bde`) used
+     `KNOWN_UNFIXED` **without defining it** → the T0.12 ratchet guard was not
+     ratcheting, it was crashing with `NameError`. Reproduced by running the
+     committed file: `1 failed, 10 passed … NameError: name 'KNOWN_UNFIXED' is not
+     defined`. An uncommitted definition was sitting in the tree (an
+     `auto-backup` commit from a shared working tree swept up a half-finished
+     edit). Kept it, added the regression test the crash showed was missing, and
+     mutation-checked it: `KNOWN_UNFIXED = frozenset()` → 2 failed. 12 passed.
+  2. The T1.6 module header **carried four numbers the module does not produce**:
+     165,059 lines (actual 166,119), 2,121 runs since 10-16 (actual 2,141),
+     "71.6% fragile" when it is **100.0% (1,538 of 1,538)**, and — the important
+     one — *"last NEW configuration to clear the gate 2026-10-16"*, which was the
+     **novelty date**, not the grid date. A new grid point first cleared the gate
+     on **2026-10-22T09:15**. Corrected the header; added 2 tests that pin the
+     derivation (mutation: `fragile` forced to 0 → the new header test goes red,
+     the old 12 stay green, so it covers a real gap). 14 passed.
+  3. Two smaller ones: header said "15m runs" but `strategy_lab.py:69` is
+     `TIMEFRAME="1h"` and `rejected.jsonl` records carry **no** timeframe field;
+     and `+~1.5 MB/day` vs measured **0.82 MB/day**.
+- **⚠️ Checked before calling it a bug:** the report prints
+  `last bar … (2.0 h behind the last run)`. That looks like a stalled feed, but
+  the lab scores **1h** bars and cron is at :00/:15/:30/:45, so a closed 1h bar is
+  legitimately 0–1h old and the run straddles the boundary. Not a defect — but it
+  is only readable because the timeframe is now stated.
+- **The finding, measured 2026-11-06T18:00 on 3,274 runs / 166,119 rejects:**
+
+```text
+runs                 3,274        cadence 96.2/day
+grid points past the split gate   8 of 54   — ALL SOL/USDT
+BTC + ETH            66.7% of the grid, ZERO points ever advanced
+runs with a survivor 1,538
+  … every survivor died at boundary gate  1,538  (100.0%)
+last NEW grid point  2026-10-22T09:15
+rejected.jsonl       27.9 MB   +0.82 MB/day
+```
+
+  **The "13.1% novel" figure must never be quoted without the 8-of-54.** A novel
+  *reason string* is a moved number, not a new configuration. This is the same
+  shape as every other trap on this stack: a counter that looks like learning
+  (429 novel verdict sets) sitting on top of a search that has not advanced since
+  October.
+- **Shipped:** `src/trading/ops/lab_repetition.py` (read-only report),
+  `tests/loop/test_lab_repetition.py` (14 tests, 2/2 mutations caught), TASKS
+  T1.6. **Not shipped:** any change to the lab's schedule or grid — E12.
+- **Suite:** `1 failed, 900 passed, 5 skipped, 1 xfailed` (148s, this turn). The
+  failure is the standing daily-cache pin
+  `test_research_stop_basis.py::test_the_traced_book_is_the_book_the_loop_prints`
+  — known-red, unchanged, not a regression from this shift.
+- **Learned:** **a module that prints numbers must not restate them in prose.**
+  The header's four wrong values were all copied from an earlier draft and none
+  was re-derived when the tool got better; the tool printed 100.0% while the
+  header said 71.6%, and nobody read both at once. Any statistic in a docstring
+  is a claim that decays on its own clock.
+
 ## 2026-11-06 · a quiet job that forces `exit 0` cannot report its own death
 
 - **Task:** T0.12 (first pickable `todo`; T0.10's reader PR waits on E10).

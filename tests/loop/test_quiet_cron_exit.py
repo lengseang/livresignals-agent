@@ -159,7 +159,36 @@ def test_fixed_template_stays_silent_on_noop(tmp_path):
     assert proc.stdout.strip() == "", f"no-op must emit nothing, got {proc.stdout!r}"
 
 
-# --------------------------------------------------------------- live wrappers
+# ---------------------------------------------------------------------------
+# KNOWN_UNFIXED — the ratchet baseline, and why it is a NAMED literal
+# ---------------------------------------------------------------------------
+# Measured 2026-11-06: `git show 6739bde:tests/loop/test_quiet_cron_exit.py`
+# contains the ratchet's body but no definition of this name, so the guard went
+# from "pinned by name" to `NameError: KNOWN_UNFIXED` — it stopped ratcheting
+# and started crashing. The cause is named in the 2026-11-06 journal entry (an
+# `auto-backup` commit from a shared working tree, a same-day edit committed by
+# the 04:35 job); the repair belongs at that source. What belongs here is the
+# cheap property the crash showed was missing: the guard must still WORK when it
+# runs. The mutation for it is trivial and recorded in the journal:
+# `KNOWN_UNFIXED = frozenset()` must turn this test red.
+KNOWN_UNFIXED = frozenset({"run_scan_ping.sh", "run_trading_digest.sh"})
+
+
+@pytest.mark.skipif(
+    not DEFAULT_WRAPPER_DIR.is_dir(), reason="cron wrapper dir not present on this host"
+)
+def test_the_known_unfixed_baseline_agrees_with_the_live_wrappers():
+    """The literal must name exactly the wrappers that still swallow their rc.
+
+    Red in both directions, as the docstring above promises: a fixed wrapper
+    must be deleted from the set, and a new defect must not be added to it.
+    This is the test that was running as a `NameError` in `6739bde`.
+    """
+    defects = audit_dir(DEFAULT_WRAPPER_DIR, skip=INTENTIONALLY_SILENT)
+    assert set(defects) == set(KNOWN_UNFIXED), (
+        f"E11 baseline drifted: live {sorted(defects)} vs "
+        f"KNOWN_UNFIXED {sorted(KNOWN_UNFIXED)}"
+    )
 
 
 @pytest.mark.skipif(

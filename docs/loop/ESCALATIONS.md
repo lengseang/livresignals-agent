@@ -2,6 +2,37 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
+## E12 · Should the strategy lab keep running 96×/day? (T1.6, 2026-11-06)
+T1.6 measured the lab read-only (`src/trading/ops/lab_repetition.py`). It fires
+every 15 min, scores 3 symbols × 3 entry × 2 exit × 3 rr = 54 points on **1h**
+bars, and logs one `rejected.jsonl` line per point — 96 runs and ~5,184
+evaluations a day, forever. On 3,274 runs / 166,119 rejects:
+
+```text
+grid points that EVER cleared the split gate   8 of 54 — ALL SOL
+BTC + ETH (66.7% of the grid)                  0 ever advanced
+runs with a survivor                           1,538
+  … every survivor died at boundary gate       1,538  (100.0%)
+last NEW grid point                            2026-10-22T09:15
+rejected.jsonl                                 27.9 MB, +0.82 MB/day
+```
+
+The gate is not "finding nothing" — it re-derives the same eight refusals 96
+times a day. Two of the three symbols have never produced a single point that
+survived the split, so two thirds of every run is spent re-testing coins that
+have never advanced.
+
+**This is not a trading question and nothing is broken** — it is a spend
+question. I have deliberately changed no schedule, no grid and no parameter.
+Options, cheapest first: (a) leave it (cost is disk only, ~24 MB/month);
+(b) drop to hourly (6× less, ~same information); (c) rebalance the grid toward
+SOL or change the universe, which is a research decision, not a cron one;
+(d) pause it. My read: **(b)** — the measured cadence buys nothing at 15 min on
+1h bars, and the 8-of-54 ceiling is a *gate* question, not a cadence one.
+
+**Needed:** which option, and whether the grid/universe should change at all.
+**Answer:**
+
 ## E11 · Two quiet cron wrappers still lose a failure (T0.12, 2026-11-06)
 T0.12 audited every scheduled job. `~/hermes-home/cron/executions.db` proves a
 non-zero exit **is** delivered (`d071de6fa4a4` failed twice on 2026-11-05 and the
