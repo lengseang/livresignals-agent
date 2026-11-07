@@ -3,6 +3,66 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-07 (evening shift) · the real path declined every candidate for three days and never said so
+
+- **Task:** T0.15 (new). Board pick: the phase-0 chain is still blocked (T0.10 → E10,
+  T0.12 → E11, T0.14 → E13), and T2.2b/T2.4 need upstream data work that has not
+  moved. Read the live host first, as the contract's arrival order says, and the
+  loudest anomaly was in `logs/trend.log`.
+- **Need check:** repo reads, `logs/trend.log`, `data/trend-state.json`,
+  `data/trading.db` (`mode=ro`), `live_balances()` read-only. **No order path
+  executed**, no restart, no pm2, no crontab, no config edit, no wrapper edit,
+  `REAL_SYMS` membership unchanged.
+- **Arrival state:** branch `loop/v2-lane-dead-since-11-05` @ `8fef34f`; tree dirty only
+  on `scripts/data/breadth-state.json` (refreshed by `breadth_watch.py`). V2 lanes
+  still dead — pm2 restart count went 427 → **635**, heartbeat still
+  `2026-11-05 09:00`. E13 unanswered, nothing more to do without the key.
+- **Verified healthy before touching anything (so the shift does not chase a
+  phantom):** all 10 symbols × 5 timeframes current — 5m 0.2–0.4h, 15m 0.5h, 1h 2.0h,
+  4h 6.0h, 1d 18h with 0 holes in 3d; `close_time_utc > now` = **0**; 1d series complete
+  since 2017 (0 missing days); `ingest_alts.py` scheduled at `2-57/15` and printing
+  `every alt series current`.
+- **🔴 Found.** `trend_follower.py` (`TREND_REAL=1`, every 4h) has two lists: `SYMS`
+  53 coins (expanded 2026-09-17) and `REAL_SYMS` 15. Measured on the live log:
+
+```text
+[2026-11-07 12:10] long 3/53: ['INJ/USDT','ONE/USDT','PEPE/USDT']
+  real positions: 0/3 | REAL=ON          (16:10 run identical)
+logs/trend.log 2026-11-05 → 11-07:  0 REALBUY, 0 ERR, 0 "entry blocked"
+```
+
+  None of the three is in `REAL_SYMS`, so the entry loop's `continue` declined every
+  candidate — correctly, by design — and the run read as "the strategy is watching
+  three uptrends while holding nothing", with no line saying which gate did it.
+  Same shape as yesterday's finding: a decision made silently is indistinguishable
+  from a market with no setups.
+- **⚠️ Checked before calling it a bug:** the paper `OPEN` lines are not real fills
+  (`# Paper only` at line 601 predicts them), and the NEAR record with a missing
+  `open_ts` in `real.closed` is the known `entry_status: BOOKED` row, not corruption.
+- **Shipped (branch `loop/T0.15-real-syms-copy-drift`, +94/−5 in the script):**
+  `paper_only_skipped()` helper; entry loop emits an `INFO` non-act event; the card
+  renders it as a `ℹ️ Did not act` block and `n_change` excludes it; the run line
+  appends ` | paper-only N: [...]`. **`REAL_SYMS` not widened** — that is E14.
+  `tests/loop/test_trend_real_symbol_scope.py` **7 passed**, one of which fails if any
+  of the three duplicate `REAL_SYMS` copies (research scripts) drifts from the live one.
+  Whole `tests/loop/` dir: **414 passed, 3 skipped**. Mutations 6/6 caught (widen the
+  list → 4 red; helper returns [] → 2; INFO counted as a change → 1; call removed → 1;
+  run-line suffix removed → 1; card block dropped → 1). Design: `designs/T0.15.md`.
+- **Two of my own test bugs, caught by mutation only:** the mixed change-count test's
+  first draft used a single REALBUY event, so "INFO counted as a change" passed it —
+  a count rule needs a mixed list or it tests nothing. And an INFO branch initially
+  printed its own `ℹ️` inside a block already titled `ℹ️ Did not act`; the
+  replay of the real 12:10 state showed the double marker, which is why the replay
+  is in the verification list rather than only the unit tests.
+- **Wallet, measured read-only and reported not acted on:** Spot holds
+  `BNB 0.0004, XRP 0.0706, ADA 0.0716, SUI 0.1`, **no USDT** — `_real_can_trade()`
+  needs `free >= 6.0`, so every real ELITE entry is refused independently of
+  `REAL_SYMS`. Stated in E14; funding is the owner's.
+- **Learned:** a gate that stands down should print its name, but the stronger form
+  is: **the line that reports a run must carry the reason the run did nothing.**
+  `real positions: 0/3` is a fact; `paper-only 3: [...]` is the explanation, and only
+  the second one is readable three days later without opening the source.
+
 ## 2026-11-07 (overnight shift) · the watcher lived inside the thing it watched, and its alarm exited 0
 
 - **Task:** T0.14 (new). The board's first pickable `todo` chain was empty —

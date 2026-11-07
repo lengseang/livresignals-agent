@@ -40,6 +40,37 @@ one line to the stale branch that prints `preflight.json`'s failing check, so
 the alarm says *why* next time.
 **Answer:**
 
+## E14 · Real money can only open 15 of the 53 coins the trend strategy studies (T0.15, 2026-11-07)
+`trend_follower.py` runs `TREND_REAL=1` every 4h. `SYMS` was expanded to 53
+coins on 2026-09-17; `REAL_SYMS` was not touched and still holds 15. The entry
+loop filters candidates through `REAL_SYMS`, so a run that goes long only
+outside that set places nothing — and until this shift said nothing either:
+
+```text
+2026-11-07 12:10  long 3/53: [INJ, ONE, PEPE]    real positions: 0/3
+2026-11-07 16:10  identical
+2026-11-05 → 11-07 in logs/trend.log: 0 REALBUY, 0 ERR, 0 "entry blocked"
+```
+
+The silence is fixed (T0.15, review): the card now carries a `Did not act`
+block naming the declined coins and the run line appends `paper-only N`.
+**Whether to widen `REAL_SYMS` is yours, not the loop's** — widening it puts
+real money on coins that never passed `promotion_report.py`'s bar (>=55% WR
+over >=15 paper trades). Options I can execute on your word:
+
+(a) leave it at 15 (nothing changes but the reporting);
+(b) promote the specific coins that HAVE passed the bar (the report names them);
+(c) widen to the full 53 (I would advise against — current breadth is 0up/8down
+    and the paper book is net-negative after fees).
+
+Also relevant and unresolved, not actionable by me: the spot wallet holds
+`BNB 0.0004, XRP 0.0706, ADA 0.0716, SUI 0.1` and **no USDT**, so
+`_real_can_trade()` (`free >= 6.0`) refuses every real ELITE entry regardless of
+`REAL_SYMS`. If you want real trading at all, USDT has to sit in Spot (not
+Funding).
+
+**Answer:** (a) / (b) / (c) —
+
 ## E12 · Should the strategy lab keep running 96×/day? (T1.6, 2026-11-06)
 T1.6 measured the lab read-only (`src/trading/ops/lab_repetition.py`). It fires
 every 15 min, scores 3 symbols × 3 entry × 2 exit × 3 rr = 54 points on **1h**

@@ -242,6 +242,19 @@ def _resolve_pending(ex, real, events):
     return blocked
 
 
+def paper_only_skipped(candidates, real_syms):
+    """Candidates the REAL_SYMS gate declines, in order.
+
+    Measured 2026-11-07: the strategy went long INJ, ONE and PEPE and the run
+    line read `long 3/53` while `real positions: 0/3` — correct, because none of
+    the three is a real-money coin, and silent, because the gate that declined
+    them was a bare `continue`. A filter that declines without a line is
+    indistinguishable from a market with no setups, which is the same failure
+    shape as the V2 lane's missing heartbeat (T0.14).
+    """
+    return [s for s in candidates if s not in real_syms]
+
+
 def _wallet_held(bal, prices):
     """REAL_SYMS coins the wallet actually holds (value >= DUST_USD). A coin with no known price counts as held."""
     n = 0
@@ -461,7 +474,7 @@ def _build_message(events, n_real, real_on) -> tuple[str, str]:
     except Exception:  # noqa: BLE001
         H = None
 
-    real_lines, paper_lines, err_lines = [], [], []
+    real_lines, paper_lines, err_lines, info_lines = [], [], [], []
     for kind, sym, px, extra in events:
         if kind == "REALBUY":
             real_lines.append(
@@ -485,6 +498,11 @@ def _build_message(events, n_real, real_on) -> tuple[str, str]:
         elif kind == "ERR":
             err_lines.append((f"⚠️ {H.esc(sym)}: {H.esc(extra)}") if H
                              else f"{sym}: {extra}")
+        elif kind == "INFO":
+            # Not a change and not an error: a reason the real path declined to act.
+            # Plain text, no emoji — the card renderer already prefixes the block, and
+            # two markers on one line reads as a rendering bug (measured 2026-11-07).
+            info_lines.append(f"{H.esc(extra)}" if H else f"{extra}")
 
     blocks = []
     if real_lines:
@@ -493,8 +511,10 @@ def _build_message(events, n_real, real_on) -> tuple[str, str]:
         blocks.append("📄 <b>Paper</b>\n" + "\n".join(paper_lines))
     if err_lines:
         blocks.append("⚠️ <b>Needs attention</b>\n" + "\n".join(err_lines))
+    if info_lines:
+        blocks.append("ℹ️ <b>Did not act</b>\n" + "\n".join(info_lines))
 
-    n_change = len([e for e in events if e[0] != "ERR"])
+    n_change = len([e for e in events if e[0] not in ("ERR", "INFO")])
     title = ((f"📈 Trend follower · {n_change} change"
               f"{'s' if n_change != 1 else ''}") if n_change
              else "📈 Trend follower · needs attention")
@@ -628,9 +648,13 @@ def _run():
     elif REAL and candidates and not buys_blocked:
         candidates.sort(reverse=True)
         held_now = max(len(real["open"]) + len(real["pending"]), _wallet_held(bal, last_px))
+        skipped = paper_only_skipped([c[1] for c in candidates], REAL_SYMS)
+        if skipped:
+            events.append(("INFO", "trend", None,
+                           f"{len(skipped)} candidate(s) paper-only (not in REAL_SYMS): {', '.join(skipped)}"))
         for mom, s, px in candidates:
             if s not in REAL_SYMS:
-                continue                      # paper-only until promoted
+                continue                      # paper-only until promoted; printed after the run
             if any(r["symbol"] == s for r in real["open"] + real["pending"]):
                 continue                      # never hold the same coin twice
             if held_now >= MAX_POS:           # counts what the WALLET holds, not only what the state file says
@@ -678,7 +702,9 @@ def _run():
     held = [k for k, v in pos.items() if v.get("long")]
     print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M}] TREND v2 "
           f"(SMA{SMA_N}+BTCfilter) | long {len(held)}/{len(SYMS)}: {held}")
-    print(f"  real positions: {len(real['open'])}/{MAX_POS} | REAL={'ON' if REAL else 'off'}")
+    _po = paper_only_skipped([k for k, v in pos.items() if v.get("long")], REAL_SYMS)
+    print(f"  real positions: {len(real['open'])}/{MAX_POS} | REAL={'ON' if REAL else 'off'}"
+          + (f" | paper-only {len(_po)}: {_po}" if _po else ""))
     for kind, sym, px, extra in events:
         print(f"  {kind} {sym} @ {px}")
 
