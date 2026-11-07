@@ -3,6 +3,76 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-07 (overnight shift) · the watcher lived inside the thing it watched, and its alarm exited 0
+
+- **Task:** T0.14 (new). The board's first pickable `todo` chain was empty —
+  T0.10 waits on E10, T0.12 on E11, T2.2b/T2.4 need data work whose upstream is
+  unmoved — so this pass followed the loudest **live** fact on the host instead:
+  a cron job that has been failing 4 times in 24 h with the same text.
+- **Need check:** repo reads, `sqlite3` on `cron/executions.db` (read-only URI),
+  `/opt/trading-agent-v2` read-only (heartbeat, preflight, logs, source),
+  `data/trading.db` (`mode=ro`). **No writes** outside the branch, no restart, no
+  pm2, no config edit, no wrapper edit, no order path touched, `trend_follower`
+  and every real-money script untouched.
+- **Arrival state:** branch `loop/T0.12-quiet-cron-exit` @ `3509485`, tree clean
+  except four data files the refresh jobs rewrite. Cut
+  `loop/v2-lane-dead-since-11-05` from it.
+- **🔴 Found.** `d071de6fa4a4` failed 2026-11-05T09:00, 21:00, 11-06T09:00,
+  11-06T21:00 with `paper: heartbeat is N min old — the lane is not cycling`.
+  Chased it: the V2 paper lanes have written **no heartbeat since
+  2026-11-05T09:00:03Z** (cycles 1728, steps 8639). Preflight now says
+  `FAIL jev_key_authenticates HTTP 403`; `v2-paper.out.log` holds **427
+  consecutive `PREFLIGHT FAILED`**; pm2 has been restart-looping both runners.
+  All other preflight checks pass, including `paper_only: PASS` — no order path.
+- **The chain, each link measured:**
+  1. `run-v2.sh`'s preflight notice needs `notify_state.json`; neither lane dir
+     has one, so the send failed and `|| true` dropped it. Nothing reads
+     `preflight.json`.
+  2. `watchdog.py`'s `runner_silent` is *correct* (heartbeat mtime, 300 s) and
+     runs inside the runner, so it cannot report the runner's death. Its state
+     file still says `alerted: ["runner_silent"]` — a memory, not a watcher.
+  3. `scripts/v2_gate_watchdog.py` sees it and exits **1** (real run, 2405 min).
+  4. `v2_gate_roll.sh` ends *both* rc branches in `exit 0` →
+     `eb407360fa04` = **4 completed, 0 failed** in `executions.db`. The job that
+     keeps its rc delivered all 4 times.
+  5. `watchdog.digest()` prints `jev 1575/1725` = **91.3% turnout** read from a
+     40-hour-old file. A ratio of two frozen counters is a frozen ratio.
+- **Shipped (read-only):** `research/_v2_lane_silence_probe.py` (reproduces all
+  five links from the live files), `tests/loop/test_v2_lane_silence.py`
+  (**6 passed**; mutations: staleness→False ⇒ 1 failed, turnout→0.0 ⇒ 1 failed,
+  harness restored by `diff -q`), `docs/proposals/v2-lane-silent-since-2026-11-05.md`,
+  TASKS T0.14, **E13**.
+- **Also measured, no change made (two near-misses recorded so they are not
+  re-derived as findings):**
+  - A SOL 5m "UP and near 24h high" entry showed +0.87%/24h gross (t=+9.5) on
+    2,174 signals — then the same rule on BTC and ETH gave +0.79% and +0.90%
+    with t=+11.3/+9.6. Identical numbers on three symbols is the **market**, not
+    the rule. Buy-and-hold over the same 89 days is −26.4/−41.1/−57.7%, so the
+    24h drift is a down-market artefact, not an edge.
+  - I suspected the candle store's `1h` bars were a 1m series resampled (odd
+    start 2024-12-18T12:00Z, 15,597 rows × 3 symbols). Tested it against the 5m
+    series: **100% of 1h closes equal the hour's LAST 5m close.** Not a defect.
+    The "927 h gaps" is one contiguous block (2025-10-06 → 2025-11-13), an
+    explicit archive gap, not scattered holes. `research/_candle_1h_bar_basis.py`.
+- **Reference bar measured, for the next research task:** every-bar long,
+  BTC/ETH/SOL, 652 days: 7d hold −0.08/−0.00/−0.24% gross, 30d −0.06/+0.83/−0.68%,
+  t between −0.8 and +0.9. **The zero-skill bar is ~0% net of fees.** Any entry
+  rule that cannot clear 0.16% round trip on that bar is not an edge.
+  `research/_zero_skill_reference.py`.
+- **Not shipped, deliberately:** no restart, no `config/v2.env`, no pm2, no
+  `V2_SYMBOLS`, no wrapper edit, no scheduler change. The credential is the
+  owner's; the wrapper edit is owner-facing (E13, same family as E11).
+- **Learned:** **a watcher that runs inside the thing it watches cannot report
+  its death, and a wrapper that ends in `exit 0` cannot report its alarm.** The
+  V2 lane had *both* — the in-process watchdog was right about the rule and
+  wrong about the process, and the independent one was right about everything
+  and had its exit code thrown away. The tell is cheap to check and I will run
+  it on any monitor from now on: *"if this process dies right now, which line of
+  code notices, and in which process does that line run?"* Second-order: the
+  digest printed `jev 1575/1725` — a *ratio* of two counters written by the same
+  dead process. Ratios are the most convincing form of stale data, because they
+  look like they have been normalised for exactly the thing (time) that broke.
+
 ## 2026-11-06 (overnight shift) · the lab runs 96×/day and has tried 8 configurations in 6 weeks
 
 - **Task:** T1.6 (new; not on the board when the shift started — the untracked

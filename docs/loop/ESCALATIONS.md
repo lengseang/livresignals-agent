@@ -2,6 +2,44 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
+## E13 · The V2 paper lanes died on 2026-11-05T09:01Z and 40h later every watcher still says nothing (2026-11-07)
+Both lanes (`paper`, `paper-b`) have written no heartbeat since
+**2026-11-05T09:00:03Z** (cycles 1728, steps 8639, then stopped). `pm2` has been
+restart-looping both runners ever since; the 427th consecutive line in
+`v2-paper.out.log` is `PREFLIGHT FAILED`:
+
+```text
+FAIL jev_key_authenticates  HTTP 403 (key rejected: revoked, rotated or mistyped)
+```
+
+Every other preflight check passes (`paper_only: PASS`, no order path). So this
+is **not** a money path and **not** a trading result — it is a dead credential
+plus a delivery chain that hid it:
+
+1. `run-v2.sh` sends a Telegram notice on preflight failure and sleeps 300 s.
+   No `notify_state.json` exists in either lane dir → that send failed and
+   `|| true` dropped it. Nothing else looks at `preflight.json`.
+2. `watchdog.py`'s `runner_silent` rule is correct (mtime-based) **and runs
+   inside the runner's own process**, so it dies with the runner it watches.
+3. `scripts/v2_gate_watchdog.py` *does* see it and exits 1 —
+4. but `~/hermes-home/scripts/v2_gate_roll.sh` ends both branch paths in
+   `exit 0`. `eb407360fa04` (v2-scale-gate-check) = **4 completed, 0 failed**.
+   Only `d071de6fa4a4` (v2-top8-gate-watchdog, keeps its rc) delivered, 4×.
+5. `watchdog.digest()` prints `jev 1575/1725` = 91.3% turnout — **read from the
+   frozen heartbeat**. A ratio of two frozen counters is a frozen ratio.
+
+I did **not** restart anything, did not touch `config/v2.env`, pm2 or
+`V2_SYMBOLS`. Full write-up: `docs/proposals/v2-lane-silent-since-2026-11-05.md`;
+read-only reproduction `research/_v2_lane_silence_probe.py`; 6 tests in
+`tests/loop/test_v2_lane_silence.py`.
+
+**Needed:** (b) a working `TYPESAFE_API_KEY` (or its rotation) in
+`/opt/trading-agent-v2/config/v2.env` + a restart of both lanes — only you have
+the key; and (c) yes/no to preserve the gate's rc in `v2_gate_roll.sh` and add
+one line to the stale branch that prints `preflight.json`'s failing check, so
+the alarm says *why* next time.
+**Answer:**
+
 ## E12 · Should the strategy lab keep running 96×/day? (T1.6, 2026-11-06)
 T1.6 measured the lab read-only (`src/trading/ops/lab_repetition.py`). It fires
 every 15 min, scores 3 symbols × 3 entry × 2 exit × 3 rr = 54 points on **1h**
