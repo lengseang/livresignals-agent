@@ -539,6 +539,24 @@ journal entry.
 │     Readers NOT edited: owner-facing + one is a scheduled job   │
 │     (09:50). Design ready for T0.10's own PR.                   │
 │     docs/proposals/real-book-reported-on-paper-log-2026-11-05.md│
+│                                                                  │
+│ 26. A LEADER'S MEAN IS NOT A TRACK RECORD WHEN IT IS THE BOOK.   │
+│     Rule 25(c) was written for a single record; this is the same │
+│     defect at the level of a whole SYMBOL. `self_improve` printed│
+│     "paper best symbol: NEAR/USDT n=504 net +9.33" every run.    │
+│     The book that day: NEAR +5.55 net (after its own fees), the  │
+│     other 13 symbols −10.57, book −5.02. "Best symbol" reads as  │
+│     a property of the BOOK ("this is what we are good at"); the  │
+│     measured fact is a CONCENTRATION — remove one name and the   │
+│     sign inverts. The line now prints the leader's share of the  │
+│     book's net, and when the book is non-positive it prints the  │
+│     rest-sum instead of dividing by a denominator that would    │
+│     make the share meaninglessly >100% (rule 15).                │
+│     Corollary: a per-symbol card can only be read beside the     │
+│     per-symbol population. 11 "losers" over n>=20 is not noise — │
+│     it is the SHAPE of a single-name book, and the two lines now │
+│     have to agree.                                               │
+│     tests/test_best_symbol_states_risk.py                        │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

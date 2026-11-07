@@ -141,12 +141,27 @@ def book():
 
 
 def test_the_traced_book_is_the_book_the_loop_prints(book):
-    """A copy that does not reproduce its baseline has measured nothing."""
+    """A copy that does not reproduce its baseline has measured nothing.
+
+    The invariance is the test: on EVERY fold `_trace` must equal `bt`, which
+    is what "the loop prints this book" means. The median is NOT pinned to
+    34.26 — that literal was a fact about the cache on 2026-11-03
+    (`_folds()` slides with `h.n`, so the last fold moves as the cache rolls
+    forward: 36.11 on 11-05, 38.94 on 11-06, 35.42 on 11-07 without a single
+    line of `bt()` changing). SYSTEM_MAP #11: pin the INVARIANT, not
+    tomorrow's data; a copy that reproduces its baseline to the cent on all
+    folds then fails on a stale median trains the reader to ignore red.
+    The 2026-11-03 figures stay pinned in the docstring of the fragility test
+    on a hand-built fixture, where the input is frozen on purpose.
+    """
     h, folds, rets, _, live = book
     for (a, b), ours in zip(folds, rets):
         theirs = h.bt(a, b, "regime", **live)[0]
         assert abs(ours - theirs) < 0.005, (a, b, ours, theirs)
-    assert round(statistics.median(rets), 2) == 34.26
+    # the median is a property of THIS cache's fold set — assert only that it
+    # was computed over the same folds the loop runs, never its value.
+    assert len(rets) == len(folds) and all(isinstance(r, float) for r in rets)
+    assert -100 < statistics.median(rets) < 1000, statistics.median(rets)
 
 
 def test_every_stop_exit_books_through_the_stop_not_at_it(book):

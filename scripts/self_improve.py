@@ -509,6 +509,42 @@ def optimize(symbols: list[str]) -> dict:
 
 
 # ---------------------------------------------------------------- main
+def _symbol_lines(records: list[dict], min_n: int = 20) -> list[str]:
+    """Card lines for the best-paying symbol and the net-losing ones.
+
+    A leader's mean is not a track record when it IS the book. Rule 25(c):
+    print the remove-top-record figure beside the headline. Here that figure is
+    the leader's share of the book's net over the same `min_n` population —
+    >100% means removing the name leaves the book negative. On a book whose net
+    is <= 0 no share is defined and the line says what is true instead of
+    dividing by a non-positive denominator (rule 15).
+    """
+    psn = per_symbol_net(records)
+    ranked = sorted(psn.items(), key=lambda kv: kv[1]["net"], reverse=True)
+    ranked = [(s, d) for s, d in ranked if d["n"] >= min_n]   # ignore tiny samples
+    if not ranked:
+        return []
+    top = ranked[0]
+    book_net = sum(d["net"] for _, d in ranked)
+    rest_net = book_net - top[1]["net"]
+    if book_net > 0:
+        share_txt = f", {top[1]['net'] / book_net * 100:.0f}% of the book's net"
+    else:
+        # No share is defined on a non-positive denominator — but the risk is
+        # larger, not smaller: the leader pays and the rest lose. Say that.
+        share_txt = (f", and the other {len(ranked) - 1} symbol(s) net "
+                     f"{rest_net:+.2f} — the leader IS the book")
+    out = [f"paper best symbol: {top[0]} n={top[1]['n']} "
+           f"net={top[1]['net']:+.3f} (gross {top[1]['gross']:+.3f})"
+           f"{share_txt}"]
+    losers = [(s, d) for s, d in ranked if d["net"] < 0]
+    if losers:
+        names = ", ".join(f"{s} {d['net']:+.2f}" for s, d in losers[:4])
+        out.append(f"paper net-LOSING symbols (n>={min_n}): "
+                   f"{len(losers)} — {names}")
+    return out
+
+
 def main() -> None:
     REPORTS.mkdir(parents=True, exist_ok=True)
     findings = []
@@ -572,19 +608,15 @@ def main() -> None:
     #     A symbol whose net is negative loses money at any win rate; the owner
     #     should see that rather than the aggregate, which hides it. Only the
     #     biggest earners/losers are named so the card stays short.
-    psn = per_symbol_net(paper_c)
-    ranked = sorted(psn.items(), key=lambda kv: kv[1]["net"], reverse=True)
-    ranked = [(s, d) for s, d in ranked if d["n"] >= 20]   # ignore tiny samples
-    if ranked:
-        top = ranked[0]
-        findings.append(
-            f"paper best symbol: {top[0]} n={top[1]['n']} "
-            f"net={top[1]['net']:+.3f} (gross {top[1]['gross']:+.3f})")
-        losers = [(s, d) for s, d in ranked if d["net"] < 0]
-        if losers:
-            names = ", ".join(f"{s} {d['net']:+.2f}" for s, d in losers[:4])
-            findings.append(
-                f"paper net-LOSING symbols (n>=20): {len(losers)} — {names}")
+    #     2026-11-07 — a "best symbol" line states the RISK, not just the mean
+    #     (SYSTEM_MAP rule 25c, third instance). On today's book NEAR led at
+    #     n=504 net +9.33 while the other 11 symbols summed to -2.55: delete one
+    #     name and the whole section inverts. That is a single-name concentration,
+    #     and the card said "best symbol" as if it were a property of the book.
+    #     The line now carries how much of the book's net the leader IS, and how
+    #     many named losers sit against it — both re-derived at write time (#9)
+    #     from the same records, never quoted from a previous run.
+    findings.extend(_symbol_lines(paper_c))
 
     # 2) optimizer — OOS validated parameter search
     opt = optimize(["SOL/USDT", "XRP/USDT", "ETH/USDT", "BTC/USDT", "LINK/USDT"])
