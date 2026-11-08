@@ -557,6 +557,34 @@ journal entry.
 │     it is the SHAPE of a single-name book, and the two lines now │
 │     have to agree.                                               │
 │     tests/test_best_symbol_states_risk.py                        │
+│                                                                  │
+│ 27. A NOTE ABOUT A SPLIT MUST BE COMPUTED FROM THE SPLIT.        │
+│     Rules 14/15/17 fixed what the VERDICT is computed on; the    │
+│     note that says "and here is what I left out" was still       │
+│     re-derived independently ("every row n>=10 with no fill in   │
+│     >14d"). On 2026-11-08 the two disagreed in one report:       │
+│       rr_tune  "...on the live edges (validated)... NOT          │
+│                 counted: 1517 trades from 8 edge(s)"             │
+│       edge_not_live  "...no per-edge verdict issued:             │
+│                 validated (... -5.34 net); loose (+3.41)"         │
+│     The note denied a verdict the line above had just drawn, and │
+│     so it also told the reader `loose` (28d silent) and          │
+│     `validated` (live) were the same kind of thing. Nothing      │
+│     was wrong with either rule; the note simply answered about   │
+│     a different population than the verdict did.                 │
+│     Two more in the same note:                                   │
+│       (a) A CONFIG-DISABLED EDGE IS NOT "WAITING FOR A FILL".    │
+│           `loose` was on `signals-state.json:disabled` — a       │
+│           decision, not a quiet spell. Same silence, different   │
+│           next action, so the note names STOPPED + the file and  │
+│           keeps "no fill in >14d" for the merely idle.           │
+│       (b) A HEADER'S REASON MUST HOLD FOR EVERY LINE UNDER IT.   │
+│           A note following the split (not the >14d clock) could  │
+│           print "no fill in >14d ... last fill 2026-11-06" — 2   │
+│           days. Same class as #11's hardcoded direction: a       │
+│           verdict narrated with a reason that did not fire. The  │
+│           note now says "excluded from the verdict above".       │
+│     tests/test_improvement_exclusion_note.py                     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

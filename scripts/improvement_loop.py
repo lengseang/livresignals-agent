@@ -343,6 +343,15 @@ def analyze() -> dict:
     # the collapsed `paper` list — the same population every other figure uses.
     edge_meta["recent_pf"] = _recent_live_pf(paper, edge_meta)
     edge_meta["redundant"] = (liveness or {}).get("redundant", {})
+    # STOPPED EDGES (2026-11-08). `edge_liveness` only knows WHEN an edge last
+    # filled; it cannot know whether the silence is a decision. The writer's
+    # disable list is `data/signals-state.json` `disabled` — the same list every
+    # opener goes through via `unified_trader._edge_disabled` — and on
+    # 2026-11-08 it held `loose`, whose last fill was 2026-10-11. The note called
+    # that "no fill in >14d ... Re-enable ONE at a time", which is right for a
+    # design nobody switched off and wrong for one that self_improve already
+    # stood down. Different next action, so the note must name the right one.
+    edge_meta["stopped"] = _stopped_edges(DATA / "signals-state.json")
     suggestions = _suggest(paper_stats, live_stats, regime_rows, edge_rows,
                            edge_meta)
 
@@ -478,6 +487,27 @@ def _edge_is_live(e: str, edge_meta: dict | None,
         return True
     age = (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0
     return age <= stale_days
+
+
+def _stopped_edges(state_path: Path) -> dict:
+    """{edge: {"since": iso|None, "source": name}} for the writer's disable list.
+
+    `signals-state.json` `disabled` holds a bare list of edge names — no date.
+    The date is not invented here (rule: never write a synthetic number); the
+    caller renders whatever this returns, and `since` is None when the file
+    does not carry one. A missing/unreadable file returns {}: the note then
+    degrades to the pre-2026-11-08 "no fill in >14d" wording rather than
+    claiming every dead edge was switched off.
+    """
+    try:
+        st = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    disabled = st.get("disabled") or []
+    if not isinstance(disabled, list):
+        return {}
+    return {str(e): {"since": None, "source": state_path.name}
+            for e in disabled if e}
 
 
 def _split_live_pf(edges: list, edge_meta: dict | None) -> dict:
@@ -687,6 +717,13 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     # PF is None only when there are no losing dollars to divide by — undefined,
     # never "0.00, catastrophically thin" — so it draws no advice.
     if pooled_votes or recent_votes:
+        # NAME THE WHOLE COHORT, not just the rows that carried a PF (2026-11-08).
+        # `pop["edges"]` is the split's live set and already includes an edge
+        # whose PF is None. But the sentence below is the only place a reader
+        # learns WHO was judged, and the exclusion note that follows lists the
+        # dead ones — so an edge present in one and absent from the other reads
+        # as dead. Naming the cohort from the split, and the note from the
+        # split, keeps the two from contradicting each other.
         names = ", ".join(pop["edges"])
         basis = "live" if split["has_liveness"] else "whole book (no liveness data)"
         if recent_votes:
@@ -867,21 +904,55 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     # Silence is only honest if the reader can see what is silent and why;
     # otherwise "no verdict on supertrend" is indistinguishable from "we
     # forgot supertrend" (the always-on-warning lesson, inverted).
+    #
+    # WHOSE LIST IS THIS? (2026-11-08) It used to be re-derived here ("every
+    # row with n>=10 and no fill in >14d"), INDEPENDENTLY of the split that
+    # decided which edges rule 3 and 4b were entitled to judge. On 2026-11-08
+    # the two disagreed: the split judged `validated` live and put its -5.34
+    # into the aggregate verdict, while this note listed `validated` among the
+    # edges with "NO per-edge verdict issued" — the same report, two adjacent
+    # bullets, opposite statements about one edge. A suppression note is a
+    # claim about the split; it must be COMPUTED FROM the split. `stopped`
+    # (the writer's disable list) turns "nobody has filled" into "the writer
+    # switched it off", which is a different next action.
+    split_live = _split_live_pf(edges, edge_meta)
+    dead_names = set(split_live["dead"]["edges"])
+    stopped = (edge_meta or {}).get("stopped") or {}
     stale_edges = [(e["edge"], e["n"], e["net_pnl"]) for e in edges
-                   if e["n"] >= 10 and not _edge_is_live(e["edge"], edge_meta)]
+                   if e["edge"] in dead_names]
     if stale_edges:
-        parts = []
+        parts, stopped_parts = [], []
         for name, n, net in sorted(stale_edges, key=lambda x: x[2]):
             lf = str(last_fill.get(name, ""))[:10]
-            parts.append(f"{name} (n={n}, {net:+.2f} net, last fill {lf or '?'})")
-        out.append({
-            "priority": 3, "type": "edge_not_live",
-            "idea": ("NOT LIVE — no per-edge verdict issued (no fill in >14d): "
-                     + "; ".join(parts) + ". These are HISTORY, not the live "
-                     "book: they cannot open, so 'tighten it' or 'stand it "
-                     "down' would be a no-op. Re-enable ONE at a time and let "
-                     "it fill for 14d before judging it."),
-        })
+            line = f"{name} (n={n}, {net:+.2f} net, last fill {lf or '?'})"
+            if name in stopped:
+                src = (stopped.get(name) or {}).get("source") or "the disable list"
+                since = (stopped.get(name) or {}).get("since")
+                stopped_parts.append(line + (f" — STOPPED in {src}"
+                                             + (f" since {since}" if since else "")))
+            else:
+                parts.append(line)
+        # The header is a claim about EACH line under it, so it may only say
+        # ">14d" for lines that are actually >14d old. The note follows the
+        # split, and the split's dead set is not guaranteed to be the >14d set
+        # (a test pins that disagreement); a note that copies the header's
+        # reason onto every line can print "no fill in >14d ... last fill
+        # 2026-11-06" — 2 days — which is the same class of defect (a verdict
+        # narrated with a reason that did not fire) this note exists to avoid.
+        idea = ""
+        if parts:
+            idea = ("NOT LIVE — no per-edge verdict issued (excluded from the "
+                    "verdict above): " + "; ".join(parts) + ". These are "
+                    "HISTORY, not the live book: they cannot open, so 'tighten "
+                    "it' or 'stand it down' would be a no-op.")
+        if stopped_parts:
+            idea += (" " if idea else "") + (
+                "STOPPED — switched off by the engine, not merely idle: "
+                + "; ".join(stopped_parts)
+                + ". Standing down an already-disabled edge is a no-op.")
+        if idea:
+            idea += " Re-enable ONE at a time and let it fill for 14d before judging it."
+            out.append({"priority": 3, "type": "edge_not_live", "idea": idea})
     if redundant:
         pairs = [f"{e} ~ {parent}" for e, parent in sorted(redundant.items())]
         out.append({
