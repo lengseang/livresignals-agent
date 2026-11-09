@@ -349,17 +349,39 @@ def analyze() -> dict:
     #     "loose (n=1261, +3.37 net, last fill 2026-10-11) — STOPPED"
     #
     # `loose` is the book's only net-POSITIVE cohort over its life, so that
-    # line reads "we switched off our only winner". Measured the same day: the
-    # 28 days up to its stop were n=17, -0.20 net — it was LOSING when the
-    # engine stood it down, and its +3.37 is two good September weeks carried
-    # as a lifetime mean. So the stop was right and the sentence was wrong.
+    # line reads "we switched off our only winner". Measured 2026-11-09 on the
+    # collapsed book: `loose` was -2.34 net over its last 7 days and -5.54 over
+    # its last 14 — it was collapsing when the engine stood it down, and its
+    # lifetime +6.25 is two good September weeks carried as a mean. NOTE the
+    # 28d anchored window is +4.55, so the clause shown beside it does NOT by
+    # itself prove the stop was right; it only stops the lifetime mean being
+    # read alone. The earlier "n=17, -0.20 in the last 28d" figure was the
+    # self_improve disable-gate cohort, not a 28d window — do not quote it as one.
     # A lifetime mean quoted beside the word STOPPED, with no window, invites
     # the owner to re-enable a loser — the exact inverse of the harm the
     # windowed-PF rule (#12/#16, PF_WINDOW_DAYS) was built to prevent, applied
     # to the per-edge line instead of the aggregate. Every dead/stopped edge
     # now carries its recent net, so a positive lifetime figure can never be
     # read without the number that justified stopping it.
-    edge_meta["recent_edge_net"] = _recent_edge_net(paper, PF_WINDOW_DAYS)
+    # ANCHORED AT EACH EDGE'S OWN LAST FILL (2026-11-09, T0.16). The 2026-11-08
+    # version of this line windowed `[now - 28d, now]` for every edge, which is
+    # structurally empty for the ONLY population it serves. A STOPPED or DEAD
+    # edge has not filled recently by definition: `loose` last filled
+    # 2026-10-11T23:16Z, so a 28d window ending 2026-11-09T09:30Z opens
+    # 2026-10-12T09:30Z — entirely after the edge's last trade. `loose` was
+    # therefore absent from `recent_edge_net` (the only key was `validated`) and
+    # `_recent_clause()` returned "" — the shipped sentence appeared in the
+    # JOURNAL and a fixture, never in a report. Anchoring each edge's window at
+    # its last fill measures the final trading window before it went quiet,
+    # which is the window that explains the stop. A live edge fills daily, so
+    # its anchor is within hours of now and the number is unchanged in substance.
+    edge_meta["stopped"] = _stopped_edges(DATA / "signals-state.json")
+    _dead = set(_split_live_pf(edge_rows, edge_meta)["dead"]["edges"]) | \
+        set(edge_meta["stopped"])
+    _last_fill = (liveness or {}).get("last_fill") or {}
+    _anchors = {e: _last_fill[e] for e in _dead if _last_fill.get(e)}
+    edge_meta["recent_edge_net"] = _recent_edge_net(
+        paper, PF_WINDOW_DAYS, anchors=_anchors)
     edge_meta["redundant"] = (liveness or {}).get("redundant", {})
     # STOPPED EDGES (2026-11-08). `edge_liveness` only knows WHEN an edge last
     # filled; it cannot know whether the silence is a decision. The writer's
@@ -369,7 +391,6 @@ def analyze() -> dict:
     # that "no fill in >14d ... Re-enable ONE at a time", which is right for a
     # design nobody switched off and wrong for one that self_improve already
     # stood down. Different next action, so the note must name the right one.
-    edge_meta["stopped"] = _stopped_edges(DATA / "signals-state.json")
     suggestions = _suggest(paper_stats, live_stats, regime_rows, edge_rows,
                            edge_meta)
 
@@ -658,8 +679,9 @@ def _pnl_of_trade(t: dict) -> float:
         return t.get("pnl", 0) or 0
 
 
-def _recent_edge_net(trades: list, days: int = PF_WINDOW_DAYS, now=None) -> dict:
-    """{edge: {"n", "net", "days", "start_utc"}} over the last `days`, ALL edges.
+def _recent_edge_net(trades: list, days: int = PF_WINDOW_DAYS, now=None,
+                     anchors: dict | None = None) -> dict:
+    """{edge: {"n", "net", "days", "start_utc", "end_utc", "anchored"}} per edge.
 
     WHY (2026-11-08)
     ----------------
@@ -667,10 +689,27 @@ def _recent_edge_net(trades: list, days: int = PF_WINDOW_DAYS, now=None) -> dict
     history note (§4c) names DEAD and STOPPED edges, which that helper skips by
     construction — so the only number it could print for them was the lifetime
     mean. On 2026-11-08 that read `loose (n=1261, +3.37 net) — STOPPED`, i.e.
-    "the only profitable edge was switched off", when the 28 days up to its
-    stop were n=17, -0.20 net. A positive lifetime mean next to STOPPED is an
+    "the only profitable edge was switched off", when the window that got it
+    stopped was negative. A positive lifetime mean next to STOPPED is an
     invitation to re-enable a loser; the recent net is the number that
     justified the stop, so it must travel with the line.
+
+    WHY AN ANCHOR (2026-11-09) — the 2026-11-08 version did not work
+    ------------------------------------------------------------------
+    The first version windowed `[now - days, now]` for every edge. A STOPPED
+    edge by definition has not filled recently: `loose` last filled
+    2026-10-11T23:16Z, and a 28d window ending 2026-11-09T09:30Z opens
+    2026-10-12T09:30Z — ENTIRELY after the edge's last trade. So `loose` had
+    0 fills, was absent from the returned dict, and the clause silently
+    degraded to the pre-fix wording. Measured on the live book: the only key
+    was `validated`. A now-anchored window can never contain the population
+    it was written for; the harder the stop, the more certainly it is empty.
+
+    `anchors` = {edge: iso_ts} (typically the edge's last fill). An anchored
+    edge is measured over `[anchor - days, anchor]` — the final trading window
+    before it went quiet, which is the window that explains the decision. An
+    edge with no anchor keeps the now-anchored meaning exactly, so every
+    pre-existing caller and test is unchanged.
 
     Attribution follows the one book rule (`edge` tag, else `loose`, else
     `validated`) — the same rule `edge_liveness` and `self_improve` use, so
@@ -681,23 +720,36 @@ def _recent_edge_net(trades: list, days: int = PF_WINDOW_DAYS, now=None) -> dict
     in time must not vote on a windowed verdict.
     """
     now = now or datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=days)
-    out: dict[str, dict] = {}
-    for t in trades:
-        edge = t.get("edge") or ("loose" if t.get("loose") else "validated")
-        raw = t.get("ts_utc")
+    anchors = anchors or {}
+
+    def _parse(raw):
         if not raw:
-            continue
+            return None
         try:
             ts = datetime.fromisoformat(str(raw))
         except (TypeError, ValueError):
+            return None
+        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+    out: dict[str, dict] = {}
+    for t in trades:
+        edge = t.get("edge") or ("loose" if t.get("loose") else "validated")
+        ts = _parse(t.get("ts_utc"))
+        if ts is None:
             continue
-        if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-        if ts < cutoff:
+        # An anchor that cannot be dated must not silently become "now": fall
+        # back to the now-anchored window, which is at least a stated rule.
+        end, anchored = now, False
+        anchor_ts = _parse(anchors.get(edge))
+        if anchor_ts is not None:
+            end, anchored = anchor_ts, True
+        cutoff = end - timedelta(days=days)
+        if ts < cutoff or ts > end:
             continue
         d = out.setdefault(edge, {"n": 0, "net": 0.0, "days": days,
-                                  "start_utc": cutoff.isoformat()})
+                                  "start_utc": cutoff.isoformat(),
+                                  "end_utc": end.isoformat(),
+                                  "anchored": anchored})
         d["n"] += 1
         d["net"] += _pnl_of_trade(t)
     for d in out.values():
@@ -998,8 +1050,15 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
             r = recent_edge.get(name)
             if not r or not r.get("n"):
                 return ""
-            return (f"; last {r.get('days', PF_WINDOW_DAYS)}d: "
-                    f"n={r['n']}, {r['net']:+.2f} net")
+            days = r.get("days", PF_WINDOW_DAYS)
+            # An ANCHORED window ends at the edge's last fill, not at report
+            # time — so "last 28d" would be a false claim about the window
+            # (2026-11-09: the 2026-11-08 line asserted a now-ending window on
+            # a number measured over an earlier one, and on a STOPPED edge the
+            # now-ending window was empty anyway, so it printed nothing at all).
+            if r.get("anchored"):
+                return (f"; {days}d to last fill: n={r['n']}, {r['net']:+.2f} net")
+            return (f"; last {days}d: n={r['n']}, {r['net']:+.2f} net")
 
         for name, n, net in sorted(stale_edges, key=lambda x: x[2]):
             lf = str(last_fill.get(name, ""))[:10]
