@@ -342,6 +342,24 @@ def analyze() -> dict:
     # book on the market it is trading in, not on its lifetime mean. Computed on
     # the collapsed `paper` list — the same population every other figure uses.
     edge_meta["recent_pf"] = _recent_live_pf(paper, edge_meta)
+    # PER-EDGE RECENT NET (2026-11-08). `recent_pf` answers the aggregate
+    # question for the LIVE cohort. It cannot annotate a STOPPED edge, and on
+    # 2026-11-08 that gap produced the most misleading line in the report:
+    #
+    #     "loose (n=1261, +3.37 net, last fill 2026-10-11) — STOPPED"
+    #
+    # `loose` is the book's only net-POSITIVE cohort over its life, so that
+    # line reads "we switched off our only winner". Measured the same day: the
+    # 28 days up to its stop were n=17, -0.20 net — it was LOSING when the
+    # engine stood it down, and its +3.37 is two good September weeks carried
+    # as a lifetime mean. So the stop was right and the sentence was wrong.
+    # A lifetime mean quoted beside the word STOPPED, with no window, invites
+    # the owner to re-enable a loser — the exact inverse of the harm the
+    # windowed-PF rule (#12/#16, PF_WINDOW_DAYS) was built to prevent, applied
+    # to the per-edge line instead of the aggregate. Every dead/stopped edge
+    # now carries its recent net, so a positive lifetime figure can never be
+    # read without the number that justified stopping it.
+    edge_meta["recent_edge_net"] = _recent_edge_net(paper, PF_WINDOW_DAYS)
     edge_meta["redundant"] = (liveness or {}).get("redundant", {})
     # STOPPED EDGES (2026-11-08). `edge_liveness` only knows WHEN an edge last
     # filled; it cannot know whether the silence is a decision. The writer's
@@ -640,6 +658,53 @@ def _pnl_of_trade(t: dict) -> float:
         return t.get("pnl", 0) or 0
 
 
+def _recent_edge_net(trades: list, days: int = PF_WINDOW_DAYS, now=None) -> dict:
+    """{edge: {"n", "net", "days", "start_utc"}} over the last `days`, ALL edges.
+
+    WHY (2026-11-08)
+    ----------------
+    `_recent_live_pf` windows the aggregate over the LIVE cohort. The per-edge
+    history note (§4c) names DEAD and STOPPED edges, which that helper skips by
+    construction — so the only number it could print for them was the lifetime
+    mean. On 2026-11-08 that read `loose (n=1261, +3.37 net) — STOPPED`, i.e.
+    "the only profitable edge was switched off", when the 28 days up to its
+    stop were n=17, -0.20 net. A positive lifetime mean next to STOPPED is an
+    invitation to re-enable a loser; the recent net is the number that
+    justified the stop, so it must travel with the line.
+
+    Attribution follows the one book rule (`edge` tag, else `loose`, else
+    `validated`) — the same rule `edge_liveness` and `self_improve` use, so
+    this cannot disagree with the split about who owns a fill.
+
+    Trades with an unparseable/missing `ts_utc` are excluded, never dated to
+    "now" — the same rule as `_recent_live_pf`: a record that cannot be placed
+    in time must not vote on a windowed verdict.
+    """
+    now = now or datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=days)
+    out: dict[str, dict] = {}
+    for t in trades:
+        edge = t.get("edge") or ("loose" if t.get("loose") else "validated")
+        raw = t.get("ts_utc")
+        if not raw:
+            continue
+        try:
+            ts = datetime.fromisoformat(str(raw))
+        except (TypeError, ValueError):
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if ts < cutoff:
+            continue
+        d = out.setdefault(edge, {"n": 0, "net": 0.0, "days": days,
+                                  "start_utc": cutoff.isoformat()})
+        d["n"] += 1
+        d["net"] += _pnl_of_trade(t)
+    for d in out.values():
+        d["net"] = round(d["net"], 4)
+    return out
+
+
 def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     out = []
     edges = edges or []
@@ -922,9 +987,29 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
                    if e["edge"] in dead_names]
     if stale_edges:
         parts, stopped_parts = [], []
+        # PER-EDGE RECENT NET (2026-11-08): the lifetime mean is not enough on a
+        # STOPPED edge — see _recent_edge_net. `recent_edge_net` is optional
+        # (older callers/tests omit it) and degrades to the old line.
+        recent_edge = (edge_meta or {}).get("recent_edge_net") or {}
+
+        def _recent_clause(name):
+            """Text that reconciles a lifetime net with the recent window, or ''
+            when the window cannot be computed for this edge."""
+            r = recent_edge.get(name)
+            if not r or not r.get("n"):
+                return ""
+            return (f"; last {r.get('days', PF_WINDOW_DAYS)}d: "
+                    f"n={r['n']}, {r['net']:+.2f} net")
+
         for name, n, net in sorted(stale_edges, key=lambda x: x[2]):
             lf = str(last_fill.get(name, ""))[:10]
-            line = f"{name} (n={n}, {net:+.2f} net, last fill {lf or '?'})"
+            # A POSITIVE lifetime mean on a dead edge is the trap: it reads as
+            # "we switched off a winner". Say what it did in the window that got
+            # it stopped (measured: loose +3.37 life / -0.20 in 28d). Negative
+            # lifetime edges gain nothing — no window is needed to believe a loser.
+            recent = _recent_clause(name) if net > 0 else ""
+            line = (f"{name} (n={n}, {net:+.2f} net, "
+                    f"last fill {lf or '?'}{recent})")
             if name in stopped:
                 src = (stopped.get(name) or {}).get("source") or "the disable list"
                 since = (stopped.get(name) or {}).get("since")

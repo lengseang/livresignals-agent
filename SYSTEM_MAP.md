@@ -585,6 +585,29 @@ journal entry.
 │           verdict narrated with a reason that did not fire. The  │
 │           note now says "excluded from the verdict above".       │
 │     tests/test_improvement_exclusion_note.py                     │
+│                                                                  │
+│ 28. A LIFETIME MEAN NEXT TO \"STOPPED\" IS AN INVITATION TO        │
+│     RE-ENABLE A LOSER. Rule 27 made the note say STOPPED; it     │
+│     still printed only the LIFETIME net:                         │
+│       \"loose (n=1261, +3.37 net, last fill 2026-10-11)\"          │
+│     `loose` is the book's only net-POSITIVE cohort over its      │
+│     life, so the line read \"we switched off our only winner\".    │
+│     It did not. Measured 2026-11-08: the 28 days up to the       │
+│     2026-10-11 stop were n=17, -0.20 net — LOSING when it was    │
+│     stood down (+3.37 is two good September weeks, wk2 +7.28 /   │
+│     wk3 +3.25, carried across five losing weeks after). The      │
+│     decision was right and the sentence was wrong, and the       │
+│     sentence is all the owner reads. Same defect as the 28d      │
+│     windowed-PF rule (#16) applied to the PER-EDGE line: a mean  │
+│     with no time bound can say a now-bad edge is good.           │
+│     Fix: every dead/stopped edge whose lifetime net is > 0 now   │
+│     carries its recent net in the same line —                   │
+│       \"loose (... +3.37 net ...; last 28d: n=17, -0.20 net)\"     │
+│     Negative-lifetime edges gain nothing (no one needs a window  │
+│     to believe a loser). The window IS PF_WINDOW_DAYS, not a     │
+│     second definition.                                           │
+│     tests/test_improvement_stopped_edge_window.py (9 tests,      │
+│     5/5 mutations caught)                                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

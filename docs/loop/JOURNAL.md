@@ -3,6 +3,49 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-08 · the report said "we switched off our only winner" — it didn't
+
+- **Task:** autonomous improvement pass on the improvement loop itself. Board
+  unchanged on the blocked chain (T0.10→E10, T0.12→E11, T0.14→E13, T0.15→E14),
+  so I read the artifact the owner actually gets: `reports/improvement-report.json`.
+- **Need check:** repo reads only. `logs/improvement.log`, `logs/self-improve.log`,
+  `data/signals-state.json`, `data/unified-paper.json`. No order path, no restart,
+  no config write, no state write. Read-only on the book.
+- **🔴 Found.** The `edge_not_live` note printed, for the stopped `loose` edge:
+  `loose (n=1261, +3.37 net, last fill 2026-10-11) — STOPPED`. `loose` is the
+  book's only net-POSITIVE cohort over its life, so the line reads "the engine
+  shut off the only edge that makes money" — while `validated` (net −5.28 over
+  1390, still firing daily) keeps running. That is the opposite of the truth.
+- **⚠️ Checked before calling it a bug:** is the +3.37 real? Yes — and it is a
+  lifetime mean. Measured the 28 days up to the 2026-10-11 stop: **n=17, −0.20
+  net**. Weekly: wk2 +7.275, wk3 +3.253, then wk4 −4.292, wk5 −1.692, wk6 −0.556.
+  So `self_improve` stood it down correctly (applied 2026-10-11 on n=17 wr=29%),
+  and the +3.37 is two good September weeks carried across five losing ones.
+  **The decision was right; the sentence was wrong** — and the sentence is all
+  the owner reads. Same defect as the 2026-10-23 windowed-PF rule (#16), left
+  unfixed on the per-edge line.
+- **Shipped:** `_recent_edge_net()` in `improvement_loop.py` (per-edge, all
+  edges, window = `PF_WINDOW_DAYS`, attribution by the one-book rule, undateable
+  trades excluded), attached to `edge_meta["recent_edge_net"]` in `analyze()`,
+  and used in §4c so **a positive-lifetime dead edge carries its recent net in
+  the same line**. Negative-lifetime edges gain nothing — no one needs a window
+  to believe a loser. The live line now reads:
+  `loose (n=1261, +3.37 net, last fill 2026-10-11; last 28d: n=17, -0.20 net) — STOPPED`.
+- **Evidence:** `pytest tests/test_improvement_stopped_edge_window.py` — **9
+  passed**. Whole `tests/`: **531 passed, 2 skipped, 1 xfailed** (122s). Whole
+  `tests/loop/`: **414 passed, 3 skipped**. Mutations **5/5 caught**: drop the
+  positive-net clause → 1 red; window constant 60d → 1; ignore the `loose` flag
+  → 1; date undateable trades to now → 1; don't attach the map in `analyze` → 1.
+  File restored byte-identical (`cmp` OK) after each.
+- **Anti-slop:** the test for costing first asserted to 1e-9 and failed at
+  4.1e-5 — because `_recent_edge_net` rounds to 4dp by design. Fixed the test's
+  tolerance, not the code; a rounded figure compared at full float precision is
+  the test's error, not the loop's.
+- **Not done (owner-gated, unchanged):** the *decision* to re-enable `loose` is
+  not mine. This change only makes the report say why it is off. Re-enabling
+  remains the E-series owner call, and the evidence now on the card argues
+  against it (last 28d −0.20).
+
 ## 2026-11-07 (evening shift) · the real path declined every candidate for three days and never said so
 
 - **Task:** T0.15 (new). Board pick: the phase-0 chain is still blocked (T0.10 → E10,

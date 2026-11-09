@@ -117,6 +117,58 @@ def run():
             except Exception as e:  # noqa: BLE001 — never kill the loop
                 r["fragility"] = {"tested": False, "error": str(e)[:80],
                                   "n_variants": len(fam)}
+    # THE PAIRED LEAD (2026-11-09). `lead_is_coin_fragile` needs
+    # `chal.drop(c) - live.drop(c)` — one universe, one difference — but the
+    # challenger is only known after the whole grid is scored. Every tested
+    # row already carries `per_coin`, so the pairing is a lookup, not another
+    # walk of 23 universes: cost is the 9 rows x 4 folds above, unchanged.
+    # Rows are paired with the LIVE row by family only where the universe
+    # matters — the key is just "which coin was dropped", and every tested
+    # row dropped the same 23 coins, so a cross-family pair is well defined.
+    live_cfg = next((r for r in rows
+                     if all(r["cfg"].get(k) == v for k, v in LIVE.items())), None)
+    lp = ((live_cfg or {}).get("fragility") or {})
+    for r in rows:
+        f = r.get("fragility") or {}
+        if not f.get("tested") or not lp.get("tested"):
+            continue
+        mine, theirs = f.get("per_coin") or {}, lp.get("per_coin") or {}
+        paired = [round(mine[c]["ret"] - theirs[c]["ret"], 2)
+                  for c in mine if c in theirs]
+        if not paired:
+            continue
+        own = f.get("median")
+        # The published head-to-head lead must be one point of this band, or
+        # the band was built against a different universe set.
+        if own is not None:
+            f["lead_full_universe"] = round(own - lp.get("median", 0), 2)
+        paired.sort()
+        # The full-universe point is carried SEPARATELY (not inside the band):
+        # a 23-draw band plotted around the full-universe lead is a
+        # restatement of it, and including it lets a crafted/mismatched band
+        # pass the "does it contain the published lead" check for free.
+        f["lead_vs_live"] = paired
+        # A seeded-sample band is NOT a leave-one-coin-out population: it must
+        # be able to REFUSE (inside its own noise), never to ADMIT. Same rule
+        # as `lead_is_coin_fragile`'s "(a)" test; both read this flag.
+        f["paired_sampled"] = bool(f.get("sampled") or lp.get("sampled"))
+        if f["paired_sampled"]:
+            f.pop("lead_interval", None)
+        else:
+            # A band must BRACKET its own full-universe point. When it does
+            # not, the drops and the median came from different universe sets
+            # — the singleton case above — and publishing the band would be
+            # publishing a number about a different comparison. Withhold it
+            # and let `lead_is_coin_fragile` fall back to the raw test, which
+            # is at least honest about what it compares.
+            lead = f.get("lead_full_universe")
+            if lead is not None and paired[0] - 0.01 <= lead <= paired[-1] + 0.01:
+                f["lead_interval"] = (paired[0], paired[-1])
+            else:
+                f["lead_interval_untested"] = (
+                    f"paired band [{paired[0]:+.2f}, {paired[-1]:+.2f}] does not "
+                    f"bracket its own full-universe lead {lead:+.2f}pp — "
+                    f"the drops and the median came from different universes")
     return out
 
 
@@ -189,6 +241,10 @@ def coin_fragility(h, r, draws=None):
     return {"tested": True, "draws": len(meds),
             "distinct_universes": len(set(dropped_list)),
             "basis": basis,
+            # `sampled` decides whether a PAIRED lead band is a population or a
+            # seeded sample; a sampled band may sit inside the gate, a sampled
+            # verdict may not (see lead_is_coin_fragile).
+            "sampled": draws is not None,
             "median": med,
             "loo_median": round(statistics.median(meds), 2),
             "loo_min": round(min(meds), 2), "loo_max": round(max(meds), 2),
@@ -293,8 +349,50 @@ def lead_is_coin_fragile(chal, live_row, n_folds=4):
     live_band = (lf["loo_min"], lf["loo_max"])
     chal_band = (cf["loo_min"], cf["loo_max"])
 
-    # (a) the live config's own band contains the challenger's head-to-head win
-    inside = live_band[0] <= lead <= live_band[1]
+    # (a) the challenger's lead survives losing a coin from BOTH sides at once
+    # THE PAIRED LEAD (2026-11-09). Until today this test asked whether the
+    # RAW head-to-head lead (each config on the full universe) sat inside the
+    # live config's leave-one-coin-out band. That mixes two universes: the
+    # challenger's number is full-universe, the band is not. A band only says
+    # something about a lead if both legs are measured on the SAME universe.
+    # `per_coin` already gives both legs (each row drops every coin), so the
+    # paired lead is `chal.drop(c) - live.drop(c)` per coin — one population,
+    # one difference — and its spread is the honest width of the lead.
+    # Measured 2026-11-09 on the live cache (sma_r=100 vs LIVE 150): raw lead
+    # -3.63 vs the live band [10.68, 44.55] -> "not inside" -> the gate passed
+    # a challenger whose paired lead is -13.17..+7.12 (median -1.86): it
+    # LOSES under 15 of 23 drops, i.e. the lead is inside its own noise. The
+    # old form also called a lead of +1.0 "admitted" when every config was
+    # 30pp, i.e. inside a band that says nothing about a 1pp lead.
+    # `lead_interval` is optional: rows from an older caller/serializer lack
+    # it, and absent means the paired test cannot run — say so via
+    # `paired_untested` rather than falling back silently to the raw test.
+    # THE SAMPLED ASYMMETRY (2026-11-09): a seeded-draw band is not a
+    # population, so it may REFUSE (inside its own noise) but must never
+    # ADMIT. `run()` therefore also emits `lead_vs_live` for sampled rows with
+    # no `lead_interval`: the gate below still uses the band, and the
+    # admission in (b)/(c) stays blocked by `paired_untested`.
+    paired = cf.get("lead_interval")
+    paired_band = None
+    sampled = bool(cf.get("paired_sampled") or cf.get("sampled")
+                   or lf.get("sampled"))
+    if paired is None:
+        pair_list = cf.get("lead_vs_live")
+        if isinstance(pair_list, (list, tuple)) and pair_list:
+            paired = (min(pair_list), max(pair_list))
+    if isinstance(paired, (list, tuple)) and len(paired) == 2:
+        paired_band = (min(paired[0], paired[1]), max(paired[0], paired[1]))
+        inside = paired_band[0] <= 0 <= paired_band[1]
+        # The band must also be a RANGE OF THIS LEAD, not of some other row:
+        # a paired band that does not contain the published head-to-head lead
+        # was computed against a different pair and must not vote. The
+        # tolerance is a rounding epsilon — `median` is rounded to 2dp on both
+        # sides while `per_coin` entries are rounded independently, so a lead
+        # can sit 0.01 outside its own band by arithmetic alone.
+        if not (paired_band[0] - 0.05 <= lead <= paired_band[1] + 0.05):
+            inside = False
+    else:
+        inside = live_band[0] <= lead <= live_band[1]
     # (b) dropping one coin erases the lead
     drop_max = cf.get("loo_drop_max")
     worst = min((cf.get("per_coin") or {}).items(),
@@ -306,14 +404,40 @@ def lead_is_coin_fragile(chal, live_row, n_folds=4):
     reasons = []
     if not incumbent:          # a row cannot be one-coin luckier than itself
         if inside:
-            reasons.append(f"lead {lead:+.2f}pp sits inside the LIVE config's own "
-                           f"leave-one-coin-out band [{live_band[0]:+.2f}, "
-                           f"{live_band[1]:+.2f}]")
+            if paired_band is not None:
+                # Same-universe form, so the sentence is not just the number.
+                reasons.append(
+                    f"paired lead {lead:+.2f}pp lies inside its own "
+                    f"leave-one-coin-out band [{paired_band[0]:+.2f}, "
+                    f"{paired_band[1]:+.2f}] — dropping a single coin flips "
+                    f"which config wins")
+            else:
+                reasons.append(f"lead {lead:+.2f}pp sits inside the LIVE config's own "
+                               f"leave-one-coin-out band [{live_band[0]:+.2f}, "
+                               f"{live_band[1]:+.2f}]")
         if erased:
             reasons.append(f"dropping {worst} alone cuts the challenger's median "
                            f"{drop_max:.2f}pp -> lead {lead - drop_max:+.2f}pp")
         if frac is not None and frac < 0.75:
             reasons.append(f"only {frac:.0%} of 150d segments prefer it")
+        # (d) THE SEGMENT TEST IS ONE-SIDED (2026-11-09). `frac` counts the
+        # segments the challenger WINS; a negative median lead can still clear
+        # 0.75 (measured: 0.88 at -18.73pp) because it wins small and loses
+        # big. A negative lead cannot be "preferred" by the segment test,
+        # whatever fraction it wins. Its own refusal, not a side effect.
+        if frac is not None and lead <= 0:
+            reasons.append(
+                f"{frac:.0%} of segments prefer it, but its MEDIAN lead is "
+                f"{lead:+.2f}pp — it wins small and loses big, which is not "
+                f"a preference")
+    # A SAMPLED paired band can refuse, never admit: inside it means the lead
+    # is noise; outside it means only that 12 draws missed the noise. Handing
+    # it the admitting power the raw test had would be the same conflation
+    # of a seed with a population that the 2026-11-03 rewrite removed.
+    if not incumbent and sampled and paired_band is not None and not inside:
+        reasons.append(
+            "the paired lead band is a SEEDED SAMPLE (not every universe), so "
+            "it cannot admit a crown — only refuse one")
     fragile = bool(reasons)
     if fragile:
         reasons.append(f"challenger band [{chal_band[0]:+.2f}, "
@@ -325,6 +449,12 @@ def lead_is_coin_fragile(chal, live_row, n_folds=4):
     return {"fragile": fragile, "live_fragile": live_fragile, "lead": lead,
             "is_incumbent": incumbent, "live_band": live_band,
             "inside_live_band": inside, "lead_erased_by_one_coin": erased,
+            # Which test made the "inside" verdict: the same-universe paired band, or
+            # (rows from an older caller) the raw live-band form.
+            "inside_basis": ("paired_leave_one_coin_out"
+                             if paired_band is not None else "live_band"),
+            "paired_lead_band": paired_band,
+            "paired_untested": paired_band is None,
             "seg_lead_frac": frac, "reason": "; ".join(reasons),
             # Which band the live verdict rests on: exhausted population vs a
             # seeded sample. Flows into the DECAYED sentence and the findings
