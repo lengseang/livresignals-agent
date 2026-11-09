@@ -3,6 +3,61 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-09 · yesterday's fix was right, and it never ran
+
+- **Task:** T0.16 (new). The board's pickable chain is still blocked
+  (T0.10→E10, T0.12→E11, T0.14→E13, T0.15→E14), so this pass checked whether the
+  previous shift's shipped change actually reaches the owner. It did not.
+- **Need check:** repo reads, `reports/improvement-report.json`,
+  `data/unified-paper.json`, `data/signals-state.json`, `logs/self-improve.log`.
+  **No order path, no restart, no pm2, no cron, no config or state write.**
+- **🔴 Found.** The 2026-11-08 entry says §4c now reads
+  `loose (…; last 28d: n=17, -0.20 net) — STOPPED`. The live report reads
+  `loose (n=1261, +3.37 net, last fill 2026-10-11) — STOPPED`. No window at all.
+  `recent_edge_net` on the live book had exactly one key: `['validated']`.
+  Cause: `_recent_edge_net()` windowed `[now-28d, now]`. `loose` last filled
+  **2026-10-11T23:16Z**; the window opened **2026-10-12T13:03Z** — entirely
+  *after* the edge's last trade. **A window anchored at report time can never
+  contain a stopped edge.** The harder the stop, the more certainly it is empty.
+  The clause returned `""` and the line silently fell back to the pre-fix text.
+- **⚠️ The number was wrong too.** "n=17, −0.20 net" is not a 28-day window — it
+  is the `self_improve` disable-gate cohort from `logs/self-improve.log`
+  (`APPLIED: disabled edge 'loose' (n=17 wr=29% pnl=-0.29)`), which judges the
+  edge's whole record with `_should_disable` (n≥15, wr<42, net<0). Recomputed on
+  the collapsed book, the anchored 28d window is **n=1162, +4.55 net**. So the
+  journal's "it was LOSING when the engine stood it down" was supported by a
+  number that came from somewhere else. What *is* true: `loose` was **−2.34 net
+  over its last 7 days and −5.54 over its last 14** — it was collapsing. The 28d
+  window dilutes that with two good September weeks, so I did **not** re-assert
+  "the stop was right"; the code comment now says the clause does not prove it.
+- **Shipped** (branch `loop/T0.16-dead-edge-window-anchor`, `a56e67f`):
+  `_recent_edge_net(..., anchors=)`; `analyze()` anchors every dead/stopped edge
+  at its own `last_fill`; anchored lines read `28d to last fill:` (a now-ending
+  window is no longer claimed). Live output, verified by calling the real
+  `analyze()`:
+  `loose (n=1261, +3.54 net, last fill 2026-10-11; 28d to last fill: n=1162, +4.55 net) — STOPPED in signals-state.json`
+- **Evidence:** 11 tests, incl. **the end-to-end test the 2026-11-08 version
+  lacked** (real computation → rendered line, no hand-injected map).
+  Mutations **5/5 caught** after one retest: the first M5 (remove the `n==0`
+  suppression) survived, because the old tests only ever fed a non-empty map —
+  that gap is now a test. `tests/loop` **414 passed, 3 skipped**; whole suite
+  **967 passed, 5 skipped, 1 xfailed, 1 failed** — `test_research_loop_paired_lead`
+  is red on clean HEAD too (verified by stash).
+- **Two of my own mistakes, both caught by running the real thing:** the fixture
+  hard-coded dates around 2026-10-11, which `_edge_is_live` read as "live" once
+  the calendar moved past them (now relative); and my `_note()` helper passed an
+  empty `paper` dict, so `_suggest` short-circuited to `wait_for_data` and the
+  test would have passed for the wrong reason.
+- **Not done:** the `REAL_SYMS` / wallet / V2-key items are unchanged owner
+  calls (E13, E14). New task **T0.17**: `improvement_loop` (collapsed) and
+  `self_improve` (uncollapsed) disagree on `loose`'s lifetime net — +3.54 / n=1261
+  vs +6.25 / n=1684. The uncollapsed one writes the disable list.
+- **Learned:** a fix is not shipped until a test runs the **real** computation on
+  the **real** input. Both the broken clause and the borrowed number passed the
+  unit tests, because the tests supplied the very value under question. The
+  rule to carry: **if a test injects the value whose absence is the bug, the
+  test cannot see the bug.**
+
 ## 2026-11-08 · the report said "we switched off our only winner" — it didn't
 
 - **Task:** autonomous improvement pass on the improvement loop itself. Board
@@ -16,6 +71,14 @@ results), and what was learned or blocked.
   book's only net-POSITIVE cohort over its life, so the line reads "the engine
   shut off the only edge that makes money" — while `validated` (net −5.28 over
   1390, still firing daily) keeps running. That is the opposite of the truth.
+- **⚠️ CORRECTED 2026-11-09 (T0.16).** The numbers in the two bullets below are
+  wrong for the claim they make. "n=17, −0.20 over the last 28d" is the
+  `self_improve` disable-gate cohort, **not** a 28-day window; the real anchored
+  28d is n=1162, **+4.55**. And the shipped sentence never rendered — the
+  now-anchored window is structurally empty for a stopped edge, so the report
+  kept printing the pre-fix line. It was **−2.34 over its last 7d and −5.54 over
+  14d** that justified the stop. See the 2026-11-09 entry. The bullets are kept
+  as written so the error stays visible.
 - **⚠️ Checked before calling it a bug:** is the +3.37 real? Yes — and it is a
   lifetime mean. Measured the 28 days up to the 2026-10-11 stop: **n=17, −0.20
   net**. Weekly: wk2 +7.275, wk3 +3.253, then wk4 −4.292, wk5 −1.692, wk6 −0.556.
