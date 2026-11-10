@@ -104,6 +104,34 @@ TF_PNL_TOL = 0.05        # dollars at $5 notional
 # shared fill.
 KNOWN_TFS = ("5m", "15m", "30m")
 
+# SYMBOL CONCENTRATION (2026-11-09)
+# ---------------------------------
+# An edge's record can be ONE symbol's record. Measured on the live book:
+# 'loose' lifetime net +0.14 over 1,261 fills is NEAR at +8.48/292 with JUP
+# −0.90/200 and OP +1.27/193 — remove NEAR and the only net-positive edge in
+# the book is a loser. 'validated' (the only live edge) is NEAR +1.66/192 out
+# of −5.02/1,417, i.e. its top symbol is the only one holding it up.
+# So "two edges" can be one coin counted twice, and "redundant" (bolded as
+# *less* evidence) can be the copy that carries the money.
+#
+# A symbol is reported as the edge's LEAD when it fills at least CONC_MIN_N
+# times AND moved at least CONC_SHARE of the gross dollar movement the edge
+# has across all its symbols. Both floors matter: the share alone can be hit
+# by a 3-fill symbol on a thin edge, and the count alone says nothing about
+# whether the money is there. 0.50 is not a tuned optimum — it is the point
+# where removing one symbol removes more of the edge's net than it keeps.
+#
+# ⚠️ MEASURED LATER THE SAME NIGHT: at 0.50 **no edge on the live book has a
+# lead**, not even `loose` (NEAR is 28% of its gross movement, since 14 symbols
+# all move a similar small amount). A threshold that never fires is the
+# `len(set(x)) == 1` failure in a new costume. The figure is still published —
+# `concentration` (the whole per-symbol split) and `net_ex_top` (the
+# leave-one-symbol-out net) answer the owner's question at every threshold —
+# and the threshold is deliberately left where the reasoning put it rather than
+# re-picked after seeing the result. `net_ex_top` is the number to read.
+CONC_MIN_N = 15
+CONC_SHARE = 0.50
+
 
 def _open_dt(record: dict) -> datetime | None:
     """The record's OPEN time, parsed to an aware datetime, or None."""
@@ -279,6 +307,23 @@ def _entry_of(record: dict):
         return None
 
 
+def _plan_of(record: dict):
+    """(tp, sl) as a pair of floats, or None if either is missing/unparseable.
+
+    A trade plan that cannot be read is not compared — an absent TP/SL must
+    not read as a MATCH against another absent TP/SL (that would declare every
+    plan-less record a copy of every other), and must not read as a mismatch
+    either. None means "silent": the caller falls back to the time window.
+    """
+    try:
+        tp, sl = record.get("tp"), record.get("sl")
+        if tp is None or sl is None:
+            return None
+        return (float(tp), float(sl))
+    except (TypeError, ValueError):
+        return None
+
+
 def _shares_handoff(a: dict, b: dict) -> bool:
     """Could `b` have been produced by the SAME signal as `a`?
 
@@ -287,6 +332,22 @@ def _shares_handoff(a: dict, b: dict) -> bool:
     a shared signal, not by a label. Three siblings opened as separate edges
     on 2026-09-04 already fail this test — they differ in timeframe — so the
     live book's three real edges are NOT judged copies of one another.
+
+    SAME TRADE PLAN (2026-11-10, T0.18) — WHY
+    -----------------------------------------
+    The 72h window was the only time bound, so an entry price RE-USED a day or
+    two later by a different design counted as one handoff. Measured on the
+    live book: 27 groups hold 2+ records that agree on symbol+tf+entry+tp+sl
+    (28 extra rows after the multi-tf collapse) and 22 of them are CROSS-EDGE
+    — `breakout & momentum`, `rsi2 & supertrend`, `bollinger & supertrend`,
+    untagged & `loose`. Different rule sets do not pick a tick by accident.
+    Taught (the TP/SL pair), same entry tick, same timeframe: the entries were
+    announced by ONE decision, whichever label the writer stamped.
+
+    Consequence to keep in view: `rsi2`'s only redundancy link to `supertrend`
+    is exactly this shape (21 of its 27 fills). If a future change narrows
+    this clause, `rsi2` stops being a named copy — widen the check before
+    assuming the note is still true.
     """
     ta, tb = a.get("tf"), b.get("tf")
     if ta and tb and ta != tb:
@@ -296,10 +357,24 @@ def _shares_handoff(a: dict, b: dict) -> bool:
     ea, eb = _entry_of(a), _entry_of(b)
     if ea is None or eb is None or ea != eb:
         return False
-    da, db = _open_dt(a), _open_dt(b)
-    if da is None or db is None or abs((db - da).total_seconds()) > 72 * 3600:
+    pa, pb = _plan_of(a), _plan_of(b)
+    if pa is not None and pb is not None and pa != pb:
+        # 2026-11-10: a DIFFERENT taught plan on the same tick is not the same
+        # handoff, however close in time. (No live pair is in this shape today;
+        # this stops the clause from getting weaker as rows accumulate.)
         return False
-    return True
+    da, db = _open_dt(a), _open_dt(b)
+    if da is None or db is None:
+        return False
+    gap = abs((db - da).total_seconds())
+    if gap > 72 * 3600:
+        return False
+    if pa is not None and pa == pb:
+        # Same tick AND the same taught plan: one decision, any distance
+        # inside the window. Measured: 22 of 27 same-plan groups are
+        # CROSS-EDGE and several are a day or more apart.
+        return True
+    return gap <= 5.0
 
 
 def _net_stats(trades: list) -> dict:
@@ -362,6 +437,65 @@ def edge_liveness(records: list[dict]) -> dict:
         last_fill[e] = max((str(t.get("ts_utc", "")) for t in ts), default="")
 
     stats = {e: _net_stats(ts) for e, ts in by_edge.items()}
+
+    # WHERE the edge's money is (2026-11-09). WHY: `redundant_edges_text` tells
+    # the owner "do not count the copy as independent confirmation", and on the
+    # live book that is true in count and backwards in sign. `loose`'s whole
+    # net is NEAR (n=292, +8.48 of +0.14 lifetime; JUP −0.90, OP +1.27), and
+    # 'momentum' ~ 'loose' is a NEAR handoff. An edge (or a copy) whose record
+    # is one symbol's record is not a second observation of the rule — it is the
+    # same coin twice. Strictly REPORTED here: no reader's sign, list, promote
+    # or disable decision is changed by these fields, and `net_ex_top` equals
+    # `net` exactly whenever no single symbol passes both floors.
+    #   concentration: [{symbol, n, net}, ...] desc by |net|, one per symbol
+    #   n_symbols:     how many distinct symbols the edge has filled on
+    #   lead_symbol / lead_n / lead_net / net_ex_top: None/None/None/net when
+    #                  no single symbol is the edge.
+    for e, ts in by_edge.items():
+        # One net reader for the whole section. `_net_stats` above imports
+        # `paper_net` lazily and degrades to gross; the per-symbol split must
+        # use the SAME reader or the parts will not add up to `net`. NET is
+        # also the unit every disable/promote verdict on this stack speaks.
+        try:
+            from paper_net import net_of as _net_of
+        except Exception:  # noqa: BLE001 — same degradation as _net_stats
+            _net_of = None
+        _net = (lambda t: _net_of(t)[0]) if _net_of else (lambda t: t.get("pnl") or 0)
+        per: dict[str, list] = {}
+        for t in ts:
+            cell = per.setdefault(str(t.get("symbol")), [0, 0.0])
+            cell[0] += 1
+            cell[1] += float(_net(t))
+        conc = sorted(per.items(), key=lambda kv: (-abs(kv[1][1]), -kv[1][0]))
+        top = [{"symbol": s, "n": c[0], "net": round(c[1], 4)} for s, c in conc]
+        stats[e]["concentration"] = top
+        stats[e]["n_symbols"] = len(per)
+        # GROSS beside NET: both units are carried so a reader comparing this
+        # to another sentence does not have to re-derive either figure (the
+        # owner-facing card in `improvement_loop` quotes net dollars from a
+        # different reader with a different cost basis). The `net` figures
+        # drive the lead/floor maths below, so net is the primary key here.
+        stats[e]["net_by_symbol"] = {c["symbol"]: c["net"] for c in top}
+        stats[e]["gross_by_symbol"] = {s: round(c[1], 4)
+                                       for s, c in sorted(per.items())}
+        stats[e]["n_by_symbol"] = {c["symbol"]: c["n"] for c in top}
+        # A symbol counts as the edge when it clears BOTH floors (see
+        # CONC_MIN_N / CONC_SHARE): enough fills to be checkable, and more of
+        # the edge's movement than every other symbol together.
+        gross_abs = sum(abs(c[1]) for c in per.values()) or 0.0
+        lead = top[0] if top else None
+        if (lead and lead["n"] >= CONC_MIN_N and gross_abs > 0
+                and abs(lead["net"]) / gross_abs >= CONC_SHARE):
+            stats[e]["lead_symbol"] = lead["symbol"]
+            stats[e]["lead_n"] = lead["n"]
+            stats[e]["lead_net"] = lead["net"]
+            stats[e]["net_ex_top"] = round(stats[e]["net"] - lead["net"], 4)
+        else:
+            stats[e]["lead_symbol"] = None
+            stats[e]["lead_n"] = None
+            stats[e]["lead_net"] = None
+            stats[e]["net_ex_top"] = stats[e]["net"]
+
     redundant: dict[str, str] = {}
     names = sorted(by_edge)
     for e in names:
@@ -379,6 +513,20 @@ def edge_liveness(records: list[dict]) -> dict:
             if not adds:
                 redundant[e] = other
                 break
+
+    # Is the copy actually the SMALLER sample, or does it out-trade its parent?
+    # `redundant_edges_text` bolds "no better net/WR" as if a copy is the weak
+    # one; on the live book `momentum` (n=27) is a copy of `loose` (n=1,261),
+    # i.e. the parent is 46x the copy — the same handoff is not a 27-fill
+    # experiment riding a 1,261-fill incumbent, it is the opposite. Reported
+    # only, so the note can say which way the sample runs.
+    for copy, parent in redundant.items():
+        sc, sp = stats.get(copy), stats.get(parent)
+        if sc and sp:
+            stats[copy]["copy_of"] = parent
+            stats[copy]["parent_n"] = sp["n"]
+            stats[copy]["copy_sample_share"] = (
+                round(sc["n"] / sp["n"], 3) if sp["n"] else None)
 
     return {"last_fill": last_fill, "redundant": redundant, "stats": stats}
 
