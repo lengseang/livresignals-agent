@@ -40,6 +40,65 @@ one line to the stale branch that prints `preflight.json`'s failing check, so
 the alarm says *why* next time.
 **Answer:**
 
+## E15 · The ensemble paper lane has been dead 6.4 days by construction — re-size the target, or retire it? (T0.19, 2026-11-10)
+
+The strategy-book ensemble lane (`ensemble_paper.py`, every 5 min, paper only,
+no money at risk) has **not opened a position since 2026-11-05T05:00:53Z**. It
+is not broken and it is not a quiet market: it refuses every candidate on
+geometry, correctly, forever.
+
+```text
+book         205 closed, 0 open, net -8.3386 after 0.28% RT
+             18.5% WR, 38W/167L, exits: TP 0 / SL 57 / TIME 148
+lane         last open 2026-11-05T05:00:53Z  -> 6.4 days / ~1,540 runs
+refusals     ens|momentum|5m   target +3.0% vs CEILING 0.5%
+             ens|momentum|30m  target +3.0% vs CEILING 1.5%
+             (ceiling = the widest target reachable >=5% of the time)
+P(reach)     BTC 30m +3% in 12 bars = 1.71%  (reproduced: 4,868 bars)
+             BTC 5m  +3% in 48 bars = 0.4-1.1% (window-dependent)
+             floor is 5% — every window and both TFs say no
+```
+
+⚠️ The source comment's `5m = 1.4%` did **not** reproduce: re-measured today with
+the module's own `_reach_freqs`, 5m gives 1.05% (3k bars), 0.40% (8k), 0.94%
+(20k). The 30m 1.71% does reproduce exactly. The verdict is unaffected — a
+4-12× margin below the floor — but the 5m number in the code comment is stated
+too precisely for a quantity that swings 2.6× with window length.
+
+Every ensemble sizes its target as `2% * rr`; `rr` is a strategy-book parameter
+and **no ensemble carries it as a knob**, so a refused geometry is refused on
+every future run. The gate (`MIN_P_MARGIN = 5%`) is doing exactly its job — it
+is the *targets* that were never reachable.
+
+This shift did **not** touch the targets, the floor, or `rr`. It only made the
+death visible (see TASK T0.19) and fixed the card, whose first version claimed
+the last open was *today*. The card now reads:
+
+```text
+NO OPEN IN 59 RUNS (last open 2026-11-05T04:50:00Z (5.6d))
+  cause: REFUSED on geometry (ens|momentum|5m) — unless the writer changed;
+         the target a reachable hold allows is an owner call
+  the 205 closed rows are the LAST record this book made
+```
+
+**Decision needed — three options, in my order of preference:**
+
+1. **Retire the lane (my recommendation).** TP 0 in 205 closes at 18.5% WR says
+   the geometry never worked; the 5m/30m momentum families are the ones the
+   strategy book's own gate now rejects. Stopping the cron is honest and saves
+   a log that grows 5,181 refusal lines. Reversible.
+2. **Re-size to a reachable target** (e.g. cap target at the measured ceiling,
+   ~0.5–1.7%). ⚠️ This is **a new strategy, not a repair** — the forward record
+   would restart from zero, and a target chosen from the same measurement that
+   refuses it is an in-sample fit. If we do this, it needs a pre-declared bar
+   (e.g. ≥100 closes, TP > 0 at all) written down *before* the first trade.
+3. **Leave it refusing** and read it as a closed experiment. Costs nothing but
+   the log noise (which T0.19 now suppresses to one line per change).
+
+There is no option where it starts opening at +3% — the horizon cannot reach it.
+
+**Answer:**
+
 ## E14 · Real money can only open 15 of the 53 coins the trend strategy studies (T0.15, 2026-11-07)
 `trend_follower.py` runs `TREND_REAL=1` every 4h. `SYMS` was expanded to 53
 coins on 2026-09-17; `REAL_SYMS` was not touched and still holds 15. The entry

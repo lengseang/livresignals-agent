@@ -73,6 +73,35 @@ FALLBACK_PCT = 3.0          # ceiling side of a refused target — the narrowest
                             # geometry any live ensemble sizes; a refusal means
                             # "narrower than this", never "unreachable, give up"
 
+# A REFUSAL IS NOT A STATE, IT IS AN ATTEMPT (2026-11-10, T0.19)
+# ---------------------------------------------------------------
+# The gate below refuses a target the hold window cannot reach. Correct — but
+# the book STOPPED there. Every ensemble sizes its target as 2% * rr, and no
+# ensemble in the strategy book carries `rr` as a knob, so a refused geometry
+# is refused forever: the door is shut and no run can reopen it.
+#
+# Measured from logs/ensemble-paper.log (10,766 runs, 2026-10-04 -> 11-10):
+#   * 5,181 GEOMETRY REFUSED lines since 2026-10-22T01:05 (momentum|5m;
+#     momentum|30m from 15:15);
+#   * last open 2026-11-05T05:00:53, then 1,538 consecutive runs = 6.4 days
+#     with opened=0 (1,336 of those runs refused);
+#   * whole book: 205 closed, -8.34 net after 0.28%, 18.5% WR, TP 0 / SL 57 /
+#     TIME 148;
+#   * re-measured today on BTC in trading.db: 5m P(reach +3%/48 bars) 0.4-1.05%
+#     (window-dependent), 30m P(reach +3%/12 bars) 1.71% — both far under the
+#     5% floor, both windows (own and one-year) say no. The earlier "5m 1.4%"
+#     did not reproduce; the verdict is unchanged but the figure swings ~2.6x
+#     with window length, so quote a range, not a point.
+# The wrapper prints nothing when a run opens and closes nothing, so a dead
+# lane and a quiet one look identical. The card therefore states the streak,
+# the last open, and that the cause is geometry *unless the writer changed*.
+#
+# This file changes REPORTING ONLY. It does not lower MIN_P_MARGIN, does not
+# pick a narrower target, and does not reopen the lane: both are owner calls
+# (E15). `rr` is a strategy-book parameter, and re-sizing to a reachable target
+# is a different strategy (docs/proposals/ensemble-geometry-measured-2026-10-17).
+DEAD_LANE_RUNS = 24         # ~2 hours of "opened 0" is a state, not a quiet spell
+
 TF_MS = {"5m": 300_000, "15m": 900_000, "30m": 1_800_000,
          "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
 
@@ -289,6 +318,110 @@ def _rule_fires(rows, lb: int, family: str) -> bool:
     return False
 
 
+def _fresh_refusals(refused: list, since: dict | None) -> list:
+    """The refusals in THIS run that the previous run did not already print.
+
+    The runner's output is appended to a log that is never rotated. Idle runs
+    are silent by design (`run_ensemble_paper.sh.orig`: "Reports ONLY when
+    something opened or closed"), so the refusal block was the only thing a
+    dead lane ever printed — 5,181 times, one per run, from the same three
+    lines. Repeating an unchanged verdict every 5 minutes is how a real alarm
+    stops being read. A refusal that CHANGES (target, ceiling, scope, or a new
+    ensemble) still prints at once, and the dead-lane block below carries the
+    state, so dropping the repeat does not hide anything.
+    """
+    if not since:
+        return list(refused or [])
+    out = []
+    for eid, tgt, ceil, scope in refused or []:
+        key = str(eid)
+        if str(since.get(key)) == f"{tgt}|{ceil}|{scope}":
+            continue
+        out.append((eid, tgt, ceil, scope))
+    return out
+
+
+def _stamp_refusals(st: dict, refused: list) -> None:
+    """Remember what this run refused, so the next run can tell repeat from news."""
+    st["meta"]["refusals"] = {str(eid): f"{tgt}|{ceil}|{scope}"
+                              for eid, tgt, ceil, scope in refused or []}
+
+
+def _lane_silence(st: dict, ens_doc: dict, now=None, fired=None,
+                  refused_ids=None) -> dict:
+    """How long the book has gone without opening, and WHY if the reason is known.
+
+    A quiet lane and a dead lane were indistinguishable: `run_ensemble_paper.sh`
+    prints nothing when a run opens and closes nothing, and a runner that
+    REFUSES every candidate every run opens and closes nothing. Measured
+    2026-11-10: 1,538 runs / 6.4 days with opened=0, 1,336 of them refusing a
+    target the hold window cannot reach — reported nowhere.
+
+    Attribution is by ELIMINATION, and each branch says which case it is:
+      * `rr` differs from what this book was built on -> the geometry moved,
+        so a dead lane is the writer's change, not the refusal;
+      * an ensemble that FIRED this run was refused -> geometry is the cause
+        ("unless the writer changed", because a silent rule change looks the
+        same from here). `fired` comes from the scan; it is NOT the refusal
+        list, which holds stale entries from runs whose rule never fired;
+      * nothing fired -> quiet, not dead, and no reason is invented.
+    """
+    now = now or datetime.now(timezone.utc)
+    meta = st.get("meta") or {}
+    streak = int(meta.get("silent_runs") or 0)
+    if streak < DEAD_LANE_RUNS:
+        return {"dead": False, "runs": streak}
+    try:
+        last_open = datetime.fromisoformat(str(meta.get("last_open_utc")))
+        if last_open.tzinfo is None:
+            last_open = last_open.replace(tzinfo=timezone.utc)
+        days = (now - last_open).total_seconds() / 86400.0
+        last_open_s = f"{last_open.isoformat()[:19]}Z ({days:.1f}d)"
+    except (TypeError, ValueError):
+        last_open_s = "never recorded"
+    rrs_now = {str(e.get("id")): _member_rr(e) for e in (ens_doc.get("ensembles") or [])}
+    rrs_then = meta.get("rr_by_ensemble") or {}
+    changed = sorted(k for k, v in rrs_now.items() if k in rrs_then and v != rrs_then[k])
+    if changed:
+        cause = (f"GEOMETRY CHANGED since the last open ({', '.join(changed)}): the "
+                 f"lane is dead for a different reason — re-check before acting")
+    elif refused_ids:
+        cause = (f"REFUSED on geometry ({', '.join(sorted(refused_ids))}) — unless the "
+                 f"writer changed; the target a reachable hold allows is an owner call")
+    else:
+        cause = "no candidate has fired; the lane is quiet, not proven dead"
+    return {"dead": True, "runs": streak, "last_open": last_open_s, "cause": cause}
+
+
+def _last_book_time(closed: list) -> str | None:
+    """The newest timestamp the book actually carries, as an ISO string.
+
+    Used ONLY to seed `last_open_utc` on a book that predates the field. A close
+    is always at or after its open, so the newest close is a CONSERVATIVE
+    (late) proxy for the newest open — it can understate the silence, never
+    overstate it. Prefers `open_ms` (epoch-ms, the field every record has) and
+    falls back to the ISO `ts_utc`. Returns None for an empty book rather than
+    a clock reading: "no evidence yet" is a different state from "opened now".
+    """
+    best = None
+    for t in closed or []:
+        v = t.get("open_ms")
+        if isinstance(v, (int, float)) and v > 1e11:
+            best = v if best is None else max(best, v)
+    if best is not None:
+        return datetime.fromtimestamp(best / 1000.0, timezone.utc).isoformat()
+    ts = [str(t.get("ts_utc")) for t in closed or [] if t.get("ts_utc")]
+    return max(ts) if ts else None
+
+
+def _member_rr(ens: dict) -> float | None:
+    """The member's `rr` as the runner reads it (last field of member id 0)."""
+    try:
+        return float((ens.get("member_ids") or [""])[0].split("|")[5])
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
 def main() -> int:
     ens_doc = _load(ENSEMBLES, {}) or {}
     ensembles = ens_doc.get("ensembles") or []
@@ -301,6 +434,10 @@ def main() -> int:
     st.setdefault("closed", [])
     st.setdefault("meta", {"created_utc": datetime.now(timezone.utc).isoformat(),
                            "cost_per_round_trip": COST, "size_usdt": SIZE})
+    # HOW LONG HAS THE BOOK BEEN SILENT? (2026-11-10, T0.19) Read BEFORE this
+    # run mutates anything, so `st["meta"]` still describes the run before it.
+    _meta_before = json.loads(json.dumps(st["meta"]))
+    _prev_open = len(st["open"])
 
     if not DB.exists():
         print("no candle DB")
@@ -312,6 +449,8 @@ def main() -> int:
     unaged = []          # open records with no tf_ms — cannot be timed out
     short = []           # open records whose history stops before their horizon ends
     refused = []         # (ensemble, target%, ceiling%, scope) geometry rejected at entry
+    fired = set()        # ensembles whose rule FIRED this run
+    refused_ids = set()  # ensembles that fired AND were refused on geometry
 
     for ens in ensembles:
         fam = ens["family"]
@@ -444,6 +583,7 @@ def main() -> int:
         rows = _candles(cur, symbol, tf, lb + 5)
         if not _rule_fires(rows, lb, fam):
             continue
+        fired.add(str(ens.get("id")))
         last = rows[-1]
         entry = last[4]
         # geometry follows the member's own rr, at a 2% stop base, matching the
@@ -484,6 +624,7 @@ def main() -> int:
                 scope = f"admitted on year-window (recent p={longv.get('recent_p')}% < {MIN_P_MARGIN*100:.0f}%)"
         if unreachable:
             refused.append((ens["id"], target_pct, ceiling, scope))
+            refused_ids.add(str(ens.get("id")))
             continue
         note = ceiling_note(margin_rows, hold, target_pct)
         tp = round(entry * (1 + stop_pct * rr), 6)
@@ -506,21 +647,58 @@ def main() -> int:
 
     con.close()
 
-    st["meta"]["last_run_utc"] = datetime.now(timezone.utc).isoformat()
+    # SILENCE ACCOUNTING (2026-11-10, T0.19) — written BEFORE the print block,
+    # and from the file's own history: a state file that never records "no open
+    # in 6 days" cannot be asked the question afterwards. `rr_by_ensemble` is
+    # stamped only when the book opens, so "the writer changed the geometry" is
+    # distinguishable from "the same geometry is still refused".
+    #
+    # THE STREAK COUNTS RUNS THE RUNNER ACTUALLY RAN, not wall-clock slots: a
+    # `last_run_utc` stamped by a killed process would make a dead runner look
+    # alive, and this file has already been burned by that (the v2 watchdog's
+    # `runner_silent` died with the runner it watched, E13). The caller sees
+    # `last_run_utc` because it is written HERE, by a run that reached the end.
+    _now = datetime.now(timezone.utc)
+    st["meta"]["last_run_utc"] = _now.isoformat()
     st["meta"]["opens_total"] = st["meta"].get("opens_total", 0) + opened
     st["meta"]["closes_total"] = st["meta"].get("closes_total", 0) + closed
-    _save(st)
+    st["meta"]["silent_runs"] = 0 if opened else int(_meta_before.get("silent_runs") or 0) + 1
+    # A BOOK WITH NO `last_open_utc` HAS NOT "JUST OPENED" — it has never been
+    # asked. Seeding it from the clock made the dead-lane card print
+    # "NO OPEN IN 24 RUNS (last open <today> (0.1d))" while opens_total was 205
+    # and the newest closed row was 2026-11-05: the streak said 24, the age said
+    # 0.1d, and the two describe different events. The seed comes from the BOOK
+    # (its newest close was necessarily at or after its newest open), and a book
+    # with neither a prior stamp nor a close gets no stamp at all — `_lane_silence`
+    # then says "never recorded" instead of inventing a time. (2026-11-10, T0.19)
+    if opened:
+        st["meta"]["last_open_utc"] = _now.isoformat()
+        st["meta"]["rr_by_ensemble"] = {str(e.get("id")): _member_rr(e) for e in ensembles}
+    elif not st["meta"].get("last_open_utc"):
+        seed = _last_book_time(st["closed"])
+        if seed:
+            st["meta"]["last_open_utc"] = seed
+            st["meta"]["rr_by_ensemble"] = {str(e.get("id")): _member_rr(e) for e in ensembles}
+    # REPEATS DROPPED (2026-11-10, T0.19): an unchanged refusal is state, not
+    # news. It is printed when it first appears or when it CHANGES; the dead-lane
+    # block below carries it on every run while the lane stays shut. Otherwise a
+    # reader gets the same three lines 288 times a day and stops seeing them.
+    fresh = _fresh_refusals(refused, _meta_before.get("refusals"))
+    _stamp_refusals(st, refused)
+    _lane = _lane_silence(st, ens_doc, now=_now, fired=fired,
+                          refused_ids=refused_ids)
+    _save(st)          # ONE atomic write, after every field is final
 
     n_open = len(st["open"])
     n_closed = len(st["closed"])
-    print(f"ensemble paper book  {datetime.now(timezone.utc).isoformat()[:19]}")
+    print(f"ensemble paper book  {_now.isoformat()[:19]}")
     print(f"  opened this run : {opened}")
     print(f"  closed this run : {closed}")
     print(f"  open now        : {n_open}")
     print(f"  closed total    : {n_closed}")
-    if refused:
+    if fresh:
         by = {}
-        for eid, tgt, ceil, scope in refused:
+        for eid, tgt, ceil, scope in fresh:
             by.setdefault(eid, []).append((tgt, ceil, scope))
         for eid, v in by.items():
             tgt, ceil, scope = v[0]
@@ -531,6 +709,13 @@ def main() -> int:
             print(f"  GEOMETRY REFUSED: {eid} target +{tgt}% — P(reach) below "
                   f"{MIN_P_MARGIN:.0%} over its {scope} ({claim}); "
                   f"{len(v)} attempt(s), no position opened")
+    if _lane.get("dead"):
+        print(f"  NO OPEN IN {_lane['runs']} RUNS (last open {_lane.get('last_open')})")
+        print(f"    cause: {_lane['cause']}")
+        # A paper book that stopped recording also stopped being evidence. Say
+        # it here, because "205 closed" is the number the digest quotes.
+        print(f"    the {n_closed} closed rows are the LAST record this book made; "
+              f"nothing since has been measured")
     if unaged:
         print(f"  UN-AGEABLE OPEN : {sorted(set(unaged))} carry no tf_ms; they "
               f"cannot time out and are left untouched")

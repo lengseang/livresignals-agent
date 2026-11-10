@@ -3,6 +3,75 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-10 · the card that said "last open: today" about a lane dead since the 5th
+
+- **Task:** T0.19 (new). Arrival board's loudest item was an **uncommitted, already-
+  executing** `scripts/ensemble_paper.py` (+159 lines) beside an untracked
+  `tests/test_ensemble_dead_lane_streak.py` — the "yesterday's unfinished work"
+  signal. Board's pickable chain still blocked (T0.10→E10, T0.12→E11,
+  T0.14→E13, T0.15→E14); T0.17 is open but is analysis-only.
+- **Need check:** repo reads, `data/ensemble-paper.json`, `logs/ensemble-paper.log`,
+  `hermes cron list`. Ran the paper script **once** by hand (paper only, no order
+  path, no pm2, no crontab, no config or live-state write).
+- **🔴 Found — the work was 90% right and its first live run printed a lie.** The
+  dead-lane block landed and immediately read:
+
+  ```text
+  NO OPEN IN 24 RUNS (last open 2026-11-10T13:15:47Z (0.1d))
+  ```
+
+  while `opens_total` was **205**, `open` was **0**, and the newest closed row was
+  `close_ts_utc 2026-11-05T16:15`. The streak said 24 runs; the age said 0.1 days.
+  **Two numbers describing different events, on one line.** Cause:
+
+  ```python
+  if opened or not st["meta"].get("last_open_utc"):   # true on the deploy run
+      st["meta"]["last_open_utc"] = _now.isoformat()  # stamps the CLOCK
+  ```
+
+  The field did not exist before T0.19, so the **first run after deploy** took the
+  `not ...` branch and recorded "opened now" as the moment the book was first asked.
+  The lane had in fact been dead **6.4 days** (1,538 runs, 1,336 of them refusing).
+- **Shipped (T0.19 completion, uncommitted in tree):** seed `last_open_utc` from the
+  BOOK — newest `open_ms` over `closed` — and stamp **nothing** when there is no
+  evidence, so `_lane_silence` prints `never recorded` instead of inventing a time.
+  New `_last_book_time()` helper (prefers epoch-ms, ignores garbage, `None` on empty).
+  Also cleared the bogus stamp from the live state file so the next run reseeds.
+  Live card now:
+
+  ```text
+  NO OPEN IN 59 RUNS (last open 2026-11-05T04:50:00Z (5.6d))
+    cause: REFUSED on geometry (ens|momentum|5m) — unless the writer changed
+    the 205 closed rows are the LAST record this book made; nothing since measured
+  ```
+
+- **Evidence:** `tests/test_ensemble_dead_lane_streak.py` **13 passed** (10 inherited +
+  3 new: seed-from-book, empty-book-no-invention, helper-units). **Mutation** restoring
+  the original line → exactly the 2 new seed tests go red, 11 stay green, file restored
+  byte-identical (`cmp`). Whole suite: **7 failed / 997 passed** with the change vs
+  **7 failed / 984 passed** on pure clean HEAD (HEAD script + my tests removed) —
+  **identical failure set, +13 passing, no regression.** The 7 are pre-existing and
+  **order-dependent**: each fails or passes depending on collection order, on clean HEAD
+  too (`test_edge_symbol_concentration` ×4, `test_research_loop_paired_lead` ×2,
+  `test_research_stop_basis` ×1). ⚠️ `test_research_loop_paired_lead` is a *different*
+  red from the one the 2026-11-09 entry names (`test_the_traced_book_is_the_book_the_loop_prints`).
+- **Not done (owner-gated):** the targets, `MIN_P_MARGIN` and `rr` are untouched. The
+  lane is dead **by construction** — every ensemble targets `2% * rr = 3%` over a
+  horizon where BTC reaches it 1.4% (5m/48) and 1.71% (30m/12) of the time. Re-sizing
+  is a new strategy, not a repair → **E15**.
+- **Learned:** *the run that introduces a derived field is the one run that cannot
+  derive it.* A "last happened" timestamp seeded from the clock will always disagree
+  with the streak counter that shares its state file — and it disagrees on exactly the
+  run that goes on to print both. **Seed a backfilled field from the data, never from
+  `now()`; and when the data has nothing to say, leave it absent and make the reader
+  say `never recorded`.** Second lesson, on the control: my first "clean HEAD" check
+  used `git stash push -- <file>`, which silently no-ops on an **untracked** test file —
+  and a `git worktree` control lacks the gitignored `data/` the suite needs. The
+  control that worked was copying HEAD's file in place, removing my untracked test,
+  running, then restoring and `cmp`-ing. **A control you have not proved is a control
+  you have not run.**
+
+
 ## 2026-11-09 · yesterday's fix was right, and it never ran
 
 - **Task:** T0.16 (new). The board's pickable chain is still blocked
