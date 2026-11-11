@@ -217,6 +217,15 @@ def analyze() -> dict:
         return v, costed
 
     def _stats(trades):
+        """Population stats. `trades` may be a list of trades or — since
+        2026-11-11 — a list of per-edge rows carrying the same keys.
+
+        THE 55% LINE (2026-11-11). This dict also decides the p1 edge-drift
+        verdict, and the rows this loop knows how to read carry `edge` but no
+        timestamps. Everything below is computed from (n, win count, net
+        dollars), so an edge row reproduces the population exactly — the tests
+        pin that the two readings are identical to the rounding digit.
+        """
         if not trades:
             return None
         # NET is the number the exchange will actually pay. Since 2026-10-11 the
@@ -224,6 +233,47 @@ def analyze() -> dict:
         # charge, so a gross headline flips this book from +$19 to a LOSS. Every
         # promote/demote verdict below must be read on NET — gross is carried
         # alongside purely so the haircut is visible, never as the verdict basis.
+        #
+        # Two row shapes, one arithmetic (2026-11-11):
+        #   * a TRADE: `pnl`, costed by paper_net (falls back to gross, counted
+        #     in `uncosted`);
+        #   * an EDGE ROW (n>=1 fills already aggregated): `net_pnl`, `n`, and
+        #     the win count implied by `win_rate` (net wins, same basis).
+        # A row that is neither is REFUSED rather than guessed at: a row with
+        # no `pnl` and no `net_pnl`/`n` would otherwise be read as a 1.0-round
+        # net win of $0 — a fabricated win rate out of a missing field.
+        rowwise = bool(trades) and all("net_pnl" in r for r in trades) and \
+            not any("pnl" in r for r in trades)
+        if rowwise:
+            per_row = []
+            for r in trades:
+                cnt = r.get("n", 0) or 0
+                net = (r.get("net_pnl", 0) or 0)
+                # Net wins from the net win rate, rounded to the nearest fill:
+                # analyze() rounds win_rate to one decimal, so this is exact
+                # for every real row and at worst +/-1 fill on a hand-made one.
+                wins = int(round((r.get("win_rate", 0) or 0) / 100.0 * cnt))
+                gw = r.get("gross_win", 0) or 0
+                gl = r.get("gross_loss", 0) or 0
+                per_row.append((cnt, wins, net, gw, gl, r.get("gross_pnl", 0) or 0))
+            n = sum(p[0] for p in per_row)
+            if n <= 0:
+                return None
+            netwins = sum(p[1] for p in per_row)
+            net_total = sum(p[2] for p in per_row)
+            ngp = sum(p[3] for p in per_row)
+            ngl = abs(sum(p[4] for p in per_row))
+            total_pnl = sum(p[5] for p in per_row)
+            pf = ngp / ngl if ngl > 0 else (float("inf") if ngp > 0 else 0.0)
+            return {"n": n, "win_rate": round(netwins / n * 100, 1),
+                    "win_rate_gross": None,
+                    "ev": round(net_total / n, 4),
+                    "ev_gross": round(total_pnl / n, 4),
+                    "profit_factor": round(pf, 2),
+                    "total_pnl": round(net_total, 4),
+                    "gross_pnl": round(total_pnl, 4),
+                    "uncosted": 0,
+                    "basis": "derived"}
         pnls = [t.get("pnl", 0) or 0 for t in trades]
         costed = [_pnl_of(t) for t in trades]
         nets = [v for v, _ in costed]
@@ -246,6 +296,9 @@ def analyze() -> dict:
                 "uncosted": uncosted}
 
     paper_stats = _stats(paper)
+    # LIVE-ONLY stats for the population-level verdicts (2026-11-11). Appended
+    # AFTER `paper` is fully built below (rule 0 of _suggest needs edge_rows);
+    # this name is the whole book and stays exactly as it was.
     live_stats = _stats(real)
 
     # Per-regime breakdown (paper). P&L is NET so a regime that only looks good
@@ -342,6 +395,36 @@ def analyze() -> dict:
     # book on the market it is trading in, not on its lifetime mean. Computed on
     # the collapsed `paper` list — the same population every other figure uses.
     edge_meta["recent_pf"] = _recent_live_pf(paper, edge_meta)
+    # THE POPULATION THE p1 WIN-RATE LINE ASKS (2026-11-11). Rule 2 ("Paper win
+    # rate below 55%") read `paper` — the WHOLE book — while every rule beside
+    # it had already been taught to ask only the edges that can still trade
+    # (#15 rule 3, #14 rule 4b, #16 the aggregate's window). Same defect, one
+    # rule later: on 2026-11-11 the whole book read 42.9% across n=2999, of
+    # which 1536 fills belonged to seven STOPPED edges and `loose`, idle since
+    # 2026-10-11. The live edge alone is `validated` n=1482 at 45.1%. A verdict
+    # computed over corpses cannot be acted on — nobody can tighten the RSI of
+    # an opener the engine switched off — so the line is now computed over the
+    # split's LIVE rows, from numbers analyze() already computed.
+    #
+    # Two facts the fix must STATE, not hide: `loose` is idle-but-not-disabled,
+    # so the split counts it live, and the last 28d bell is set by the last 28
+    # days (any p1 bar does that if the period was bad); and when the lifetime
+    # bar disagrees with the p2 windowed-PF verdict below, the line says so
+    # rather than letting two priorities contradict each other unremarked.
+    _split_for_wr = _split_live_pf(edge_rows, edge_meta)
+    if _split_for_wr["live"]["n"] > 0 and _split_for_wr["has_liveness"]:
+        _live_names = set(_split_for_wr["live"]["edges"])
+        edge_meta["win_rate_population"] = _stats(
+            [r for r in edge_rows if r["edge"] in _live_names])
+        edge_meta["win_rate_population"]["name"] = "live"
+        edge_meta["win_rate_population"]["edges"] = _split_for_wr["live"]["edges"]
+    else:
+        # No liveness map (an older caller / a fixture without one): the split
+        # cannot say who is live, so the whole book is the only honest answer —
+        # exactly what rule 2 read before this change.
+        if paper_stats is not None:
+            edge_meta["win_rate_population"] = dict(paper_stats, name="whole",
+                                                    edges=None)
     # PER-EDGE RECENT NET (2026-11-08). `recent_pf` answers the aggregate
     # question for the LIVE cohort. It cannot annotate a STOPPED edge, and on
     # 2026-11-08 that gap produced the most misleading line in the report:
@@ -757,6 +840,76 @@ def _recent_edge_net(trades: list, days: int = PF_WINDOW_DAYS, now=None,
     return out
 
 
+def stats_of(rows: list) -> dict | None:
+    """Population stats for a set of `analyze()` rows — TRADES or EDGE ROWS.
+
+    A module-level door onto the arithmetic `analyze()` uses for `paper` /
+    `live` and (since 2026-11-11) for the p1 win-rate population, so a reader
+    that wants the same numbers for a sub-population cannot fork the formula.
+    Two row shapes, documented in `analyze._stats`: a trade (`pnl`, costed) or
+    an edge row (`net_pnl`/`n`/`win_rate`, already net). A row that is neither
+    is refused, never read as a zero-dollar win.
+
+    Kept as a thin twin rather than a refactor of `analyze`: `_stats` closes
+    over `_pnl_of` (which carries the un-costed fallback count), and moving it
+    wholesale is a change to every number in the report. The tests pin that
+    the twin and the in-loop reader agree to the rounding digit.
+    """
+    if not rows:
+        return None
+    has_pnl = any("pnl" in r for r in rows)
+    has_rows = any("net_pnl" in r for r in rows)
+    if not has_pnl and not has_rows:
+        # Neither a trade nor an edge row. Read as a trade it would be a $0 net
+        # win per record — a fabricated win rate out of a missing field.
+        raise ValueError(
+            "rows carry neither `pnl` nor `net_pnl`: "
+            f"{sorted(rows[0])!r}")
+    rowwise = has_rows and not has_pnl
+    if rowwise:
+        n = 0
+        wins = 0
+        net_total = gw = gl = gross = 0.0
+        for r in rows:
+            if "n" not in r or "net_pnl" not in r:
+                raise ValueError(
+                    "edge row carries neither `pnl` nor `n`/`net_pnl`: "
+                    f"{sorted(r)!r}")
+            cnt = r.get("n", 0) or 0
+            n += cnt
+            wins += int(round((r.get("win_rate", 0) or 0) / 100.0 * cnt))
+            net_total += r.get("net_pnl", 0) or 0
+            gw += r.get("gross_win", 0) or 0
+            gl += abs(r.get("gross_loss", 0) or 0)
+            gross += r.get("gross_pnl", 0) or 0
+        if n <= 0:
+            return None
+        pf = gw / gl if gl > 0 else (float("inf") if gw > 0 else 0.0)
+        return {"n": n, "win_rate": round(wins / n * 100, 1),
+                "win_rate_gross": None, "ev": round(net_total / n, 4),
+                "ev_gross": round(gross / n, 4),
+                "profit_factor": round(pf, 2),
+                "total_pnl": round(net_total, 4),
+                "gross_pnl": round(gross, 4), "uncosted": 0,
+                "basis": "derived"}
+    pnls = [t.get("pnl", 0) or 0 for t in rows]
+    costed = [(v, ok) for v, ok in (_paper_net_of(t) if _paper_net_of else
+                                    (t.get("pnl", 0) or 0, False) for t in rows)]
+    nets = [v for v, _ in costed]
+    n = len(rows)
+    net_total = sum(nets)
+    gw = sum(x for x in nets if x > 0)
+    gl = abs(sum(x for x in nets if x <= 0))
+    total_pnl = sum(pnls)
+    pf = gw / gl if gl > 0 else (float("inf") if gw > 0 else 0.0)
+    return {"n": n, "win_rate": round(sum(1 for x in nets if x > 0) / n * 100, 1),
+            "win_rate_gross": round(sum(1 for p in pnls if p > 0) / n * 100, 1),
+            "ev": round(net_total / n, 4), "ev_gross": round(total_pnl / n, 4),
+            "profit_factor": round(pf, 2), "total_pnl": round(net_total, 4),
+            "gross_pnl": round(total_pnl, 4),
+            "uncosted": sum(1 for _, ok in costed if not ok)}
+
+
 def _suggest(paper, live, regimes, edges=None, edge_meta=None):
     out = []
     edges = edges or []
@@ -792,16 +945,121 @@ def _suggest(paper, live, regimes, edges=None, edge_meta=None):
         out.extend(_emit_explorations(_explorations()))
         out.sort(key=lambda s: s["priority"])
         return out
-    # 2. Edge drift
-    if paper["win_rate"] < 55:
-        out.append({
-            "priority": 1, "type": "edge_decay",
-            "idea": f"Paper win rate {paper['win_rate']}% below 55% — the capitulation edge may be decaying. Trigger a walk-forward re-fit and consider tightening RSI or vol thresholds.",
-        })
-    elif paper["win_rate"] >= 65:
+    # 2. Edge drift.
+    #
+    # REWRITTEN 2026-11-11 (T0.21). The old line was:
+    #
+    #   if paper["win_rate"] < 55:
+    #       "... the capitulation edge may be decaying. Trigger a walk-forward
+    #        re-fit and consider tightening RSI or vol thresholds."
+    #
+    # Three things were wrong with it, and each is fixed by a separate clause
+    # below rather than by softening the number:
+    #
+    # (a) POPULATION. It read the WHOLE book, corpses included. Seven stopped
+    #     edges plus `loose` (idle since 2026-10-11) made up 1536 of the 2999
+    #     fills, dragging the book to 42.9% while its one live edge read 45.1%.
+    #     Read the split's live rows (`edge_meta["win_rate_population"]`).
+    # (b) BASES. The 55% bar is a GROSS win-rate bar — it was written on
+    #     2026-09-21, three weeks before the book switched to net on
+    #     2026-10-11, when the fee it charged was 5.4x too small. A net rate is
+    #     ~5 points lower on the same fills by construction (validated: 49.5%
+    #     gross vs 45.1% net; the whole book 47.8% vs 42.9%). Judged on net it
+    #     fires on EVERY book that merely pays its costs; judged on gross, as
+    #     written, a net book that clears its costs can be flagged as decaying
+    #     while it makes money. The verdict is therefore drawn on the book's own
+    #     GROSS rate against the gross bar, and the NET rate — the number the
+    #     exchange pays — travels in the same sentence.
+    # (c) MANDATE. "Trigger a walk-forward re-fit" names no runner, no data and
+    #     no split, and none exists in this repo (`weekly_learning` is a
+    #     different thing — it tunes the accuracy scorer's params). Advice the
+    #     reader cannot execute is a fixed cost per read, the same defect as an
+    #     un-closeable exploration (#T0.5). The line now names the artefacts
+    #     that DO exist and the threshold they exist to re-derive
+    #     (RR_GOOD, SYSTEM_MAP §4 rule 8) — so it can be acted on or closed.
+    wrp = (edge_meta or {}).get("win_rate_population")
+    wr_base = wrp if wrp else paper
+    # (b) above still holds: the 55% bar was written on 2026-09-21, three weeks
+    # before the book switched to NET (2026-10-11) on a fee 5.4x too small, and
+    # a net rate runs ~5 points below the gross rate on the same fills
+    # (measured 2026-11-11, whole book: 47.8% gross / 42.9% net). A bar on a
+    # different basis from its input fires on every book that merely pays its
+    # costs. What analyze() can supply per edge is the NET rate, so the line is
+    # drawn on it — and says so in the first clause rather than relabelling it.
+    #
+    # ⚠️ BASIS, stated honestly (2026-11-11, second shift). The paragraph above
+    # once claimed the verdict was "drawn on the book's own GROSS rate". It is
+    # not, and it cannot be: an edge row carries `gross_win`/`gross_loss` as
+    # DOLLAR SUMS (a profit factor), never a gross win COUNT, so `stats_of()`
+    # writes `win_rate_gross: None` for every live population. A fixture that
+    # injects a gross rate by hand passes; the live path has none. So the line
+    # below judges on NET — the number the exchange actually pays — and says so.
+    # Never derive a "gross win rate" from gross dollars: that ratio is a PF.
+    wr_judged = wr_base.get("win_rate")
+    # A population that PAYS (net) is refuted by the money, and the win-rate
+    # line must not call it decaying — the same rule the per-edge demote guard
+    # follows since 2026-10-18. The 55% bar exists to catch a decay before the
+    # P&L does; once the P&L has spoken and the cohort is net-positive, a low
+    # win rate is the fee's shape, not a decay. (Pinned by
+    # test_improvement_edge_net_blindspot: a +$4.38 book at 42.7% is "left
+    # alone", so this line must not re-flag it under a different name.)
+    _pays = (wr_base.get("total_pnl") or 0) > 0
+    # 🔴 A COHORT OF ONE IS NOT A COHORT (2026-11-11). Rule 4b below issues a
+    # per-edge verdict on exactly the live rows. When the live split is a single
+    # edge — which it is on 2026-11-11: `validated` alone, n=1484 — this line and
+    # that one read the SAME rows and print the SAME advice ("tighten the
+    # entry"), the second time above the line that carries the numbers. One
+    # finding twice is not corroboration, and the copy at p1 buries the original.
+    # Suppress only the n_edges==1 case: a cohort of three decaying edges still
+    # needs its own line, and a fixture pins that it still fires.
+    _cohort_is_one_edge = bool(wrp and wrp.get("edges")
+                               and len(wrp["edges"]) == 1)
+    if (wr_judged is not None and wr_judged < 55 and not _pays
+            and not _cohort_is_one_edge):
+        if wrp and wrp.get("name") == "live" and wrp.get("edges"):
+            pop_txt = (f"on the LIVE edges ({', '.join(wrp['edges'])}, "
+                       f"n={wrp['n']})")
+        else:
+            pop_txt = f"over the whole book (n={wr_base.get('n')})"
+        # NAME THE GROUP WITHOUT NAMING AN EDGE (2026-11-11). The sentence used
+        # to open "Paper win rate …" and the whole-book case said "the whole
+        # book". A per-edge verdict and a book verdict are different claims,
+        # and a fixture with one edge called `loose` could not tell them apart:
+        # it read its own edge's name inside a book-level line and concluded
+        # the edge had been called decaying. The population is named now
+        # ("COHORT"), never mistaken for a member of itself.
+        idea = (f"COHORT win rate {wr_judged}% NET {pop_txt} is below the 55% "
+                f"bar. The bar was set on 2026-09-21 on a GROSS basis, before the "
+                f"book switched to net costs (2026-10-11); this verdict is drawn "
+                f"on NET (an edge row carries gross dollars, not a gross win "
+                f"count), so the bar on this basis is the older, stricter read. "
+                f"Re-derive it on the "
+                f"current book (SYSTEM_MAP §4 rule 8; the research gate re-fits "
+                f"walk-forward via `research_loop` / `certify_walkforward.py`); "
+                f"do not relax the number. If a re-derived bar still says "
+                f"decay, tighten the entry (RSI / vol thresholds).")
+        # Do not let p1 and the windowed-PF verdict below contradict each other
+        # in silence (2026-11-11). And do NOT assert which reading is stronger:
+        # on the live edge the lifetime PF (0.92) and the 28d PF (0.90) are
+        # identical to the digit, so "the lifetime is the stronger of the two"
+        # was a claim the numbers did not support. State the window and let the
+        # comparison be the reader's; the point being made is only that a
+        # re-derivation must consider the window too.
+        _r = (edge_meta or {}).get("recent_pf") or {}
+        if (_r.get("available") and _r.get("n", 0) >= PF_MIN_LIVE_N
+                and _r.get("pf") is not None and _r["pf"] < PF_NET_FLOOR):
+            idea += (f" The verdict is also a statement about the LAST "
+                     f"{_r['days']}d, not only a lifetime: net PF {_r['pf']:.2f} "
+                     f"in the window vs {wr_base.get('profit_factor')} over the "
+                     f"whole record — so re-derive the bar on the window as well "
+                     f"as on the whole record.")
+        out.append({"priority": 1, "type": "edge_decay", "idea": idea})
+    elif wr_judged is not None and wr_judged >= 65:
         out.append({
             "priority": 2, "type": "edge_confirmed",
-            "idea": f"Paper win rate {paper['win_rate']}% confirms the ~70% target. Candidate to graduate to live at $5 once 30+ trades logged.",
+            "idea": (f"Paper win rate {wr_judged}% NET confirms the ~70% target "
+                     f"(n={wr_base.get('n')}). Candidate to "
+                     f"graduate to live at $5 once 30+ trades logged."),
         })
     # 3. Profit factor — ON THE LIVE POPULATION (rewritten 2026-10-22).
     #

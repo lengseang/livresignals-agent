@@ -3,6 +3,76 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-11 (second shift) · the fix printed one finding twice, at p1
+
+- **Task:** T0.21. Board's pickable chain still blocked (T0.10→E10, T0.12→E11,
+  T0.14→E13, T0.15→E14). Arrival board's loudest item was the untracked-but-tested
+  pair: `scripts/improvement_loop.py` **+252 uncommitted** beside
+  `tests/loop/test_win_rate_population.py` (untracked) — yesterday's unfinished work.
+- **Need check:** `reports/improvement-report.json`, `data/signals-state.json`,
+  `logs/trend.log`, `logs/unified.log`, `pm2 jlist`. Ran `improvement_loop.py`
+  **once** by hand (writes its own report; paper-only analysis, no order path,
+  no pm2/cron/config write).
+- **Inherited work was sound, and I proved it rather than trusting it.** The 7
+  inherited tests: **7 passed** with the tree change, **7 failed** on clean `HEAD`
+  (`stats_of` does not exist at `HEAD`). The population claim checks out against
+  live data exactly: `paper` n=2999 @ 42.9%, `validated` n=1482 @ 45.1%, the
+  other 1,517 fills owned by seven STOPPED edges + `loose` (idle since 10-11).
+- **🔴 Found (defect 1).** Run the fixed loop and read the output as the owner does:
+
+  ```text
+  P1: COHORT win rate 45.2% NET on the LIVE edges (validated, n=1484) … tighten the entry
+  P2: Edge 'validated' DECAYING (net): 45.2% WR / 1484 trades / -3.33 net … tighten its entry
+  ```
+
+  Same 1,484 rows, same advice, twice — and the copy sits at **p1, above** the
+  per-edge line that carries the actual numbers. The live split **is one edge**, so
+  a "cohort" line and a member line are the same claim. Nothing in the 7 inherited
+  tests could see it: each asserted *its own* line existed, and none asserted how
+  many existed.
+- **🔴 Found (defect 2).** The comment block said *"The verdict is therefore drawn on
+  the book's own GROSS rate."* The code draws it on **`win_rate` — NET**. And it
+  cannot draw it on gross: an edge row carries `gross_win`/`gross_loss` as **dollar
+  sums** (a profit factor), never a gross win **count**, so `stats_of()` writes
+  `win_rate_gross: None` for every live population. The inherited test
+  `test_a_book_that_pays_its_costs_...` passes only because it **injects**
+  `win_rate_gross: 56.0` by hand — the live path emits `null`, so that guard never
+  sees a gross number at all. Prose describing a computation that does not exist.
+- **Shipped** (branch `loop/T0.21-cohort-of-one`): suppress rule 2's cohort line
+  at `n_edges == 1` (rule 4b owns it), and make the sentence say the verdict is
+  drawn on NET, naming why gross is unavailable. Design `designs/T0.21.md`.
+- **Evidence:** `tests/loop/test_win_rate_population.py` **8 passed** — the
+  one-edge test rewritten to assert *exactly one* `edge_decay` line carrying
+  `validated`'s numbers, plus a **new passing control** (two live edges → the
+  cohort line must still fire, so the guard cannot be a blanket mute).
+  **Mutation:** delete the `and not _cohort_is_one_edge` clause → exactly that one
+  test red, message naming the duplicated pair; file restored byte-identical
+  (`cmp`). Live re-run: `edge_decay lines: 1`, `P2 Edge 'validated' … 45.2% /
+  1484 / -3.33 net`, `wrp edges=['validated']`. Whole `tests/loop`
+  **454 passed / 3 failed**; non-loop suite **565 passed / 2 failed**. The 5 are
+  pre-existing and **order-dependent** — `test_edge_symbol_concentration` ×3 and
+  `test_research_loop_paired_lead` ×2; the first reproduced **identically on clean
+  `HEAD`** (1 failed / 8 passed in-file, same assert line 164).
+- **Live host, this shift:** `LIVE_ENABLED` **present**; `futures_sharp_dip_paused=True`
+  (unchanged); T0.15 fix confirmed working — every trend run line now carries
+  `paper-only 2: ['INJ/USDT','PEPE/USDT']`. ⚠️ `unified.log` **517**
+  `real skipped: insufficient free (0.00 < 6.0)` — the real-money path is unfunded
+  and has been declining every candidate. That is a **BALANCE** item, not a code
+  defect; reported separately. V2 paper lanes: **1,655** restarts (1,475 yesterday),
+  E13 still unanswered.
+- **Not done (owner-gated):** no change to rule 4b's thresholds, `RR_GOOD`, the
+  55% bar itself, or `REAL_SYMS`. Re-deriving the bar is the *suggested* action, not
+  one I took.
+- **Learned:** *two correct fixes to the same finding is a defect.* Each rule was
+  individually right about its population; the bug was that nobody checked whether
+  two rules now describe **the same population**. A suite where every test asserts
+  "my line exists" cannot see it — the missing assertion is a **count**, not a
+  value. Second: **a docstring that restates a computation is a claim, not a
+  comment** — "drawn on GROSS" sat two lines above `wr_base.get("win_rate")`, and
+  the fixture that "proved" it injected the very field the live path cannot produce.
+  Same lesson as the stale-numbers-in-a-docstring case, one layer down: here the
+  *fixture*, not the prose, was the thing that could not occur.
+
 ## 2026-11-11 · the log line next to the fix said `None`
 
 - **Task:** T0.20 (new). Board's pickable chain still blocked (T0.10→E10,
