@@ -3,6 +3,68 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-11 · the log line next to the fix said `None`
+
+- **Task:** T0.20 (new). Board's pickable chain still blocked (T0.10→E10,
+  T0.12→E11, T0.14→E13, T0.15→E14); T0.17 is analysis-only and T0.19 is `review`.
+  So: read the live host first, per the arrival order.
+- **Need check:** `pm2 jlist`, `logs/*.log` mtimes, `logs/trend.log`,
+  `logs/unified.log`, `logs/ensemble-paper.log`, `scripts/trend_follower.py` source,
+  `tests/loop/`. **No order path, no restart, no pm2/cron/config write.**
+- **Arrival state:** branch `loop/T0.19-dead-lane-seed` @ `85be3e9`; tree dirty only
+  on 4 data-cache JSONs. V2 lanes still restart-looping — **1,475** restarts, up
+  from 635 on 2026-11-07 (E13 still unanswered, nothing more to do without the key).
+- **🔴 Found.** `logs/trend.log` carries four lines reading `  INFO trend @ None`,
+  each sitting **directly under an `OPEN <sym>`** line. `trend_follower.py:709`
+  prints every event as `f"  {kind} {sym} @ {px}"`, but the 3 symbol-less emit sites
+  (`INFO` `:653`, `ERR` `:640`/`:645`) pass the sentinel string `"trend"` and a
+  `None` price, and `extra` — **the entire notice** — is never in the format string.
+  All four are the T0.15 paper-only notice; its reason
+  (`3 candidate(s) paper-only (not in REAL_SYMS): INJ/USDT, …`) exists only in the
+  Telegram card, never in the log. It fires on exactly the opening runs because with
+  `real positions: 0/3` the `INFO` branch (`:648`) is only reached when there are
+  candidates and buys are not blocked.
+- **⚠️ My first design was wrong, and the tests caught it before anything shipped.**
+  I classified by *kind* (`INFO`/`ERR` = notice). Reading all 19 `events.append((`
+  sites proved `ERR` has **11** sites of which only **2** are symbol-less; the other
+  **9** carry a real symbol and a reason and today print `  ERR INJ/USDT @ None`.
+  A kind-based rule would have reformatted those 9 failure lines *and* dropped their
+  reasons — turning one bad line into nine. Then the *first* implementation missed
+  the target too: it tested `sym is None`, but the emitter never passes `None`, it
+  passes the string `"trend"`. Both errors were caught by running the tests, not by
+  reading them. Design note keeps both drafts visible (`designs/T0.20.md`).
+- **Shipped** (uncommitted in tree): `src/trading/ops/event_log.py` —
+  `event_log_line(kind, sym, px, extra)`, a pure function. Discriminator is the
+  symbol (`None`/empty/sentinel `"trend"`) → `  KIND <reason>`; everything else keeps
+  `  KIND <sym> @ <px>` byte-for-byte. Reason `None`/empty → `(no reason recorded)`,
+  never `None`.
+- **Evidence:** `tests/loop/test_event_log_line.py` **12 passed**. Mutations **3/3
+  caught** — route on `px is None` → 1 red; drop `extra` → 4 red; `str(extra)` in the
+  trade branch → 6 red; module restored byte-identical (`cmp`) after each. Live
+  payload, helper vs today:
+  ```text
+  now:  INFO trend @ None
+  fix:  INFO 3 candidate(s) paper-only (not in REAL_SYMS): INJ/USDT, ONE/USDT, PEPE/USDT
+  ```
+  `tests/loop` **445 passed / 4 failed**; with my two files removed **433 passed /
+  the same 4 failed** — identical failure set, +12, no regression. The 4 are the
+  known order-dependent `test_edge_symbol_concentration` reds (1 of them alone, 4 in
+  full run — reproduced on clean HEAD). `compileall` clean on both files.
+- **Not done (owner-gated):** `scripts/trend_follower.py` is on the never-edit list,
+  so the **one-line call-site swap is E16**. No behaviour change until the owner
+  applies it. `paper_only_skipped`, `REAL_SYMS`, sizes and targets untouched.
+- **Also seen, not mine to fix:** `unified.log` shows **512** `real skipped:
+  insufficient free (0.00 < 6.0)` — the real money path is declining every candidate
+  for lack of balance, and `LIVE_ENABLED` is present. Reported separately as a
+  BALANCE item rather than folded into this task.
+- **Learned:** *a fix lands where its test looks, not where the reader looks.*
+  T0.15 shipped a tested card and left the log line beside it printing `None`; the
+  tests exercised `_build_message` and never the `print()` two lines below it. The
+  rule: **when you add a new event kind, grep every renderer of that event — the
+  card is not the only reader, and the log file is the one an operator reads at 3am.**
+  Second: **a sentinel is not a `None`.** `sym is None` looked obviously right and
+  was wrong twice over; only the source's literal told me it was `"trend"`.
+
 ## 2026-11-10 · the card that said "last open: today" about a lane dead since the 5th
 
 - **Task:** T0.19 (new). Arrival board's loudest item was an **uncommitted, already-

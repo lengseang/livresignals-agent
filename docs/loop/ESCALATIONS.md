@@ -2,6 +2,75 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
+## E16 · One line in `trend_follower.py` to stop the run log printing `INFO trend @ None` (T0.20, 2026-11-11)
+
+`scripts/trend_follower.py` is on the loop's never-edit list (LOOP.md §2), so this
+is a **one-line call-site swap** only — the formatter is written, tested and
+merged into `src/trading/ops/event_log.py`.
+
+**Now** (`trend_follower.py:708-709`):
+
+```python
+    for kind, sym, px, extra in events:
+        print(f"  {kind} {sym} @ {px}")
+```
+
+**Proposed** (same two lines, one body line changes):
+
+```python
+    for kind, sym, px, extra in events:
+        print(event_log_line(kind, sym, px, extra))
+```
+
+plus `from trading.ops.event_log import event_log_line` beside the other imports.
+
+### What it fixes
+
+`INFO` (`:653`) and two `ERR` sites (`:640`, `:645`) carry no symbol — the symbol
+slot holds the sentinel string `"trend"`, the price is `None`, and the reason is in
+`extra`, which the format string never prints. Measured live 2026-11-11:
+
+```text
+$ grep -c "INFO trend" logs/trend.log
+4
+$ grep -nE "^  [A-Z]+ .* @ (None|\{)" logs/trend.log
+879:  INFO trend @ None      <- sits directly under "OPEN ONE/USDT"
+908:  INFO trend @ None      <- under "OPEN ONE/USDT"
+916:  INFO trend @ None      <- under "OPEN INJ/USDT"
+920:  INFO trend @ None      <- under "OPEN ONE/USDT"
+```
+
+All four are the 2026-11-09 T0.15 `paper-only` notice, and its whole content —
+`3 candidate(s) paper-only (not in REAL_SYMS): INJ/USDT, …` — is **absent from the
+log**. It exists only in the Telegram card. After the swap the same run prints:
+
+```text
+  OPEN ONE/USDT @ 0.001866
+  INFO 3 candidate(s) paper-only (not in REAL_SYMS): INJ/USDT, ONE/USDT, PEPE/USDT
+```
+
+### What it does NOT change (pinned by tests)
+
+`OPEN`, `EXIT`, `REALBUY`, `REALEXIT` and the **9 symbol-carrying `ERR` sites**
+keep `  KIND <sym> @ <px>` byte-for-byte — including `  ERR INJ/USDT @ None`,
+which is the ordinary failure shape and correct. My first design draft routed by
+*kind* and would have reformatted those 9 failure lines and dropped their reasons;
+the tests now pin that as a control.
+
+### Evidence
+
+`tests/loop/test_event_log_line.py` — **12 passed**; 3/3 mutations caught (route on
+`px is None` → 1 red; drop the reason → 4 red; `str(extra)` in the trade branch →
+6 red), file restored byte-identical after each.
+`tests/loop` whole: **445 passed / 4 failed**, and the same 4 fail on clean HEAD
+**without** my files (**433 passed / 4 failed**, identical failure set) — they are
+the known order-dependent `test_edge_symbol_concentration` reds from the JOURNAL.
+
+**Risk:** the only failure mode is an import error if `src/trading/ops` is not on
+the script's path; `trend_follower.py:529` already does `sys.path.insert(0, BASE/"src")`.
+
+**Answer:**
+
 ## E13 · The V2 paper lanes died on 2026-11-05T09:01Z and 40h later every watcher still says nothing (2026-11-07)
 Both lanes (`paper`, `paper-b`) have written no heartbeat since
 **2026-11-05T09:00:03Z** (cycles 1728, steps 8639, then stopped). `pm2` has been
