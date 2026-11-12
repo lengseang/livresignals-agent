@@ -339,14 +339,25 @@ def strat_state(st: dict, sid: str) -> dict:
 
 def _pub_signal(sid: str, sym: str, bar_ms: int, close: float, a_val: float,
                 qty: float, stop: float, risk_pct: float,
-                equity: float, cfg: dict) -> str | None:
+                equity: float, cfg: dict, dry: bool = False) -> str | None:
     """Append the ENTRY to the public chain before the order is placed.
 
     Before, not after: if the order fails, the chain still shows that the rule
     fired at that bar and that we intended to act. Publishing only successes
     would let us quietly drop the trades that never filled, which is the same
     selection bias the site exists to prevent.
+
+    A DRY RUN MUST NOT WRITE. The public chain is the one artefact that claims to
+    be a record of real decisions taken under real risk; a rehearsal has no place
+    in it. This was wrong until 2026-11-12: the dry path returned before
+    log_decision but published here first, so rehearsals filled the chain with
+    entries that never existed locally. 85 identical ea-ETH_TURTLE_H4 records
+    accumulated over ten days that way, all for a single bar, none with any
+    matching local decision. The order of the two guards is the bug: publishing
+    has to be refused before it happens, not logged afterwards.
     """
+    if dry:
+        return None
     if not PUBLISH:
         return None
     rid = f"{PUB_PREFIX}-{sid}-{bar_ms}"
@@ -576,7 +587,7 @@ def run_once(dry: bool) -> dict:
                 # publish the intent to the public chain BEFORE placing it
                 rec["ledger_id"] = _pub_signal(
                     sid, sym, last_bar, close1, a_val, qty, stop_px,
-                    risk_pct, s["equity"], cfg)
+                    risk_pct, s["equity"], cfg, dry=dry)
                 r = place_market(sym, "Buy", qty, stop_px, sid)
                 rec["order"] = {"retCode": r.get("retCode"),
                                 "retMsg": r.get("retMsg"),
