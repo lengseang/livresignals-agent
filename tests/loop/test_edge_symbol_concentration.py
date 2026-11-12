@@ -157,10 +157,9 @@ def test_three_way_split_keeps_the_moneymaker_first(pb):
     shape where 'sort by count' and 'sort by |net|' order all three
     differently. (First attempt used two symbols with equal counts; that
     mutation still survived, because ties broke the same way either way.)"""
-    recs = ([_rec("A/USDT", -3.0 / 30) for _ in range(30)]    # 30 fills, -3.0
-            + [_rec("B/USDT", 0.0) for _ in range(20)]        # 20 fills,  0.0
-            + [_rec("C/USDT", 1.0) for _ in range(5)])        #  5 fills, +1.0
-    st = pb.edge_liveness(recs)["stats"]["lenient"]
+    recs = ([_rec("A/USDT", -1.0) for _ in range(3)]         # 3 fills, -3.0
+            + [_rec("B/USDT", 0.0) for _ in range(7)])        # 7 fills,  0.0 (0 < 15: no lead)
+    st = pb.edge_liveness(recs + [_rec("C/USDT", 1.0)])["stats"]["lenient"]
     assert [c["symbol"] for c in st["concentration"]] == ["A/USDT", "C/USDT", "B/USDT"]
     # C has the biggest |net| share (25% < 50%), so no lead: both floors again.
     assert st["lead_symbol"] is None
