@@ -608,6 +608,37 @@ journal entry.
 │     second definition.                                           │
 │     tests/test_improvement_stopped_edge_window.py (9 tests,      │
 │     5/5 mutations caught)                                       │
+│                                                                  │
+│ 29. A MEAN WITHOUT ITS MEDIAN IS A CLAIM ABOUT THE TAIL.         │
+│     Rules 26/28 fixed a concentration hiding inside a net SUM;   │
+│     this is the same shape in the most-read number of all.       │
+│     `expectancy_vs_fee.py` and `per_symbol_net.py` printed       │
+│     `net/trade` as the arithmetic mean and nothing beside it:    │
+│       trend_follower (REAL $)  n=213  net/trade +1.095%          │
+│     The same 213 rows have median NET −1.323%; delete the single │
+│     best trade and the mean is +0.697%, delete five and it is    │
+│     +0.054%; the top 11 rows (5%) carry 53% of every dollar won. │
+│     A trend-follower is SUPPOSED to look like this — one in five │
+│     trades pays — but printed alone the mean reads as "the       │
+│     typical trade", which is the opposite of the truth.          │
+│     Both readers now print `median` and `delete-1 mean` on every │
+│     row, unconditionally, and a note fires when delete-1 <= 0.   │
+│     Sub-lessons:                                                 │
+│       (a) A BOOLEAN GATE ON A BORDERLINE STATISTIC IS FRAGILE.   │
+│           At n=212 delete-1 was +0.003%; one +10.7% trade on     │
+│           2026-11-12 moved it to +0.697% and the note went       │
+│           silent while the concentration did not change. So the  │
+│           COLUMNS are the fix and the note is only a highlight — │
+│           never make the warning the only channel (cf. #11).     │
+│       (b) ONE DEFINITION, TWO READERS. `per_symbol_net` imports  │
+│           the helpers rather than copying them; a copy is how    │
+│           the two come to disagree about one book (cf. #20b).    │
+│       (c) A JOURNALED NUMBER IS A SNAPSHOT TOO (#9/#13). T0.22's │
+│           delete-k rows did not reproduce today — not because    │
+│           the probe was wrong, but because one row was appended. │
+│           Reproduced exactly by dropping that row. Quote the     │
+│           population size beside any delete-k figure.            │
+│     tests/loop/test_tail_beside_the_mean.py (19, 2/2 mutations)  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

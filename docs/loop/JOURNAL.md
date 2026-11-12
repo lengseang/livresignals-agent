@@ -3,6 +3,45 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-12 (second shift) · the tail now sits beside the mean, in both readers
+
+- **Task:** T0.23 (the first `todo` whose dep T0.22 is `review`). Reader/display
+  only — no rule, gate, size or order path reads the new numbers.
+- **Need check:** `data/*.json` book files (real + paper), `data/trend-state.json`.
+  No external facts needed. No production file touched, nothing on the never-edit
+  list touched. Ran both readers (they only read and print).
+- **Shipped** (branch `loop/T0.23-tail-beside-the-mean`, design `designs/T0.23.md`):
+  - `expectancy_vs_fee.py`: pure `median()`, `delete_best_mean()`, `tail_note()`;
+    the module-level report is now `report_lines()` returning text (wrapped in
+    `main()` under `__main__`, per the T0.10 precedent) so it is testable.
+    Every book row now prints `median` and `d1 mean` beside `net/trade`.
+  - `per_symbol_net.py`: **imports** those three helpers rather than copying them
+    — one definition, so the two readers cannot drift.
+  - A tail note fires only when delete-1 ≤ 0, and the diagnosis shows ⚠️ instead
+    of ✅ for such a book.
+- **The live report now says, in one row:**
+  `trend_follower (REAL $) n=213 net/trade +1.095% median -1.323% d1 +0.697%`
+  — the +1.1% and the −1.3% are on the same line, which is the whole point.
+- **🔴 Correction found while building (recorded, not papered over).** T0.22's
+  journal has `delete 1 -> +0.650 / 3 -> +0.295 / 5 -> +0.003`. A fresh run gave
+  `+0.697 / +0.344 / +0.054`. Rather than declare T0.22 wrong, the snapshot was
+  reconstructed: dropping the ONE row appended today at `12:10:13Z`
+  (PEPE, +10.7%) reproduces T0.22's five delete-k numbers to **0.001 pp**.
+  So **T0.22 was correct at its own timestamp**; the book gained one trade.
+- **Lesson (now failure-mode 3 in the design):** a note gated on `delete1 ≤ 0`
+  is a knife-edge — that one 10.7% trade flipped it OFF while the median and the
+  concentration did not move. So the **columns are unconditional** and the note
+  is only a highlight; a test pins that a no-note book still shows its median.
+- **Evidence:** `pytest tests/loop -q` → **473 passed, 3 failed, 3 skipped** (the
+  3 are the known order-dependent `test_edge_symbol_concentration` reds, identical
+  to the pre-change baseline of 454 passed / 3 failed). `compileall` clean.
+  **Mutation A** (drop min instead of max) → 7 red incl. the end-to-end render.
+  **Mutation B** (median column hard-wired to `n/a`) → the unconditional-column
+  test red. Both files restored byte-identical (`cmp`).
+- **Live host:** real trend book n=213; last 7d n=7, mean NET −4.678% (probe).
+  `regime_trader` is the other tail book: mean +0.280%, median −0.373%,
+  delete-1 −0.279% — its positive mean is one trade.
+
 ## 2026-11-12 · the real book's edge is five trades deep, and one of them is not reproducible
 
 - **Task:** nothing on the board was pickable — T0.10→E10, T0.12→E11,

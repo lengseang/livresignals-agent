@@ -34,6 +34,10 @@ sys.path.insert(0, str(BASE / "scripts"))
 sys.path.insert(0, str(BASE / "src"))
 
 from book_units import as_percent          # noqa: E402
+# T0.23: ONE definition of the tail statistics, shared with the other reader.
+# A second copy is precisely how two readers come to disagree about the shape
+# of the same book. `scripts/` is already on sys.path (above).
+from expectancy_vs_fee import median, delete_best_mean, tail_note  # noqa: E402
 
 FEE_RT = 0.1594          # percent, round trip
 
@@ -94,9 +98,9 @@ def main():
             agg[sym].extend(rs)
 
     print("  ALL BOOKS COMBINED (so a symbol is judged on its whole record)")
-    print(f"  {'symbol':<13}{'n':>5}{'gross':>9}{'NET':>9}{'t':>7}"
-          f"{'win%':>7}   verdict")
-    print("  " + "-" * 94)
+    print(f"  {'symbol':<13}{'n':>5}{'gross':>9}{'NET':>9}{'median':>9}{'d1':>9}"
+          f"{'t':>7}{'win%':>7}   verdict")
+    print("  " + "-" * 110)
     bad = []
     for sym, rs in sorted(agg.items(), key=lambda kv: -(sum(kv[1]) / len(kv[1]))):
         n = len(rs)
@@ -106,15 +110,25 @@ def main():
         net = avg - FEE_RT
         t = tstat(rs)
         wr = sum(1 for x in rs if x > 0) / n * 100
+        med = median(rs)
+        med_net = (med - FEE_RT) if med is not None else None
+        d1 = delete_best_mean(rs)
+        d1_net = (d1 - FEE_RT) if d1 is not None else None
+        note = tail_note(rs, FEE_RT, subject="this symbol")
         if net <= 0:
             v = f"🔴 LOSES {abs(net):.3f}%/trade"
             bad.append((sym, n, avg, net, t, wr))
         elif abs(t) < 2:
             v = f"⏳ net +{net:.3f}% but unproven (t={t:+.2f})"
         else:
-            v = f"✅ earns {net:.3f}%/trade"
-        print(f"  {sym:<13}{n:>5}{avg:>8.3f}%{net:>8.3f}%{t:>+7.2f}"
-              f"{wr:>6.1f}%   {v}")
+            v = (f"⚠️ earns {net:.3f}%/trade (tail)" if note
+                 else f"✅ earns {net:.3f}%/trade")
+        med_s = f"{med_net:>+8.3f}%" if med_net is not None else "     n/a"
+        d1_s = f"{d1_net:>+8.3f}%" if d1_net is not None else "     n/a"
+        print(f"  {sym:<13}{n:>5}{avg:>8.3f}%{net:>8.3f}%{med_s}{d1_s}"
+              f"{t:>+7.2f}{wr:>6.1f}%   {v}")
+        if note:
+            print(f"  {'':<13}{note}")
 
     print()
     print("=" * 100)
