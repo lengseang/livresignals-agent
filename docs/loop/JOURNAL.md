@@ -3,6 +3,67 @@
 Newest first. Each entry: task, need check, what was done, evidence (commands and
 results), and what was learned or blocked.
 
+## 2026-11-12 · the real book's edge is five trades deep, and one of them is not reproducible
+
+- **Task:** nothing on the board was pickable — T0.10→E10, T0.12→E11,
+  T0.14→E13, T0.15→E14, T0.20→E16, T0.17 and T0.19 both owned by other work.
+  The previous two shifts worked the **paper unified** book. The **real-money**
+  trend book had never had its distribution written down, so this shift
+  measured it read-only and filed what fell out as **T0.22** (probe + note),
+  **T0.23**, **E17**, **E18**.
+- **Need check:** `data/trend-state.json`, `data/signals-state.json`,
+  `data/trend-state.json` `real.closed`, `data/unified-paper.json`,
+  `logs/trend.log`, `data/trading.db` (opened `mode=ro`). Ran only read-only
+  probes plus `expectancy_vs_fee.py` / `per_symbol_net.py` (readers).
+  `trend_follower.py` was read, never run, never edited.
+- **Found: the number the owner sees is a tail, not a book.**
+
+  ```text
+  expectancy_vs_fee.py
+    trend_follower (REAL $)  n=212  net/trade +1.050%  win 21.7%
+                             -> "alive, unproven"
+
+  research/_trend_tail_concentration.py (method pre-declared in-file)
+    median NET -1.324%
+    delete 1 best -> +0.650%   delete 3 -> +0.295%
+    delete 5 best -> +0.003%   <- the edge, gone
+    top 11 rows (5%) = 54% of every dollar won
+  ```
+
+- **🔴 Found (defect 1, E18).** The largest row is `NEAR +85.7%` (entry 2.376 →
+  exit 4.412, 2026-10-29T04:10Z) = **29% of the book's gross**. It cannot have
+  happened: `logs/trend.log` shows `EXIT NEAR @ 4.412` *and* `EXIT NEAR @ 4.971`
+  1.2 s apart, the real record says entry **2.369** → exit **4.971**, and the
+  20:10Z run opens NEAR at **4.677** — a re-entry below its own exit, which
+  `coin_trend()` does not produce. Every NEAR fill in `unified-paper.json`
+  through 10-30 sits between 4.05 and 4.66; no 2.37. So the paper row is
+  either a wrong entry price or corruption. Not fixable from here (no NEAR
+  candles in `trading.db`; inventing an entry is a synthetic number).
+- **Found (defect 2, E17).** `trend_follower.py` never reads
+  `signals-state.json` `disabled` (grep: no hit) while the deployed list holds
+  `validated` — 11 of the 18 `real.closed` rows carry that edge. The trend log
+  itself carries **no `edge` field on any of its 212 rows**, so no per-edge
+  verdict can be drawn on it at all.
+- **Rejected as a headline before shipping it:** the 28d/30d windows (NET
+  +2.63%/+2.09%) — both contain the whole 10-18→10-30 run and flatter the book.
+  The honest 14d window is 3 winners (+151.5% gross) against 22 rows summing
+  **-83.8%**; the last 7d is n=6, NET -7.22% (ONE twice, -16.7% / -10.2%).
+- **Anti-slop self-review:** the design's adversarial section records three
+  attacks and the answers; the 2-exits-in-one-run claim was cut from "impossible
+  for the loop body" (unproven code-line theory) to the two log lines and the
+  price chain; the E17 claim was corrected after measuring that the log rows
+  carry no `edge` field (the first draft said "183 of 212 rows carry
+  `validated`" — false, that count was inferred).
+- **Evidence:** `venv/bin/python research/_trend_tail_concentration.py` and
+  `research/_trend_book_reader_audit.py` (49 references printed).
+  `pytest tests/loop -q` → **454 passed, 3 failed, 3 skipped in 56.9 s** — the
+  known order-dependent `test_edge_symbol_concentration` reds, unchanged from
+  `T0.21` and reproduced identically before this shift's edits. No code under
+  `scripts/` or `src/` touched.
+- **Learned:** a trend-follower's mean is a statement about its right tail
+  until proven otherwise. Print the median and the delete-1 mean next to it
+  (T0.23), or the report will quote one good week as a strategy.
+
 ## 2026-11-11 (second shift) · the fix printed one finding twice, at p1
 
 - **Task:** T0.21. Board's pickable chain still blocked (T0.10→E10, T0.12→E11,

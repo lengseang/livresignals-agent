@@ -2,6 +2,73 @@
 
 Newest first. The owner answers inline under **Answer:**; the next iteration picks it up.
 
+## E18 · The one row that is 29% of the real trend book's gross needs exchange fill history (T0.22, 2026-11-12)
+
+`data/trend-state.json` `log` row: **NEAR/USDT entry 2.376 → exit 4.412,
+ret +0.8569, 2026-10-29T04:10Z**. It is the single largest winner in a 212-row
+book and the reason the book reads `mean NET +1.050%/trade`.
+
+Three records of the same symbol in the same window disagree:
+
+```text
+trend-state.json log
+  NEAR entry 2.376 -> exit 4.412   +85.7%   (paper row)
+trend-state.json real.closed
+  NEAR entry 2.369 -> exit 4.971   qty 2.3  NO_SELLABLE_BALANCE   (real row)
+logs/trend.log 2026-10-29 04:10Z
+  EXIT NEAR/USDT @ 4.412
+  EXIT NEAR/USDT @ 4.971          <- a second NEAR exit, 1.2 s later
+unified-paper.json, every NEAR fill through 10-30
+  4.65 4.56 4.60 4.66 4.57 4.56 4.49 4.39 4.34 4.57 4.41 4.19 4.13 4.11 4.05
+  (no fill below 4.11, none between 4.34 and 4.57)
+```
+
+A +85.7% row whose entry price never existed in any other record of that
+symbol is either a wrong entry or a corrupted row, and either way the book's
+headline mean is resting on it. The loop cannot fix it: `trading.db` holds no
+NEAR candles (10 symbols only), and reconstructing an entry would be a
+synthetic number.
+
+**Needed:** the fill history for NEAR/USDT around 2026-10-27 → 10-30 from the
+exchange account (`fetch_my_trades`), or a read-only dump of it. 10 minutes on
+your side; either restores 29% of the book or removes it.
+
+**Answer:**
+
+## E17 · The real trend book honours no edge disable — `validated` is live in it (T0.22, 2026-11-12)
+
+`unified_trader._edge_disabled()` is the single reader for
+`data/signals-state.json` `disabled`. It is enforced on the paper openers;
+`trend_follower.py` **never reads that file** (grep across `scripts/` + `src/`:
+no hit). Today the deployed list contains `validated`, and:
+
+```text
+real.closed (18 rows)     11 carry edge 'validated'  (61%); older rows: None
+trend-state.json log      0 of 212 rows carry an edge field at all
+improvement_loop p2       "Edge 'validated' DECAYING (net) … tighten its entry
+                           or stand it down"
+self_improve              validated reached the disable gate on 2026-10-11
+```
+
+So the real book still opens the edge the paper book has stood down, and its
+own log cannot even say which edge a row came from (that is T0.22's third
+finding — the log has no `edge` key, so no per-edge verdict is possible on it
+without the reader inferring one).
+
+The loop will not touch `trend_follower.py` (never-edit list) and will not propose
+applying a paper-venue verdict to real money on its own.
+
+**Options:** (a) give `trend_follower.py` the same `_edge_disabled` reader
+before every REAL entry (one guard, mirrors `unified_trader.py:545-568`);
+(b) keep real and paper independent and say so in `SYSTEM.md`;
+(c) leave it and accept the book carries a disabled edge.
+⚠️ A naive copy is wrong in two ways the owner should decide on: an empty
+`disabled` list already means "all on" for paper, and a 4-shift paper verdict
+is not evidence for a real book — (a) would stand down real money on paper
+noise. **My preference: (a) plus a real-book-specific gate, not the paper one.**
+
+**Answer:**
+
 ## E16 · One line in `trend_follower.py` to stop the run log printing `INFO trend @ None` (T0.20, 2026-11-11)
 
 `scripts/trend_follower.py` is on the loop's never-edit list (LOOP.md §2), so this
